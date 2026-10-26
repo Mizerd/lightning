@@ -178,6 +178,8 @@ Popup {
         var sectionDefs = [
             { key: "account", title: qsTr("Account"), icon: "account_circle" },
             { key: "appearance", title: qsTr("Appearance"), icon: "palette" },
+            { key: "layout", title: qsTr("Layout"), icon: "grid_view" },
+            { key: "chat", title: qsTr("Chat"), icon: "forum" },
             { key: "shortcuts", title: qsTr("Keyboard shortcuts"), icon: "keyboard_return" },
             { key: "notifications", title: qsTr("Notifications"), icon: "notifications" },
             { key: "sound", title: qsTr("Sound & video"), icon: "volume_up" },

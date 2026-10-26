@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <iterator>
 
 #include <QClipboard>
 #include <QColor>
@@ -1165,9 +1166,11 @@ private slots:
         m_controller->settings()->setTheme(SettingsManager::IndigoNightTheme);
         QCoreApplication::processEvents();
 
-        // The message-layout control sits below the theme cards and the
+        // The text-size slider sits below the theme cards and the
         // match-system row; toggling or focusing those must not move it.
-        auto *anchor = item("messageLayoutControl");
+        // (The message-layout control it used to measure moved to Layout.)
+        openSection(QStringLiteral("appearance"));
+        auto *anchor = item("textScaleSlider");
         QVERIFY(anchor);
         // Content-relative: clickItem() may scroll, which is not a reflow.
         const qreal anchorY = contentPosY(anchor);
@@ -1187,7 +1190,8 @@ private slots:
         QCOMPARE(contentPosY(anchor), anchorY);
 
         // Toggling "Show room activity" must not move the wheel-speed combo
-        // below it.
+        // below it (both on Chat).
+        openSection(QStringLiteral("chat"));
         auto *wheelCombo = item("timelineWheelSpeedCombo");
         QVERIFY(wheelCombo);
         const qreal comboY = contentPosY(wheelCombo);
@@ -1198,6 +1202,7 @@ private slots:
         clickItem(activityCheck); // restore
         QCoreApplication::processEvents();
         QCOMPARE(contentPosY(wheelCombo), comboY);
+        openSection(QStringLiteral("appearance"));
 
         m_controller->settings()->setTheme(SettingsManager::IndigoNightTheme);
         QCoreApplication::processEvents();
@@ -1217,6 +1222,7 @@ private slots:
 
     void messageLayoutSegmentsDriveTheBackend()
     {
+        openSection(QStringLiteral("layout"));
         auto *compact = item("messageLayoutControl_2");
         QVERIFY(compact);
         clickItem(compact);
@@ -1225,6 +1231,7 @@ private slots:
         QVERIFY(modern);
         clickItem(modern);
         QCOMPARE(m_controller->settings()->messageLayout(), 0);
+        openSection(QStringLiteral("appearance"));
     }
 
     void textScaleSliderTracksTheBackend()
@@ -1590,8 +1597,8 @@ private slots:
     void navRowsExistPerSectionWithIcons()
     {
         static const char *sections[] = {
-            "account", "appearance", "notifications", "sound",
-            "privacy", "sessions", "labs", "about",
+            "account", "appearance", "layout", "chat", "notifications",
+            "sound", "privacy", "sessions", "labs", "about",
         };
         for (const char *key : sections) {
             auto *row = item(qPrintable(QStringLiteral("settingsNavRow_%1")
@@ -1645,7 +1652,7 @@ private slots:
         // The floor is the real section count, so sections cannot vanish from
         // both files unnoticed. Keep in step with SettingsScreen.qml's
         // `sectionTitle()`.
-        static constexpr int kSections = 10;
+        static constexpr int kSections = 12;
         QVERIFY2(navKeys.size() >= kSections,
                  qPrintable(QStringLiteral("only %1 nav rows matched, expected "
                                            "at least %2 — either the scan has "
@@ -2075,17 +2082,19 @@ private slots:
     }
 
     // The "Layout" entry landed on the navigation cards, below the Layout
-    // preset that opens the group (wave 2 report). It names the preset's
-    // heading first, and that heading sits above the preset control.
+    // preset that opens the group (wave 2 report). Layout is its own page now
+    // (settings-ia.md): its first entry names the heading above the preset,
+    // and that heading sits above the preset and the conversation list.
     void theLayoutEntryLandsOnTheLayoutPreset()
     {
-        openSection(QStringLiteral("appearance"));
+        openSection(QStringLiteral("layout"));
         const QVariantList entries =
-            callScreen("outlineEntries", QStringLiteral("appearance")).toList();
+            callScreen("outlineEntries", QStringLiteral("layout")).toList();
         QStringList first;
         for (const QVariant &e : entries) {
             const QVariantMap m = e.toMap();
-            if (m.value(QStringLiteral("label")).toString() == QStringLiteral("Layout"))
+            if (m.value(QStringLiteral("label")).toString()
+                == QStringLiteral("Messages and threads"))
                 first = m.value(QStringLiteral("anchors")).toStringList();
         }
         QVERIFY(!first.isEmpty());
@@ -2099,6 +2108,7 @@ private slots:
         const qreal h = heading->mapToItem(content, QPointF(0, 0)).y();
         QVERIFY(h < preset->mapToItem(content, QPointF(0, 0)).y());
         QVERIFY(h < cards->mapToItem(content, QPointF(0, 0)).y());
+        openSection(QStringLiteral("appearance"));
     }
 
     // Part 6, 3.3: the sub-section labels are navigation, one step larger than
@@ -2464,7 +2474,9 @@ private slots:
     // control may sit.
     void aSearchResultInTheSectionYouAreAlreadyOnStillTakesYouToTheControl()
     {
-        m_controller->showSettingsSection(QStringLiteral("appearance"));
+        // Layout's own page (settings-ia.md); the panel-width slider is far
+        // enough down it to need the scroll.
+        m_controller->showSettingsSection(QStringLiteral("layout"));
         QCoreApplication::processEvents();
         auto *search = item("settingsSearchField");
         auto *flick = item("settingsContentFlick");
@@ -2473,12 +2485,24 @@ private slots:
         QCoreApplication::processEvents();
         QTRY_COMPARE(flick->property("contentY").toReal(), 0.0);
 
-        search->setProperty("text", QStringLiteral("rail depth"));
+        search->setProperty("text", QStringLiteral("side panel width"));
         QCoreApplication::processEvents();
-        auto *title = item("settingsSearchResultTitle_0");
-        QVERIFY2(title, "no first search result for \"rail depth\"");
+        // "Threads open in" matches too (its keywords name the side panel);
+        // click the slider's own result.
+        int hitIndex = -1;
+        const QVariantList hits =
+            item("settingsScreenRoot")->property("matchedSearchResults").toList();
+        for (int i = 0; i < hits.size(); ++i) {
+            if (hits.at(i).toMap().value(QStringLiteral("anchor")).toString()
+                == QStringLiteral("sidePanelWidthSlider"))
+                hitIndex = i;
+        }
+        QVERIFY2(hitIndex >= 0, "no search result for the side panel width");
+        auto *title = item(qPrintable(
+            QStringLiteral("settingsSearchResultTitle_%1").arg(hitIndex)));
+        QVERIFY2(title, "the side panel width result has no title item");
 
-        auto *control = item("spacesRailDepthControl");
+        auto *control = item("sidePanelWidthSlider");
         QVERIFY(control);
         const qreal target =
             control->mapToItem(
@@ -2486,9 +2510,9 @@ private slots:
                 QPointF(0, 0)).y();
         QVERIFY2(target > flick->height(),
                  qPrintable(QStringLiteral(
-                     "the fixture is not exercising the defect: the rail "
-                     "depth control is already on screen at y=%1 in a %2 "
-                     "tall viewport")
+                     "the fixture is not exercising the defect: the side "
+                     "panel width slider is already on screen at y=%1 in a "
+                     "%2 tall viewport")
                          .arg(target).arg(flick->height())));
 
         auto *halo = item("settingsSearchRevealHalo");
@@ -2863,7 +2887,7 @@ private slots:
 
     void theRailDepthControlLinesUpWithItsOwnLabel()
     {
-        m_controller->showSettingsSection(QStringLiteral("appearance"));
+        m_controller->showSettingsSection(QStringLiteral("layout"));
         QCoreApplication::processEvents();
         auto *label = item("spacesRailDepthLabel");
         auto *segment = item("spacesRailDepthControl_0");
@@ -3340,14 +3364,15 @@ private slots:
     // theOutlineReachesEveryGroupOfEachPageAndFollowsTheScroll.)
 
     // The chat background belongs with the theme, not a screen and a half
-    // down below the layout pickers where nobody found it.
+    // down below the layout pickers where nobody found it. The pickers are
+    // on Layout now; the background still precedes what follows the theme.
     void theChatBackgroundFollowsTheThemeAndPrecedesTheLayoutPickers()
     {
         m_controller->showSettingsSection(QStringLiteral("appearance"));
         QCoreApplication::processEvents();
         auto *custom = item("customThemeRow");
         auto *background = item("chatBackgroundSettingsSection");
-        auto *layouts = item("roomNavigationLayoutCards");
+        auto *layouts = item("textScaleSlider");
         QVERIFY(custom && background && layouts);
         const qreal customTop = contentPosY(custom);
         const qreal backgroundTop = contentPosY(background);
@@ -5281,7 +5306,10 @@ private slots:
     {
         QTest::addColumn<QString>("section");
         QTest::addColumn<int>("atLeast");
-        QTest::newRow("appearance") << "appearance" << 11;
+        QTest::newRow("appearance") << "appearance" << 8;
+        // The tray entry is hidden where there is no tray.
+        QTest::newRow("layout") << "layout" << 2;
+        QTest::newRow("chat") << "chat" << 3;
         QTest::newRow("privacy") << "privacy" << 5;
         QTest::newRow("notifications") << "notifications" << 4;
         QTest::newRow("sound") << "sound" << 4;
@@ -5414,7 +5442,7 @@ private slots:
     // not offer them there (the jump would land on the page top).
     void trayEntriesFollowTrayAvailability()
     {
-        openSection(QStringLiteral("appearance"));
+        openSection(QStringLiteral("layout"));
         auto *screen = item("settingsScreenRoot");
         auto *search = item("settingsSearchField");
         QVERIFY(screen && search);
@@ -5543,6 +5571,8 @@ private slots:
         inside("settingsNavRow_privacy", user, iface);
         inside("settingsNavRow_sessions", user, iface);
         inside("settingsNavRow_appearance", iface, behavior);
+        inside("settingsNavRow_layout", iface, behavior);
+        inside("settingsNavRow_chat", iface, behavior);
         inside("settingsNavRow_shortcuts", iface, behavior);
         inside("settingsNavRow_notifications", behavior, about);
         inside("settingsNavRow_sound", behavior, about);
@@ -5556,8 +5586,8 @@ private slots:
         openSection(QStringLiteral("appearance"));
         auto *search = item("settingsSearchField");
         QVERIFY(search);
-        // Not "microphone": the Message box buttons setting (Appearance, in
-        // the Interface group) is findable by it, because the composer has a
+        // Not "microphone": the Message box buttons setting (Chat, in the
+        // Interface group) is findable by it, because the composer has a
         // voice-message microphone button. "speaker" is only the Sound page.
         search->setProperty("text", QStringLiteral("speaker"));
         QCoreApplication::processEvents();
@@ -5681,7 +5711,7 @@ private slots:
     // space, and goes away when the setting is on.
     void aDisabledRowSaysWhichSettingItNeeds()
     {
-        openSection(QStringLiteral("appearance"));
+        openSection(QStringLiteral("chat"));
         auto *settings = m_controller->settings();
         const bool before = settings->showRoomActivity();
         auto *membership = item("showMembershipEventsCheck");
@@ -5920,7 +5950,7 @@ private slots:
 
     void messageSpacingIsASettingTheThemeFollows()
     {
-        openSection(QStringLiteral("appearance"));
+        openSection(QStringLiteral("layout"));
         auto *settings = m_controller->settings();
         QCOMPARE(settings->messageSpacing(), 1);
         for (int mode : {0, 2, 1}) {
@@ -5933,6 +5963,133 @@ private slots:
         // Out of range reads back as Cozy, not the nearest end.
         settings->setMessageSpacing(7);
         QCOMPARE(settings->messageSpacing(), 1);
+    }
+
+    // Settings IA (settings-ia.md): every option moved out of Appearance into
+    // Layout or Chat. A link copied before the move still names "appearance";
+    // it must open the option on its new page, and the option must be on
+    // screen there (not merely exist). The search entry of each one names the
+    // page it is on. Asserts the count it checked.
+    void everyMovedOptionKeepsItsOldLinkAndItsSearchEntry()
+    {
+        struct Moved { const char *anchor; const char *page; };
+        static const Moved moved[] = {
+            {"layoutPresetControl", "layout"}, {"messageLayoutControl", "layout"},
+            {"messageSpacingControl", "layout"}, {"threadPlacementControl", "layout"},
+            {"threadStyleControl", "layout"}, {"roomNavigationLayoutCards", "layout"},
+            {"showSpacesRailCheck", "layout"}, {"showRoomListCheck", "layout"},
+            {"spacesRailDepthControl", "layout"}, {"showBridgeBadgesCheck", "layout"},
+            {"compactRoomListCheck", "layout"}, {"spaceBannersVisibleCheck", "layout"},
+            {"roomListWidthSlider", "layout"}, {"keepRoomListOrderStillCheck", "layout"},
+            {"sidePanelWidthSlider", "layout"}, {"closeToTrayCheck", "layout"},
+            {"startInTrayCheck", "layout"},
+            {"showRoomActivityCheck", "chat"}, {"showMembershipEventsCheck", "chat"},
+            {"collapseEmbedsCheck", "chat"}, {"timelineWheelSpeedCombo", "chat"},
+            {"conversationReturnCombo", "chat"}, {"showSelectionOnReturnCheck", "chat"},
+            {"enterInsertsNewlineCheck", "chat"}, {"spellCheckEnabledCheck", "chat"},
+            {"sendTextAsCaptionCheck", "chat"}, {"emojiShortcodeAutoConvertCheck", "chat"},
+            {"composerButtonsHeading", "chat"}, {"stickerPacksSettings", "chat"},
+        };
+        auto *screen = item("settingsScreenRoot");
+        QVERIFY(screen);
+        const QVariantList index = screen->property("searchIndex").toList();
+        const bool tray = m_controller->trayAvailable();
+        int linked = 0;
+        int indexed = 0;
+        QStringList bad;
+        for (const Moved &m : moved) {
+            const QString anchor = QLatin1String(m.anchor);
+            const QString page = QLatin1String(m.page);
+            const bool trayRow = anchor.endsWith(QLatin1String("TrayCheck"));
+            // The search entry names the new page.
+            for (const QVariant &v : index) {
+                const QVariantMap e = v.toMap();
+                if (e.value(QStringLiteral("anchor")).toString() != anchor)
+                    continue;
+                ++indexed;
+                if (e.value(QStringLiteral("section")).toString() != page)
+                    bad << anchor + QStringLiteral(": search entry on ")
+                               + e.value(QStringLiteral("section")).toString();
+            }
+            // The old link lands on the new page.
+            openSection(QStringLiteral("account"));
+            const QString link = QStringLiteral("lightning://settings/appearance?focus=")
+                                 + anchor;
+            QVERIFY(callScreen("openSettingsLink", link).toBool());
+            QCoreApplication::processEvents();
+            if (screen->property("section").toString() != page) {
+                bad << anchor + QStringLiteral(": old link opened ")
+                           + screen->property("section").toString();
+                continue;
+            }
+            QQuickItem *target = item(m.anchor);
+            if (!target || (!target->isVisible() && !(trayRow && !tray)))
+                bad << anchor + QStringLiteral(": not on screen on its page");
+            else
+                ++linked;
+        }
+        openSection(QStringLiteral("appearance"));
+        QVERIFY2(bad.isEmpty(), qPrintable(bad.join(QStringLiteral("; "))));
+        QCOMPARE(linked, int(std::size(moved)));
+        QVERIFY2(indexed >= int(std::size(moved)),
+                 qPrintable(QStringLiteral("only %1 of %2 moved options are in "
+                                           "the search index")
+                                .arg(indexed).arg(std::size(moved))));
+        // An anchor that never moved keeps its own page.
+        QCOMPARE(callScreen("sectionForAnchor", QStringLiteral("reducedMotionCheck"),
+                            QStringLiteral("appearance")).toString(),
+                 QStringLiteral("appearance"));
+    }
+
+    // Layout's rows: the name in its own column, the control beside it, both
+    // inside the card, nothing overlapping; the preset first and the three
+    // choices it sets right under it; the conversation-list previews are
+    // one-line tiles, not the 150 px cards.
+    void theLayoutPageRowsAreCompactAndLineUp()
+    {
+        openSection(QStringLiteral("layout"));
+        auto *flick = item("settingsContentFlick");
+        QVERIFY(flick);
+        auto *content = flick->property("contentItem").value<QQuickItem *>();
+        const auto top = [&](QQuickItem *it) {
+            return it->mapToItem(content, QPointF(0, 0)).y();
+        };
+        const char *controls[] = {"layoutPresetControl", "messageLayoutControl",
+                                  "messageSpacingControl", "threadPlacementControl",
+                                  "threadStyleControl", "roomNavigationLayoutCards"};
+        int checked = 0;
+        qreal last = -1;
+        for (const char *name : controls) {
+            QQuickItem *control = item(name);
+            QVERIFY2(control && control->isVisible(), name);
+            // The row is the SettingsChoiceRow holding the control.
+            QQuickItem *row = control->parentItem();
+            while (row && !row->property("labelWidth").isValid())
+                row = row->parentItem();
+            QVERIFY2(row, name);
+            QQuickItem *label = row->childItems().value(0);
+            QVERIFY2(label, name);
+            const QRectF l = label->mapRectToItem(content, label->boundingRect());
+            const QRectF c = control->mapRectToItem(content, control->boundingRect());
+            const QRectF r = row->mapRectToItem(content, row->boundingRect());
+            if (row->property("columns").toInt() == 2) {
+                QVERIFY2(l.right() <= c.left(), qPrintable(QStringLiteral(
+                    "%1: label ends at %2, control starts at %3")
+                    .arg(QLatin1String(name)).arg(l.right()).arg(c.left())));
+                QVERIFY2(qAbs(l.top() - c.top()) <= 12.0, name);
+            } else {
+                QVERIFY2(l.bottom() <= c.top(), name);
+            }
+            QVERIFY2(c.right() <= r.right() + 0.5 && c.left() >= r.left() - 0.5, name);
+            QVERIFY2(top(control) > last, name);   // page order
+            last = top(control);
+            ++checked;
+        }
+        QCOMPARE(checked, int(std::size(controls)));
+        auto *classic = item("navLayoutClassicCard");
+        QVERIFY(classic && classic->property("compact").toBool());
+        QVERIFY2(classic->height() <= 80, qPrintable(QString::number(classic->height())));
+        openSection(QStringLiteral("appearance"));
     }
 
     void noQmlWarnings()

@@ -100,25 +100,25 @@ Item {
         { title: qsTr("Layout preset"),
           keywords: qsTr("layout preset nheko compact density dense lightning "
                          + "one click"),
-          section: "appearance", breadcrumb: qsTr("Appearance"),
+          section: "layout", breadcrumb: qsTr("Layout · Messages and threads"),
           anchor: "layoutPresetControl" },
         { title: qsTr("Message layout"),
           keywords: qsTr("message layout modern bubbles compact small avatars"),
-          section: "appearance", breadcrumb: qsTr("Appearance"),
+          section: "layout", breadcrumb: qsTr("Layout · Messages and threads"),
           control: "messageLayout",
           anchor: "messageLayoutControl" },
         { title: qsTr("Thread style"),
           keywords: qsTr("thread threads style panel inline nheko element interleaved"),
-          section: "appearance", breadcrumb: qsTr("Appearance"),
+          section: "layout", breadcrumb: qsTr("Layout · Messages and threads"),
           anchor: "threadStyleControl" },
         { title: qsTr("Threads open in"),
           keywords: qsTr("thread threads open placement main view side panel "
                          + "column full width nheko element"),
-          section: "appearance", breadcrumb: qsTr("Appearance"),
+          section: "layout", breadcrumb: qsTr("Layout · Messages and threads"),
           anchor: "threadPlacementControl" },
         { title: qsTr("Message spacing"),
           keywords: qsTr("message spacing density compact cozy roomy gap padding"),
-          section: "appearance", breadcrumb: qsTr("Appearance"),
+          section: "layout", breadcrumb: qsTr("Layout · Messages and threads"),
           anchor: "messageSpacingControl" },
         { title: qsTr("Chat background"),
           keywords: qsTr("chat background wallpaper picture image photo backdrop "
@@ -150,8 +150,8 @@ Item {
         { title: qsTr("Spaces rail depth"),
           keywords: qsTr("spaces rail depth space bar sidebar nesting regions "
                          + "classic old style flat tint indent"),
-          section: "appearance",
-          breadcrumb: qsTr("Appearance · Spaces rail and room list"),
+          section: "layout",
+          breadcrumb: qsTr("Layout · Room list and panels"),
           control: "spacesRailDepth",
           anchor: "spacesRailDepthControl" },
         { title: qsTr("Text size"), keywords: qsTr("text size font scale"),
@@ -183,30 +183,30 @@ Item {
           anchor: "languageCombo" },
         { title: qsTr("Show room activity"),
           keywords: qsTr("room activity membership joins leaves profile"),
-          section: "appearance", breadcrumb: qsTr("Appearance · Timeline"),
+          section: "chat", breadcrumb: qsTr("Chat · Timeline"),
           control: "showRoomActivity",
           anchor: "showRoomActivityCheck" },
         { title: qsTr("Mouse-wheel speed"),
-          keywords: qsTr("wheel speed scroll timeline"), section: "appearance",
-          breadcrumb: qsTr("Appearance · Timeline"),
+          keywords: qsTr("wheel speed scroll timeline"), section: "chat",
+          breadcrumb: qsTr("Chat · Timeline"),
           anchor: "timelineWheelSpeedCombo" },
         { title: qsTr("When returning to a conversation"),
           keywords: qsTr("return reopen room position latest selected message "
                          + "reading restore remember scroll"),
-          section: "appearance", breadcrumb: qsTr("Appearance · Timeline"),
+          section: "chat", breadcrumb: qsTr("Chat · Timeline"),
           anchor: "conversationReturnCombo" },
         { title: qsTr("Show the message selection outline when returning"),
           keywords: qsTr("selection outline highlight return reopen keyboard"),
-          section: "appearance", breadcrumb: qsTr("Appearance · Timeline"),
+          section: "chat", breadcrumb: qsTr("Chat · Timeline"),
           anchor: "showSelectionOnReturnCheck" },
         { title: qsTr("Joins, leaves and invites"),
           keywords: qsTr("membership join leave invite kick ban activity hide"),
-          section: "appearance", breadcrumb: qsTr("Appearance · Timeline"),
+          section: "chat", breadcrumb: qsTr("Chat · Timeline"),
           control: "showMembershipEvents",
           anchor: "showMembershipEventsCheck" },
         { title: qsTr("Display name and avatar changes"),
           keywords: qsTr("profile change display name avatar activity hide"),
-          section: "appearance", breadcrumb: qsTr("Appearance · Timeline"),
+          section: "chat", breadcrumb: qsTr("Chat · Timeline"),
           control: "showProfileChangeEvents",
           anchor: "showProfileChangeEventsCheck" },
         { title: qsTr("Collapse media and link embeds"),
@@ -214,7 +214,7 @@ Item {
                          + "clutter declutter media image picture gif sticker "
                          + "video audio voice file attachment link preview "
                          + "expand arrow"),
-          section: "appearance", breadcrumb: qsTr("Appearance · Timeline"),
+          section: "chat", breadcrumb: qsTr("Chat · Timeline"),
           control: "collapseEmbeds",
           anchor: "collapseEmbedsCheck" },
         { title: qsTr("Reduce motion"),
@@ -263,89 +263,89 @@ Item {
           anchor: "clockFormatCombo" },
         { title: qsTr("Show Space banners"),
           keywords: qsTr("space banner header image hide show"),
-          section: "appearance", breadcrumb: qsTr("Appearance · Banners and panel widths"),
+          section: "layout", breadcrumb: qsTr("Layout · Room list and panels"),
           control: "spaceBannersVisible",
           anchor: "spaceBannersVisibleCheck" },
         { title: qsTr("Show bridge badges in the room list"),
           keywords: qsTr("bridge network badge chip tag whatsapp rcs sms telegram room list hide"),
-          section: "appearance", breadcrumb: qsTr("Appearance · Banners and panel widths"),
+          section: "layout", breadcrumb: qsTr("Layout · Room list and panels"),
           anchor: "showBridgeBadgesCheck" },
         { title: qsTr("Compact room list"),
           keywords: qsTr("room list compact one line preview last message hide dense"),
-          section: "appearance", breadcrumb: qsTr("Appearance · Banners and panel widths"),
+          section: "layout", breadcrumb: qsTr("Layout · Room list and panels"),
           anchor: "compactRoomListCheck" },
         { title: qsTr("Conversation list width"),
           keywords: qsTr("room list width panel size sidebar"),
-          section: "appearance", breadcrumb: qsTr("Appearance · Banners and panel widths"),
+          section: "layout", breadcrumb: qsTr("Layout · Room list and panels"),
           anchor: "roomListWidthSlider" },
         { title: qsTr("Keep the room list still while I use it"),
           keywords: qsTr("room list order sort reorder jump move still hold "
                          + "freeze stable recent activity conversation list "
                          + "sidebar channels new message"),
-          section: "appearance", breadcrumb: qsTr("Appearance · Banners and panel widths"),
+          section: "layout", breadcrumb: qsTr("Layout · Room list and panels"),
           control: "keepRoomListOrderStill",
           anchor: "keepRoomListOrderStillCheck" },
         { title: qsTr("Keep running in the tray"),
           keywords: qsTr("tray system tray minimize close background icon "
                          + "taskbar quit close to tray menu bar"),
-          section: "appearance", breadcrumb: qsTr("Appearance · System tray"),
+          section: "layout", breadcrumb: qsTr("Layout · System tray"),
           anchor: "closeToTrayCheck", requiresTray: true },
         { title: qsTr("Start in the tray"),
           keywords: qsTr("tray start startup minimized background icon "
                          + "menu bar hidden"),
-          section: "appearance", breadcrumb: qsTr("Appearance · System tray"),
+          section: "layout", breadcrumb: qsTr("Layout · System tray"),
           anchor: "startInTrayCheck", requiresTray: true },
         { title: qsTr("Side panel width"),
           keywords: qsTr("side panel width members threads size"),
-          section: "appearance", breadcrumb: qsTr("Appearance · Banners and panel widths"),
+          section: "layout", breadcrumb: qsTr("Layout · Room list and panels"),
           anchor: "sidePanelWidthSlider" },
         { title: qsTr("Enter starts a new line"),
           keywords: qsTr("enter newline send composer message box return"),
-          section: "appearance", breadcrumb: qsTr("Appearance · Message box"),
+          section: "chat", breadcrumb: qsTr("Chat · Message box"),
           control: "enterInsertsNewline",
           anchor: "enterInsertsNewlineCheck" },
         { title: qsTr("Send text with an attachment as its caption"),
           keywords: qsTr("caption attachment upload text description"),
-          section: "appearance", breadcrumb: qsTr("Appearance · Message box"),
+          section: "chat", breadcrumb: qsTr("Chat · Message box"),
           control: "sendTextAsCaption",
           anchor: "sendTextAsCaptionCheck" },
         { title: qsTr("Emoji and sticker packs"),
           keywords: qsTr("emoji sticker pack custom emote use everywhere "
                          + "room space export import zip share"),
-          section: "appearance",
-          breadcrumb: qsTr("Appearance · Emoji and sticker packs"),
+          section: "chat",
+          breadcrumb: qsTr("Chat · Emoji and sticker packs"),
           anchor: "stickerPacksSettings" },
         { title: qsTr("Convert :shortcode: to emoji"),
           keywords: qsTr("emoji shortcode colon convert autoconvert "
                          + "auto-convert thumbsup smiley slack discord"),
-          section: "appearance", breadcrumb: qsTr("Appearance · Message box"),
+          section: "chat", breadcrumb: qsTr("Chat · Message box"),
           control: "emojiShortcodeAutoConvert",
           anchor: "emojiShortcodeAutoConvertCheck" },
         { title: qsTr("Message box buttons"),
           keywords: qsTr("composer buttons hide show emoji gif sticker stickers "
                          + "voice microphone formatting schedule send later "
                          + "declutter simplify"),
-          section: "appearance", breadcrumb: qsTr("Appearance · Message box"),
+          section: "chat", breadcrumb: qsTr("Chat · Message box"),
           anchor: "composerButtonsHeading" },
         { title: qsTr("Check spelling as you type"),
           keywords: qsTr("spell spelling checker dictionary typo underline language"),
-          section: "appearance", breadcrumb: qsTr("Appearance · Message box"),
+          section: "chat", breadcrumb: qsTr("Chat · Message box"),
           anchor: "spellCheckEnabledCheck" },
         { title: qsTr("Spelling language"),
           keywords: qsTr("spell spelling language dictionary automatic system"),
-          section: "appearance", breadcrumb: qsTr("Appearance · Message box"),
+          section: "chat", breadcrumb: qsTr("Chat · Message box"),
           anchor: "spellLanguageCombo" },
         { title: qsTr("Also check"),
           keywords: qsTr("spell spelling languages several multiple second extra dictionary bilingual"),
-          section: "appearance", breadcrumb: qsTr("Appearance · Message box"),
+          section: "chat", breadcrumb: qsTr("Chat · Message box"),
           anchor: "spellExtraLanguageCombo" },
         { title: qsTr("Correct obvious typos as you type"),
           keywords: qsTr("autocorrect auto correct autocorrection typo fix replace capital"),
-          section: "appearance", breadcrumb: qsTr("Appearance · Message box"),
+          section: "chat", breadcrumb: qsTr("Chat · Message box"),
           anchor: "autocorrectCheck" },
         { title: qsTr("Personal dictionary"),
           keywords: qsTr("spell spelling dictionary personal words added learned remove"),
-          section: "appearance", breadcrumb: qsTr("Appearance · Message box"),
+          section: "chat", breadcrumb: qsTr("Chat · Message box"),
           anchor: "personalDictionaryHeading" },
 
         { title: qsTr("Keyboard shortcuts"),
@@ -699,6 +699,23 @@ Item {
           keywords: qsTr("update automatic check background"),
           section: "updates", breadcrumb: qsTr("Updates · Automatic checks"),
           anchor: "updatesSection" },
+        // Settings IA (settings-ia.md): options that had no entry of their own.
+        { title: qsTr("Conversation list"),
+          keywords: qsTr("conversation list classic channels folders room list layout"),
+          section: "layout", breadcrumb: qsTr("Layout · Room list and panels"),
+          anchor: "roomNavigationLayoutCards" },
+        { title: qsTr("Show the Spaces rail"),
+          keywords: qsTr("spaces rail sidebar show hide"),
+          section: "layout", breadcrumb: qsTr("Layout · Room list and panels"),
+          anchor: "showSpacesRailCheck" },
+        { title: qsTr("Show the room list"),
+          keywords: qsTr("room list sidebar show hide"),
+          section: "layout", breadcrumb: qsTr("Layout · Room list and panels"),
+          anchor: "showRoomListCheck" },
+        { title: qsTr("Application icon"),
+          keywords: qsTr("application icon app icon window icon taskbar"),
+          section: "appearance", breadcrumb: qsTr("Appearance"),
+          anchor: "chooseAppIconButton" },
     ]
     readonly property var matchedSearchResults: {
         var words = root.settingsSearchQuery.trim().toLowerCase().split(/\s+/)
@@ -875,18 +892,25 @@ Item {
               anchors: ["customThemeRow"] },
             { label: qsTr("Chat background and depth"),
               anchors: ["chatBackgroundSettingsSection"] },
-            { label: qsTr("Layout"),
-              anchors: ["layoutPresetHeading", "layoutPresetControl",
-                        "roomNavigationLayoutCards"] },
             { label: qsTr("Text and fonts"), anchors: ["textScaleSlider"] },
-            { label: qsTr("Spaces rail and room list"),
-              anchors: ["showSpacesRailCheck"] },
-            { label: qsTr("Timeline"), anchors: ["showRoomActivityCheck"] },
+            { label: qsTr("Application icon"), anchors: ["appIconPreview"] },
             { label: qsTr("Language"), anchors: ["languageCombo"] },
             { label: qsTr("Accessibility"), anchors: ["accessibilityHeading"] },
             { label: qsTr("Motion and time"), anchors: ["reducedMotionCheck"] },
+        ],
+        "layout": [
+            { label: qsTr("Messages and threads"),
+              anchors: ["layoutPresetHeading", "layoutPresetControl"] },
+            { label: qsTr("Room list and panels"),
+              anchors: ["roomListLayoutHeading", "roomNavigationLayoutCards"] },
+            { label: qsTr("System tray"), anchors: ["closeToTrayCheck"] },
+        ],
+        "chat": [
+            { label: qsTr("Timeline"), anchors: ["showRoomActivityCheck"] },
             { label: qsTr("Message box"),
               anchors: ["enterInsertsNewlineCheck"] },
+            { label: qsTr("Emoji and sticker packs"),
+              anchors: ["stickerPacksSettings"] },
         ],
         "notifications": [
             { label: qsTr("Desktop notifications"),
@@ -1071,8 +1095,29 @@ Item {
         var link = root.parseSettingsLink(text)
         if (!link)
             return false
-        root.revealSearchResult({ section: link.section, anchor: link.anchor })
+        root.revealSearchResult({
+            section: root.sectionForAnchor(link.anchor, link.section),
+            anchor: link.anchor })
         return true
+    }
+    // The page an anchor lives on now: its search entry's, else its outline
+    // entry's, else `fallback`. Links copied before Layout and Chat were split
+    // out of Appearance (settings-ia.md) name "appearance"; they keep working.
+    function sectionForAnchor(anchor, fallback) {
+        if (!anchor || anchor.length === 0)
+            return fallback
+        for (var i = 0; i < root.searchIndex.length; ++i) {
+            if (root.searchIndex[i].anchor === anchor)
+                return root.searchIndex[i].section
+        }
+        for (var key in root.pageOutlines) {
+            var entries = root.pageOutlines[key]
+            for (var j = 0; j < entries.length; ++j) {
+                if (entries[j].anchors.indexOf(anchor) >= 0)
+                    return key
+            }
+        }
+        return fallback
     }
     // The searchIndex entry whose control sits at content-y `y` on the open
     // page (within a small margin), or null. Used by the right-click menu.
@@ -1567,6 +1612,8 @@ Item {
     function sectionTitle(key) {
         if (key === "account") return qsTr("Account")
         if (key === "appearance") return qsTr("Appearance")
+        if (key === "layout") return qsTr("Layout")
+        if (key === "chat") return qsTr("Chat")
         if (key === "shortcuts") return qsTr("Keyboard shortcuts")
         if (key === "notifications") return qsTr("Notifications")
         if (key === "sound") return qsTr("Sound & video")
@@ -1580,6 +1627,8 @@ Item {
     function sectionIcon(key) {
         if (key === "account") return "account_circle"
         if (key === "appearance") return "palette"
+        if (key === "layout") return "grid_view"
+        if (key === "chat") return "forum"
         // The icon font is a subset with no plain "keyboard" glyph; an unmapped
         // name renders as tofu and fails IconChromeTest.
         if (key === "shortcuts") return "keyboard_return"
@@ -2521,7 +2570,8 @@ Item {
                     SettingsNavGroupLabel {
                         objectName: "settingsNavGroup_interface"
                         text: qsTr("Interface")
-                        shown: root.navGroupShown(["appearance", "shortcuts"])
+                        shown: root.navGroupShown(["appearance", "layout", "chat",
+                                                   "shortcuts"])
                     }
                     SettingsNavRow {
                         sectionKey: "appearance"
@@ -2529,6 +2579,18 @@ Item {
                         navLabel: qsTr("Appearance")
                     }
                     SettingsNavOutlineFor { sectionKey: "appearance" }
+                    SettingsNavRow {
+                        sectionKey: "layout"
+                        iconName: "grid_view"
+                        navLabel: qsTr("Layout")
+                    }
+                    SettingsNavOutlineFor { sectionKey: "layout" }
+                    SettingsNavRow {
+                        sectionKey: "chat"
+                        iconName: "forum"
+                        navLabel: qsTr("Chat")
+                    }
+                    SettingsNavOutlineFor { sectionKey: "chat" }
                     SettingsNavRow {
                         sectionKey: "shortcuts"
                         iconName: "keyboard_return"
@@ -2773,7 +2835,9 @@ Item {
                             Layout.fillWidth: true
                             Layout.topMargin: -AppTheme.spacing8
                             text: qsTr("Theme, colours and gradients, chat background, "
-                                       + "layout, text and fonts — per account.")
+                                       + "text and fonts — per account. How the window "
+                                       + "is arranged is under Layout; the timeline and "
+                                       + "the message box are under Chat.")
                             color: AppTheme.settingsText
                             font.pixelSize: AppTheme.settingsOptionSize
                             wrapMode: Text.WordWrap
@@ -3444,225 +3508,6 @@ Item {
                             }
                         }
 
-                        // One click for the whole compact look. A preset is a
-                        // profile for the layout controls below (message
-                        // layout, spacing, where threads open): switching back
-                        // to Lightning restores them exactly, and fonts, text
-                        // size, colours and privacy are never part of it.
-                        SettingsGroupLabel {
-                            // The "Layout" outline entry lands here: the
-                            // preset is the first thing of that group (it
-                            // used to land on the navigation cards below it).
-                            objectName: "layoutPresetHeading"
-                            text: qsTr("Layout preset")
-                        }
-                        SegmentedControl {
-                            storm: true
-                            objectName: "layoutPresetControl"
-                            model: [
-                                { label: qsTr("Lightning"), value: 0 },
-                                { label: qsTr("Nheko compact"), value: 1 },
-                            ]
-                            current: app.settings.layoutPreset
-                            onActivated: (value) =>
-                                app.settings.layoutPreset = value
-                            Accessible.description: layoutPresetHint.text
-                        }
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: AppTheme.spacing8
-                            Label {
-                                id: layoutPresetHint
-                                objectName: "layoutPresetHint"
-                                // Our own words only, but the scan cannot tell
-                                // a ternary of qsTr() from a remote string.
-                                textFormat: Text.PlainText
-                                Layout.fillWidth: true
-                                Layout.leftMargin: AppTheme.spacing4
-                                wrapMode: Text.WordWrap
-                                lineHeight: AppTheme.lineHeightBody
-                                lineHeightMode: Text.ProportionalHeight
-                                color: AppTheme.stormTextMuted
-                                font.pixelSize: AppTheme.settingsHintSize
-                                text: app.settings.layoutPreset === 1
-                                      ? (app.settings.layoutPresetCustomized
-                                         ? qsTr("Nheko compact, customized. Your "
-                                                + "Lightning layout is kept and "
-                                                + "comes back when you switch.")
-                                         : qsTr("Flat rows with a small avatar "
-                                                + "above each sender's messages, "
-                                                + "tight spacing, and threads in "
-                                                + "the main view. Your fonts, text "
-                                                + "size and colours are unchanged."))
-                                      : qsTr("Lightning's own layout. Nheko "
-                                             + "compact is a denser layout you can "
-                                             + "switch back from at any time.")
-                            }
-                            AppButton {
-                                objectName: "layoutPresetResetButton"
-                                storm: true
-                                size: "sm"
-                                visible: app.settings.layoutPreset === 1
-                                         && app.settings.layoutPresetCustomized
-                                text: qsTr("Reset preset")
-                                Accessible.description: qsTr(
-                                    "Returns message layout, spacing and thread "
-                                    + "placement to the Nheko compact values. "
-                                    + "Nothing else changes.")
-                                onClicked: app.settings.resetLayoutPresetOverrides()
-                            }
-                        }
-
-                        SettingsGroupLabel { text: qsTr("Conversation list") }
-                        RowLayout {
-                            objectName: "roomNavigationLayoutCards"
-                            Layout.fillWidth: true
-                            spacing: AppTheme.spacing12
-
-                            NavigationLayoutCard {
-                                objectName: "navLayoutClassicCard"
-                                Layout.fillWidth: true
-                                variant: "classic"
-                                title: qsTr("Classic")
-                                subtitle: qsTr("One list, most recent first, "
-                                               + "with message previews.")
-                                current: app.settings.roomNavigationLayout === 0
-                                onClicked: app.settings.roomNavigationLayout = 0
-                            }
-                            NavigationLayoutCard {
-                                objectName: "navLayoutChannelsCard"
-                                Layout.fillWidth: true
-                                variant: "channels"
-                                title: qsTr("Channels")
-                                subtitle: qsTr("Every space as a collapsible "
-                                               + "folder of its rooms.")
-                                current: app.settings.roomNavigationLayout === 1
-                                onClicked: app.settings.roomNavigationLayout = 1
-                            }
-                        }
-                        Label {
-                            Layout.fillWidth: true
-                            Layout.leftMargin: AppTheme.spacing4
-                            wrapMode: Text.WordWrap
-                            lineHeight: AppTheme.lineHeightBody
-                            lineHeightMode: Text.ProportionalHeight
-                            color: AppTheme.stormTextMuted
-                            font.pixelSize: AppTheme.settingsHintSize
-                            // Describes what the layout is.
-                            text: qsTr("Channels lists every space you are in as "
-                                       + "a folder, with the rooms it contains "
-                                       + "underneath. Rooms in no space, and your "
-                                       + "direct messages, stay together in Rooms.")
-                        }
-
-                        SettingsGroupLabel { text: qsTr("Message layout") }
-                        SegmentedControl {
-                            storm: true
-                            objectName: "messageLayoutControl"
-                            model: [
-                                { label: qsTr("Modern"), value: 0 },
-                                { label: qsTr("Bubbles"), value: 1 },
-                                { label: qsTr("Compact"), value: 2 },
-                                { label: qsTr("Small avatars"), value: 3 },
-                            ]
-                            current: app.settings.messageLayout
-                            onActivated: (value) =>
-                                app.settings.messageLayout = value
-                        }
-                        PresetOriginLabel {
-                            objectName: "messageLayoutPresetOrigin"
-                            key: "messageLayout"
-                        }
-                        Label {
-                            Layout.fillWidth: true
-                            Layout.leftMargin: AppTheme.spacing4
-                            wrapMode: Text.WordWrap
-                            lineHeight: AppTheme.lineHeightBody
-                            lineHeightMode: Text.ProportionalHeight
-                            color: AppTheme.stormTextMuted
-                            font.pixelSize: AppTheme.settingsHintSize
-                            text: qsTr("Bubbles applies to direct messages; rooms keep "
-                                       + "the Modern rows. Compact tightens every timeline. "
-                                       + "Small avatars puts a small avatar beside each "
-                                       + "sender's name, above their messages.")
-                        }
-
-                        SettingsGroupLabel { text: qsTr("Thread style") }
-                        SegmentedControl {
-                            storm: true
-                            objectName: "threadStyleControl"
-                            model: [
-                                { label: qsTr("Thread panel"), value: 0 },
-                                { label: qsTr("Inline"), value: 1 },
-                            ]
-                            current: app.settings.threadStyle
-                            onActivated: (value) =>
-                                app.settings.threadStyle = value
-                        }
-                        Label {
-                            Layout.fillWidth: true
-                            Layout.leftMargin: AppTheme.spacing4
-                            wrapMode: Text.WordWrap
-                            lineHeight: AppTheme.lineHeightBody
-                            lineHeightMode: Text.ProportionalHeight
-                            color: AppTheme.stormTextMuted
-                            font.pixelSize: AppTheme.textMeta
-                            text: qsTr("Thread panel keeps thread replies out of the "
-                                       + "room, like Element. Inline keeps them in the "
-                                       + "room in time order with a thread tag, like "
-                                       + "Nheko; click a tag to open that thread.")
-                        }
-
-                        SettingsGroupLabel { text: qsTr("Threads open in") }
-                        SegmentedControl {
-                            storm: true
-                            objectName: "threadPlacementControl"
-                            model: [
-                                { label: qsTr("Main view"), value: 1 },
-                                { label: qsTr("Side panel"), value: 0 },
-                            ]
-                            current: app.settings.threadPlacement
-                            onActivated: (value) =>
-                                app.settings.threadPlacement = value
-                        }
-                        PresetOriginLabel {
-                            objectName: "threadPlacementPresetOrigin"
-                            key: "threadPlacement"
-                        }
-                        Label {
-                            Layout.fillWidth: true
-                            Layout.leftMargin: AppTheme.spacing4
-                            wrapMode: Text.WordWrap
-                            lineHeight: AppTheme.lineHeightBody
-                            lineHeightMode: Text.ProportionalHeight
-                            color: AppTheme.stormTextMuted
-                            font.pixelSize: AppTheme.textMeta
-                            text: qsTr("Where an opened thread is shown: in place of "
-                                       + "the room, with Back to return, or beside it. "
-                                       + "Either way it loads the thread's whole "
-                                       + "history and keeps its own draft.")
-                        }
-
-                        SettingsGroupLabel { text: qsTr("Message spacing") }
-                        SegmentedControl {
-                            storm: true
-                            objectName: "messageSpacingControl"
-                            model: [
-                                { label: qsTr("Compact"), value: 0 },
-                                { label: qsTr("Cozy"), value: 1 },
-                                { label: qsTr("Roomy"), value: 2 },
-                            ]
-                            current: app.settings.messageSpacing
-                            onActivated: (value) =>
-                                app.settings.messageSpacing = value
-                            Accessible.description: qsTr(
-                                "Space between messages and between senders")
-                        }
-                        PresetOriginLabel {
-                            objectName: "messageSpacingPresetOrigin"
-                            key: "messageSpacing"
-                        }
-
                         SettingsGroupLabel { text: qsTr("Text size") }
                         RowLayout {
                             Layout.fillWidth: true
@@ -4252,370 +4097,6 @@ Item {
                             }
                         }
 
-                        // Panel visibility, mirroring Ctrl+B / Ctrl+Shift+B so
-                        // a panel hidden by shortcut can be found again here.
-                        SettingsGroupLabel { text: qsTr("Spaces rail and room list") }
-                        SettingsCard {
-                            ColumnLayout {
-                                width: parent.width
-                                spacing: AppTheme.spacing8
-                                SettingsCheckBox {
-                                    palette.windowText: AppTheme.stormText
-                                    objectName: "showSpacesRailCheck"
-                                    text: qsTr("Show the Spaces rail (Ctrl+Shift+B)")
-                                    checked: app.settings.spacesRailVisible
-                                    onToggled: app.settings.spacesRailVisible = checked
-                                    Accessible.description: qsTr(
-                                        "Show the narrow strip of Spaces down the far edge")
-                                }
-                                SettingsCheckBox {
-                                    palette.windowText: AppTheme.stormText
-                                    objectName: "showRoomListCheck"
-                                    text: qsTr("Show the room list (Ctrl+B)")
-                                    checked: app.settings.roomListVisible
-                                    onToggled: app.settings.roomListVisible = checked
-                                    Accessible.description: qsTr(
-                                        "Show the column of rooms and people")
-                                }
-                                Label {
-                                    Layout.fillWidth: true
-                                    Layout.leftMargin: AppTheme.spacing4
-                                    wrapMode: Text.WordWrap
-                                    lineHeight: AppTheme.lineHeightBody
-                                    lineHeightMode: Text.ProportionalHeight
-                                    color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.settingsHintSize
-                                    text: qsTr("Drag the line between two panels to "
-                                               + "resize them. Widths are remembered.")
-                                }
-
-                                // How the Spaces rail shows nesting, next to
-                                // the rail's own settings. Enabled only while
-                                // the rail is shown.
-                                Label {
-                                    objectName: "spacesRailDepthLabel"
-                                    Layout.topMargin: AppTheme.spacing4
-                                    Layout.leftMargin: AppTheme.spacing4
-                                    text: qsTr("Spaces rail depth")
-                                    color: AppTheme.stormText
-                                    font.family: AppTheme.uiFont
-                                    font.pixelSize: AppTheme.settingsHintSize
-                                    font.weight: AppTheme.weightStrong
-                                }
-                                SegmentedControl {
-                                    storm: true
-                                    objectName: "spacesRailDepthControl"
-                                    // Align the ink, not the box: a segment's
-                                    // first glyph sits 12px inside its edge
-                                    // (SegmentedControl pads its text by 12),
-                                    // so pull the box back by that.
-                                    // theRailDepthControlLinesUpWithItsOwnLabel
-                                    // checks real ink positions.
-                                    Layout.leftMargin: AppTheme.spacing4 - 12
-                                    enabled: app.settings.spacesRailVisible
-                                    opacity: enabled ? 1.0 : 0.5
-                                    model: [
-                                        { label: qsTr("Regions"), value: 0 },
-                                        { label: qsTr("Classic"), value: 1 },
-                                    ]
-                                    current: app.settings.spacesRailDepthStyle
-                                    onActivated: (value) =>
-                                        app.settings.spacesRailDepthStyle = value
-                                    Accessible.description: qsTr(
-                                        "Choose how the Spaces rail shows which "
-                                        + "Space contains which")
-                                    SettingsNeedsBadge {
-                                        needs: qsTr("Show the Spaces rail")
-                                    }
-                                }
-                                Label {
-                                    Layout.fillWidth: true
-                                    Layout.leftMargin: AppTheme.spacing4
-                                    wrapMode: Text.WordWrap
-                                    lineHeight: AppTheme.lineHeightBody
-                                    lineHeightMode: Text.ProportionalHeight
-                                    color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.settingsHintSize
-                                    text: qsTr("Regions tint the rail behind a Space "
-                                               + "and everything inside it. Classic is "
-                                               + "the flat rail from earlier versions, "
-                                               + "where a nested Space steps in instead. "
-                                               + "Both show the same Spaces.")
-                                }
-                            }
-                        }
-
-                        // System tray. Hidden where the platform has none,
-                        // since "close to tray" would close the window into
-                        // nothing.
-                        SettingsGroupLabel {
-                            visible: app.trayAvailable
-                            text: Qt.platform.os === "osx" ? qsTr("Menu bar") : qsTr("System tray")
-                        }
-                        SettingsCard {
-                            visible: app.trayAvailable
-                            ColumnLayout {
-                                width: parent.width
-                                spacing: AppTheme.spacing8
-                                SettingsCheckBox {
-                                    palette.windowText: AppTheme.stormText
-                                    objectName: "closeToTrayCheck"
-                                    text: Qt.platform.os === "osx" ? qsTr("Show Lightning in the menu bar")
-                                                       : qsTr("Keep running in the tray when the window is closed")
-                                    // Without QtDBus (macOS) the tray icon IS the
-                                    // notification path, so while desktop
-                                    // notifications are on it cannot be removed.
-                                    readonly property bool iconForced:
-                                        Qt.platform.os === "osx"
-                                        && app.settings.notificationsEnabled
-                                    enabled: !iconForced
-                                    checked: iconForced || app.settings.closeToTray
-                                    onToggled: app.settings.closeToTray = checked
-                                    Accessible.description: iconForced
-                                        ? qsTr("Notifications need the menu bar icon")
-                                        : ""
-                                }
-                                SettingsCheckBox {
-                                    palette.windowText: AppTheme.stormText
-                                    objectName: "startInTrayCheck"
-                                    text: Qt.platform.os === "osx" ? qsTr("Start hidden in the menu bar")
-                                                       : qsTr("Start in the tray")
-                                    enabled: app.settings.closeToTray
-                                    checked: app.settings.startInTray
-                                    onToggled: app.settings.startInTray = checked
-                                    SettingsNeedsBadge { needs: qsTr("Keep running in the tray") }
-                                }
-                                Label {
-                                    Layout.fillWidth: true
-                                    Layout.leftMargin: AppTheme.spacing4
-                                    wrapMode: Text.WordWrap
-                                    lineHeight: AppTheme.lineHeightBody
-                                    lineHeightMode: Text.ProportionalHeight
-                                    color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.settingsHintSize
-                                    text: Qt.platform.os === "osx"
-                                          ? (app.settings.notificationsEnabled
-                                             ? qsTr("Notifications need the menu bar icon, so it stays "
-                                                    + "while desktop notifications are on. Closing the "
-                                                    + "window always hides it, and Lightning keeps "
-                                                    + "running. Click the icon to bring the window "
-                                                    + "back. Cmd+Q quits.")
-                                             : qsTr("Closing the window always hides it, and Lightning keeps "
-                                                    + "running. Click the menu bar icon to bring the "
-                                                    + "window back. Cmd+Q quits."))
-                                          : qsTr("Click the tray icon to bring the window "
-                                                 + "back. Ctrl+Q quits.")
-                                }
-                            }
-                        }
-
-                        SettingsCard {
-                            ColumnLayout {
-                                width: parent.width
-                                spacing: AppTheme.spacing8
-                                Label {
-                                    text: qsTr("Timeline")
-                                    color: AppTheme.stormTextSecondary
-                                    font.pixelSize: AppTheme.settingsOptionSize
-                                    font.weight: AppTheme.weightStrong
-                                }
-                                SettingsCheckBox {
-                                    palette.windowText: AppTheme.stormText
-                                    objectName: "showRoomActivityCheck"
-                                    text: qsTr("Show room activity")
-                                    checked: app.settings.showRoomActivity
-                                    onToggled: app.settings.showRoomActivity = checked
-                                    Accessible.description: qsTr(
-                                        "Show membership, profile, and room setting updates in timelines")
-                                }
-                                Label {
-                                    Layout.fillWidth: true
-                                    Layout.leftMargin: AppTheme.spacing4
-                                    wrapMode: Text.WordWrap
-                                    lineHeight: AppTheme.lineHeightBody
-                                    lineHeightMode: Text.ProportionalHeight
-                                    color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.settingsHintSize
-                                    text: qsTr("Hide routine joins, leaves, profile changes, "
-                                               + "and room setting updates. Messages and "
-                                               + "decryption warnings remain visible.")
-                                }
-                                // The two halves of "room activity", indented
-                                // and disabled with the master.
-                                SettingsCheckBox {
-                                    palette.windowText: AppTheme.stormText
-                                    objectName: "showMembershipEventsCheck"
-                                    Layout.leftMargin: AppTheme.spacing16
-                                    enabled: app.settings.showRoomActivity
-                                    text: qsTr("Joins, leaves and invites")
-                                    checked: app.settings.showMembershipEvents
-                                    onToggled: app.settings.showMembershipEvents = checked
-                                    Accessible.description: qsTr(
-                                        "Show membership changes in timelines")
-                                    SettingsNeedsBadge { needs: qsTr("Show room activity") }
-                                }
-                                SettingsCheckBox {
-                                    palette.windowText: AppTheme.stormText
-                                    objectName: "showProfileChangeEventsCheck"
-                                    Layout.leftMargin: AppTheme.spacing16
-                                    enabled: app.settings.showRoomActivity
-                                    text: qsTr("Display name and avatar changes")
-                                    checked: app.settings.showProfileChangeEvents
-                                    onToggled: app.settings.showProfileChangeEvents = checked
-                                    Accessible.description: qsTr(
-                                        "Show profile changes in timelines")
-                                    SettingsNeedsBadge { needs: qsTr("Show room activity") }
-                                }
-                                // In the Timeline card rather than Privacy: it
-                                // changes nothing fetched or sent, only
-                                // density.
-                                SettingsCheckBox {
-                                    palette.windowText: AppTheme.stormText
-                                    objectName: "collapseEmbedsCheck"
-                                    Layout.topMargin: AppTheme.spacing8
-                                    text: qsTr("Collapse media and link embeds")
-                                    checked: app.settings.collapseEmbeds
-                                    onToggled: app.settings.collapseEmbeds = checked
-                                    Accessible.description: qsTr(
-                                        "Show attachments and link previews as one line "
-                                        + "with an arrow that expands them")
-                                }
-                                Label {
-                                    objectName: "collapseEmbedsHint"
-                                    Layout.fillWidth: true
-                                    Layout.leftMargin: AppTheme.spacing4
-                                    wrapMode: Text.WordWrap
-                                    lineHeight: AppTheme.lineHeightBody
-                                    lineHeightMode: Text.ProportionalHeight
-                                    color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.settingsHintSize
-                                    // Names what it covers and what it does not
-                                    // (reply quotes stay).
-                                    text: qsTr("Pictures, GIFs, stickers, video, audio, "
-                                               + "voice messages, files and loaded link "
-                                               + "previews each become one line naming what "
-                                               + "they are. Click the arrow, or focus the "
-                                               + "line and press Enter, to show one. Reply "
-                                               + "quotes, thread cards, polls and shared "
-                                               + "places are not affected. A collapsed "
-                                               + "attachment is not downloaded until you "
-                                               + "expand it.")
-                                }
-                                Label {
-                                    Layout.topMargin: AppTheme.spacing8
-                                    text: qsTr("Mouse-wheel speed")
-                                    color: AppTheme.stormTextSecondary
-                                    font.pixelSize: AppTheme.settingsOptionSize
-                                }
-                                AppComboBox {
-                                    storm: true
-                                    id: wheelSpeedCombo
-                                    objectName: "timelineWheelSpeedCombo"
-                                    Layout.fillWidth: true
-                                    textRole: "label"
-                                    valueRole: "value"
-                                    // Values map to
-                                    // TimelineScrollController::WheelSpeed.
-                                    model: [
-                                        { label: qsTr("Standard"),  value: 0 },
-                                        { label: qsTr("Fast"),      value: 1 },
-                                        { label: qsTr("Very fast"), value: 2 }
-                                    ]
-                                    // indexOfValue() only resolves once the
-                                    // model is ready; sync on completion and on
-                                    // change.
-                                    function syncFromSetting() {
-                                        syncToValue(app.settings.timelineWheelSpeed)
-                                    }
-                                    Component.onCompleted: syncFromSetting()
-                                    Connections {
-                                        target: app.settings
-                                        function onTimelineWheelSpeedChanged() {
-                                            wheelSpeedCombo.syncFromSetting()
-                                        }
-                                    }
-                                    onActivated: app.settings.timelineWheelSpeed = currentValue
-                                    Accessible.description: qsTr(
-                                        "How far one physical mouse-wheel notch scrolls the timeline")
-                                }
-                                Label {
-                                    Layout.fillWidth: true
-                                    Layout.leftMargin: AppTheme.spacing4
-                                    wrapMode: Text.WordWrap
-                                    lineHeight: AppTheme.lineHeightBody
-                                    lineHeightMode: Text.ProportionalHeight
-                                    color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.settingsHintSize
-                                    text: qsTr("How far one physical mouse-wheel notch moves "
-                                               + "the timeline. Touchpad and precision scrolling "
-                                               + "stay fine-grained regardless of this setting.")
-                                }
-                                // Where a passive return to a conversation
-                                // lands. An explicit target (a link, a
-                                // notification, a search hit) always wins.
-                                Label {
-                                    Layout.topMargin: AppTheme.spacing8
-                                    text: qsTr("When returning to a conversation")
-                                    color: AppTheme.stormTextSecondary
-                                    font.pixelSize: AppTheme.settingsOptionSize
-                                }
-                                AppComboBox {
-                                    storm: true
-                                    id: returnModeCombo
-                                    objectName: "conversationReturnCombo"
-                                    Layout.fillWidth: true
-                                    textRole: "label"
-                                    valueRole: "value"
-                                    model: [
-                                        { label: qsTr("Previous position"), value: 0 },
-                                        { label: qsTr("Latest messages"), value: 1 },
-                                        { label: qsTr("Selected message when available"),
-                                          value: 2 }
-                                    ]
-                                    function syncFromSetting() {
-                                        syncToValue(app.settings.conversationReturnMode)
-                                    }
-                                    Component.onCompleted: syncFromSetting()
-                                    Connections {
-                                        target: app.settings
-                                        function onConversationReturnModeChanged() {
-                                            returnModeCombo.syncFromSetting()
-                                        }
-                                    }
-                                    onActivated: app.settings.conversationReturnMode = currentValue
-                                    Accessible.description: qsTr(
-                                        "Where a room opens when you come back to it")
-                                }
-                                Label {
-                                    objectName: "conversationReturnHint"
-                                    Layout.fillWidth: true
-                                    Layout.leftMargin: AppTheme.spacing4
-                                    wrapMode: Text.WordWrap
-                                    lineHeight: AppTheme.lineHeightBody
-                                    lineHeightMode: Text.ProportionalHeight
-                                    color: AppTheme.stormTextMuted
-                                    font.pixelSize: AppTheme.settingsHintSize
-                                    text: qsTr("Previous position puts you back where you were "
-                                               + "reading, or at the newest messages if you "
-                                               + "were following them. Selected message opens "
-                                               + "at the message you last selected with the "
-                                               + "keyboard, and otherwise at your previous "
-                                               + "position. Opening a link or a notification "
-                                               + "always goes to its message.")
-                                }
-                                SettingsCheckBox {
-                                    palette.windowText: AppTheme.stormText
-                                    objectName: "showSelectionOnReturnCheck"
-                                    text: qsTr("Show the message selection outline when returning")
-                                    checked: app.settings.showSelectionOnReturn
-                                    onToggled: app.settings.showSelectionOnReturn = checked
-                                    Accessible.description: qsTr(
-                                        "Outline the message you last selected without "
-                                        + "moving the keyboard focus")
-                                }
-                            }
-                        }
-
                         // Custom application icon: validated raster, normalized
                         // to a circle, applied immediately and restored at
                         // startup. Device-global.
@@ -4775,8 +4256,8 @@ Item {
 
                     }
 
-                    // ════════════ Appearance (continued: motion, time, panels,
-                    // composer) ════════════
+                    // ════════════ Appearance (continued: accessibility, motion
+                    // and time) ════════════
                     ColumnLayout {
                         visible: root.section === "appearance"
                         Layout.fillWidth: true
@@ -5005,6 +4486,378 @@ Item {
                             }
                         }
 
+                    }
+
+                    // ════════════ Layout ════════════ How the window is
+                    // arranged: the layout preset and the choices it sets, the
+                    // room list, the Spaces rail and the panels. It sat in
+                    // Appearance between the theme and the fonts, a heading
+                    // line above every control (settings-ia.md). Every
+                    // objectName is unchanged; a link to one under
+                    // "appearance" is redirected (sectionForAnchor).
+                    ColumnLayout {
+                        visible: root.section === "layout"
+                        Layout.fillWidth: true
+                        spacing: AppTheme.spacing12
+
+                        Label {
+                            text: qsTr("Layout")
+                            color: AppTheme.settingsHeading
+                            font.pixelSize: AppTheme.textTitle
+                            font.weight: AppTheme.weightBold
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            Layout.topMargin: -AppTheme.spacing8
+                            text: qsTr("How the window is arranged: messages and threads, "
+                                       + "the room list, the Spaces rail and the panels "
+                                       + "— per account.")
+                            color: AppTheme.settingsText
+                            font.pixelSize: AppTheme.settingsOptionSize
+                            wrapMode: Text.WordWrap
+                            lineHeight: AppTheme.lineHeightBody
+                            lineHeightMode: Text.ProportionalHeight
+                        }
+
+                        // A preset is a profile for the choices in this group
+                        // (message layout, spacing, where threads open):
+                        // switching back to Lightning restores them exactly,
+                        // and fonts, text size, colours and privacy are never
+                        // part of it. Each choice it set says so beside it
+                        // (PresetOriginLabel), right under the preset.
+                        SettingsGroupLabel {
+                            // The "Messages and threads" outline entry lands
+                            // here, above the preset.
+                            objectName: "layoutPresetHeading"
+                            text: qsTr("Messages and threads")
+                        }
+                        SettingsCard {
+                            ColumnLayout {
+                                width: parent.width
+                                spacing: AppTheme.spacing12
+                                SettingsChoiceRow {
+                                    label: qsTr("Layout preset")
+                                    SegmentedControl {
+                                        storm: true
+                                        objectName: "layoutPresetControl"
+                                        model: [
+                                            { label: qsTr("Lightning"), value: 0 },
+                                            { label: qsTr("Nheko compact"), value: 1 },
+                                        ]
+                                        current: app.settings.layoutPreset
+                                        onActivated: (value) =>
+                                            app.settings.layoutPreset = value
+                                        Accessible.description: layoutPresetHint.text
+                                    }
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: AppTheme.spacing8
+                                        Label {
+                                            id: layoutPresetHint
+                                            objectName: "layoutPresetHint"
+                                            // Our own words only, but the scan cannot tell
+                                            // a ternary of qsTr() from a remote string.
+                                            textFormat: Text.PlainText
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: AppTheme.spacing4
+                                            wrapMode: Text.WordWrap
+                                            lineHeight: AppTheme.lineHeightBody
+                                            lineHeightMode: Text.ProportionalHeight
+                                            color: AppTheme.stormTextMuted
+                                            font.pixelSize: AppTheme.settingsHintSize
+                                            text: app.settings.layoutPreset === 1
+                                                  ? (app.settings.layoutPresetCustomized
+                                                     ? qsTr("Nheko compact, customized. Your "
+                                                            + "Lightning layout is kept and "
+                                                            + "comes back when you switch.")
+                                                     : qsTr("Flat rows with a small avatar "
+                                                            + "above each sender's messages, "
+                                                            + "tight spacing, and threads in "
+                                                            + "the main view. Your fonts, text "
+                                                            + "size and colours are unchanged."))
+                                                  : qsTr("Lightning's own layout. Nheko "
+                                                         + "compact is a denser layout you can "
+                                                         + "switch back from at any time. A "
+                                                         + "preset sets the three choices just "
+                                                         + "below it; a choice it set says so.")
+                                        }
+                                        AppButton {
+                                            objectName: "layoutPresetResetButton"
+                                            storm: true
+                                            size: "sm"
+                                            visible: app.settings.layoutPreset === 1
+                                                     && app.settings.layoutPresetCustomized
+                                            text: qsTr("Reset preset")
+                                            Accessible.description: qsTr(
+                                                "Returns message layout, spacing and thread "
+                                                + "placement to the Nheko compact values. "
+                                                + "Nothing else changes.")
+                                            onClicked: app.settings.resetLayoutPresetOverrides()
+                                        }
+                                    }
+                                }
+                                SettingsChoiceRow {
+                                    label: qsTr("Message layout")
+                                    SegmentedControl {
+                                        storm: true
+                                        objectName: "messageLayoutControl"
+                                        model: [
+                                            { label: qsTr("Modern"), value: 0 },
+                                            { label: qsTr("Bubbles"), value: 1 },
+                                            { label: qsTr("Compact"), value: 2 },
+                                            { label: qsTr("Small avatars"), value: 3 },
+                                        ]
+                                        current: app.settings.messageLayout
+                                        onActivated: (value) =>
+                                            app.settings.messageLayout = value
+                                    }
+                                    PresetOriginLabel {
+                                        objectName: "messageLayoutPresetOrigin"
+                                        key: "messageLayout"
+                                    }
+                                    Label {
+                                        Layout.fillWidth: true
+                                        Layout.leftMargin: AppTheme.spacing4
+                                        wrapMode: Text.WordWrap
+                                        lineHeight: AppTheme.lineHeightBody
+                                        lineHeightMode: Text.ProportionalHeight
+                                        color: AppTheme.stormTextMuted
+                                        font.pixelSize: AppTheme.settingsHintSize
+                                        text: qsTr("Bubbles applies to direct messages; rooms keep "
+                                                   + "the Modern rows. Compact tightens every timeline. "
+                                                   + "Small avatars puts a small avatar beside each "
+                                                   + "sender's name, above their messages.")
+                                    }
+                                }
+                                SettingsChoiceRow {
+                                    label: qsTr("Message spacing")
+                                    SegmentedControl {
+                                        storm: true
+                                        objectName: "messageSpacingControl"
+                                        model: [
+                                            { label: qsTr("Compact"), value: 0 },
+                                            { label: qsTr("Cozy"), value: 1 },
+                                            { label: qsTr("Roomy"), value: 2 },
+                                        ]
+                                        current: app.settings.messageSpacing
+                                        onActivated: (value) =>
+                                            app.settings.messageSpacing = value
+                                        Accessible.description: qsTr(
+                                            "Space between messages and between senders")
+                                    }
+                                    PresetOriginLabel {
+                                        objectName: "messageSpacingPresetOrigin"
+                                        key: "messageSpacing"
+                                    }
+                                }
+                                SettingsChoiceRow {
+                                    label: qsTr("Threads open in")
+                                    SegmentedControl {
+                                        storm: true
+                                        objectName: "threadPlacementControl"
+                                        model: [
+                                            { label: qsTr("Main view"), value: 1 },
+                                            { label: qsTr("Side panel"), value: 0 },
+                                        ]
+                                        current: app.settings.threadPlacement
+                                        onActivated: (value) =>
+                                            app.settings.threadPlacement = value
+                                    }
+                                    PresetOriginLabel {
+                                        objectName: "threadPlacementPresetOrigin"
+                                        key: "threadPlacement"
+                                    }
+                                    Label {
+                                        Layout.fillWidth: true
+                                        Layout.leftMargin: AppTheme.spacing4
+                                        wrapMode: Text.WordWrap
+                                        lineHeight: AppTheme.lineHeightBody
+                                        lineHeightMode: Text.ProportionalHeight
+                                        color: AppTheme.stormTextMuted
+                                        font.pixelSize: AppTheme.textMeta
+                                        text: qsTr("Where an opened thread is shown: in place of "
+                                                   + "the room, with Back to return, or beside it. "
+                                                   + "Either way it loads the thread's whole "
+                                                   + "history and keeps its own draft.")
+                                    }
+                                }
+                                SettingsChoiceRow {
+                                    label: qsTr("Thread style")
+                                    SegmentedControl {
+                                        storm: true
+                                        objectName: "threadStyleControl"
+                                        model: [
+                                            { label: qsTr("Thread panel"), value: 0 },
+                                            { label: qsTr("Inline"), value: 1 },
+                                        ]
+                                        current: app.settings.threadStyle
+                                        onActivated: (value) =>
+                                            app.settings.threadStyle = value
+                                    }
+                                    Label {
+                                        Layout.fillWidth: true
+                                        Layout.leftMargin: AppTheme.spacing4
+                                        wrapMode: Text.WordWrap
+                                        lineHeight: AppTheme.lineHeightBody
+                                        lineHeightMode: Text.ProportionalHeight
+                                        color: AppTheme.stormTextMuted
+                                        font.pixelSize: AppTheme.textMeta
+                                        text: qsTr("Thread panel keeps thread replies out of the "
+                                                   + "room, like Element. Inline keeps them in the "
+                                                   + "room in time order with a thread tag, like "
+                                                   + "Nheko; click a tag to open that thread.")
+                                    }
+                                }
+                            }
+                        }
+
+                        SettingsGroupLabel {
+                            objectName: "roomListLayoutHeading"
+                            text: qsTr("Room list and panels")
+                        }
+                        SettingsCard {
+                            ColumnLayout {
+                                width: parent.width
+                                spacing: AppTheme.spacing12
+                                SettingsChoiceRow {
+                                    label: qsTr("Conversation list")
+                                    RowLayout {
+                                        objectName: "roomNavigationLayoutCards"
+                                        Layout.fillWidth: true
+                                        spacing: AppTheme.spacing12
+
+                                        NavigationLayoutCard {
+                                            objectName: "navLayoutClassicCard"
+                                            Layout.fillWidth: true
+                                            compact: true
+                                            variant: "classic"
+                                            title: qsTr("Classic")
+                                            subtitle: qsTr("One list, most recent first, "
+                                                           + "with message previews.")
+                                            current: app.settings.roomNavigationLayout === 0
+                                            onClicked: app.settings.roomNavigationLayout = 0
+                                        }
+                                        NavigationLayoutCard {
+                                            objectName: "navLayoutChannelsCard"
+                                            Layout.fillWidth: true
+                                            compact: true
+                                            variant: "channels"
+                                            title: qsTr("Channels")
+                                            subtitle: qsTr("Every space as a collapsible "
+                                                           + "folder of its rooms.")
+                                            current: app.settings.roomNavigationLayout === 1
+                                            onClicked: app.settings.roomNavigationLayout = 1
+                                        }
+                                    }
+                                    Label {
+                                        Layout.fillWidth: true
+                                        Layout.leftMargin: AppTheme.spacing4
+                                        wrapMode: Text.WordWrap
+                                        lineHeight: AppTheme.lineHeightBody
+                                        lineHeightMode: Text.ProportionalHeight
+                                        color: AppTheme.stormTextMuted
+                                        font.pixelSize: AppTheme.settingsHintSize
+                                        // Describes what the layout is.
+                                        text: qsTr("Channels lists every space you are in as "
+                                                   + "a folder, with the rooms it contains "
+                                                   + "underneath. Rooms in no space, and your "
+                                                   + "direct messages, stay together in Rooms.")
+                                    }
+                                }
+                            }
+                        }
+                        // Panel visibility, mirroring Ctrl+B / Ctrl+Shift+B so
+                        // a panel hidden by shortcut can be found again here.
+                        SettingsCard {
+                            ColumnLayout {
+                                width: parent.width
+                                spacing: AppTheme.spacing8
+                                SettingsCheckBox {
+                                    palette.windowText: AppTheme.stormText
+                                    objectName: "showSpacesRailCheck"
+                                    text: qsTr("Show the Spaces rail (Ctrl+Shift+B)")
+                                    checked: app.settings.spacesRailVisible
+                                    onToggled: app.settings.spacesRailVisible = checked
+                                    Accessible.description: qsTr(
+                                        "Show the narrow strip of Spaces down the far edge")
+                                }
+                                SettingsCheckBox {
+                                    palette.windowText: AppTheme.stormText
+                                    objectName: "showRoomListCheck"
+                                    text: qsTr("Show the room list (Ctrl+B)")
+                                    checked: app.settings.roomListVisible
+                                    onToggled: app.settings.roomListVisible = checked
+                                    Accessible.description: qsTr(
+                                        "Show the column of rooms and people")
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: AppTheme.spacing4
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.settingsHintSize
+                                    text: qsTr("Drag the line between two panels to "
+                                               + "resize them. Widths are remembered.")
+                                }
+
+                                // How the Spaces rail shows nesting, next to
+                                // the rail's own settings. Enabled only while
+                                // the rail is shown.
+                                Label {
+                                    objectName: "spacesRailDepthLabel"
+                                    Layout.topMargin: AppTheme.spacing4
+                                    Layout.leftMargin: AppTheme.spacing4
+                                    text: qsTr("Spaces rail depth")
+                                    color: AppTheme.stormText
+                                    font.family: AppTheme.uiFont
+                                    font.pixelSize: AppTheme.settingsHintSize
+                                    font.weight: AppTheme.weightStrong
+                                }
+                                SegmentedControl {
+                                    storm: true
+                                    objectName: "spacesRailDepthControl"
+                                    // Align the ink, not the box: a segment's
+                                    // first glyph sits 12px inside its edge
+                                    // (SegmentedControl pads its text by 12),
+                                    // so pull the box back by that.
+                                    // theRailDepthControlLinesUpWithItsOwnLabel
+                                    // checks real ink positions.
+                                    Layout.leftMargin: AppTheme.spacing4 - 12
+                                    enabled: app.settings.spacesRailVisible
+                                    opacity: enabled ? 1.0 : 0.5
+                                    model: [
+                                        { label: qsTr("Regions"), value: 0 },
+                                        { label: qsTr("Classic"), value: 1 },
+                                    ]
+                                    current: app.settings.spacesRailDepthStyle
+                                    onActivated: (value) =>
+                                        app.settings.spacesRailDepthStyle = value
+                                    Accessible.description: qsTr(
+                                        "Choose how the Spaces rail shows which "
+                                        + "Space contains which")
+                                    SettingsNeedsBadge {
+                                        needs: qsTr("Show the Spaces rail")
+                                    }
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: AppTheme.spacing4
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.settingsHintSize
+                                    text: qsTr("Regions tint the rail behind a Space "
+                                               + "and everything inside it. Classic is "
+                                               + "the flat rail from earlier versions, "
+                                               + "where a nested Space steps in instead. "
+                                               + "Both show the same Spaces.")
+                                }
+                            }
+                        }
+
                         SettingsCard {
                             ColumnLayout {
                                 width: parent.width
@@ -5111,6 +4964,306 @@ Item {
                                     value: app.settings.sidePanelWidth
                                     onMoved: app.settings.sidePanelWidth = Math.round(value)
                                     Accessible.name: qsTr("Side panel width")
+                                }
+                            }
+                        }
+
+                        // System tray. Hidden where the platform has none,
+                        // since "close to tray" would close the window into
+                        // nothing.
+                        SettingsGroupLabel {
+                            visible: app.trayAvailable
+                            text: Qt.platform.os === "osx" ? qsTr("Menu bar") : qsTr("System tray")
+                        }
+                        SettingsCard {
+                            visible: app.trayAvailable
+                            ColumnLayout {
+                                width: parent.width
+                                spacing: AppTheme.spacing8
+                                SettingsCheckBox {
+                                    palette.windowText: AppTheme.stormText
+                                    objectName: "closeToTrayCheck"
+                                    text: Qt.platform.os === "osx" ? qsTr("Show Lightning in the menu bar")
+                                                       : qsTr("Keep running in the tray when the window is closed")
+                                    // Without QtDBus (macOS) the tray icon IS the
+                                    // notification path, so while desktop
+                                    // notifications are on it cannot be removed.
+                                    readonly property bool iconForced:
+                                        Qt.platform.os === "osx"
+                                        && app.settings.notificationsEnabled
+                                    enabled: !iconForced
+                                    checked: iconForced || app.settings.closeToTray
+                                    onToggled: app.settings.closeToTray = checked
+                                    Accessible.description: iconForced
+                                        ? qsTr("Notifications need the menu bar icon")
+                                        : ""
+                                }
+                                SettingsCheckBox {
+                                    palette.windowText: AppTheme.stormText
+                                    objectName: "startInTrayCheck"
+                                    text: Qt.platform.os === "osx" ? qsTr("Start hidden in the menu bar")
+                                                       : qsTr("Start in the tray")
+                                    enabled: app.settings.closeToTray
+                                    checked: app.settings.startInTray
+                                    onToggled: app.settings.startInTray = checked
+                                    SettingsNeedsBadge { needs: qsTr("Keep running in the tray") }
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: AppTheme.spacing4
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.settingsHintSize
+                                    text: Qt.platform.os === "osx"
+                                          ? (app.settings.notificationsEnabled
+                                             ? qsTr("Notifications need the menu bar icon, so it stays "
+                                                    + "while desktop notifications are on. Closing the "
+                                                    + "window always hides it, and Lightning keeps "
+                                                    + "running. Click the icon to bring the window "
+                                                    + "back. Cmd+Q quits.")
+                                             : qsTr("Closing the window always hides it, and Lightning keeps "
+                                                    + "running. Click the menu bar icon to bring the "
+                                                    + "window back. Cmd+Q quits."))
+                                          : qsTr("Click the tray icon to bring the window "
+                                                 + "back. Ctrl+Q quits.")
+                                }
+                            }
+                        }
+
+                    }
+
+                    // ════════════ Chat ════════════ What a room shows and how
+                    // you write in it: the timeline, the message box and emoji
+                    // and sticker packs. Moved out of Appearance unchanged
+                    // (settings-ia.md); links redirect (sectionForAnchor).
+                    ColumnLayout {
+                        visible: root.section === "chat"
+                        Layout.fillWidth: true
+                        spacing: AppTheme.spacing12
+
+                        Label {
+                            text: qsTr("Chat")
+                            color: AppTheme.settingsHeading
+                            font.pixelSize: AppTheme.textTitle
+                            font.weight: AppTheme.weightBold
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            Layout.topMargin: -AppTheme.spacing8
+                            text: qsTr("What a room shows, and how you write in it "
+                                       + "— per account.")
+                            color: AppTheme.settingsText
+                            font.pixelSize: AppTheme.settingsOptionSize
+                            wrapMode: Text.WordWrap
+                            lineHeight: AppTheme.lineHeightBody
+                            lineHeightMode: Text.ProportionalHeight
+                        }
+
+                        SettingsCard {
+                            ColumnLayout {
+                                width: parent.width
+                                spacing: AppTheme.spacing8
+                                Label {
+                                    text: qsTr("Timeline")
+                                    color: AppTheme.stormTextSecondary
+                                    font.pixelSize: AppTheme.settingsOptionSize
+                                    font.weight: AppTheme.weightStrong
+                                }
+                                SettingsCheckBox {
+                                    palette.windowText: AppTheme.stormText
+                                    objectName: "showRoomActivityCheck"
+                                    text: qsTr("Show room activity")
+                                    checked: app.settings.showRoomActivity
+                                    onToggled: app.settings.showRoomActivity = checked
+                                    Accessible.description: qsTr(
+                                        "Show membership, profile, and room setting updates in timelines")
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: AppTheme.spacing4
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.settingsHintSize
+                                    text: qsTr("Hide routine joins, leaves, profile changes, "
+                                               + "and room setting updates. Messages and "
+                                               + "decryption warnings remain visible.")
+                                }
+                                // The two halves of "room activity", indented
+                                // and disabled with the master.
+                                SettingsCheckBox {
+                                    palette.windowText: AppTheme.stormText
+                                    objectName: "showMembershipEventsCheck"
+                                    Layout.leftMargin: AppTheme.spacing16
+                                    enabled: app.settings.showRoomActivity
+                                    text: qsTr("Joins, leaves and invites")
+                                    checked: app.settings.showMembershipEvents
+                                    onToggled: app.settings.showMembershipEvents = checked
+                                    Accessible.description: qsTr(
+                                        "Show membership changes in timelines")
+                                    SettingsNeedsBadge { needs: qsTr("Show room activity") }
+                                }
+                                SettingsCheckBox {
+                                    palette.windowText: AppTheme.stormText
+                                    objectName: "showProfileChangeEventsCheck"
+                                    Layout.leftMargin: AppTheme.spacing16
+                                    enabled: app.settings.showRoomActivity
+                                    text: qsTr("Display name and avatar changes")
+                                    checked: app.settings.showProfileChangeEvents
+                                    onToggled: app.settings.showProfileChangeEvents = checked
+                                    Accessible.description: qsTr(
+                                        "Show profile changes in timelines")
+                                    SettingsNeedsBadge { needs: qsTr("Show room activity") }
+                                }
+                                // In the Timeline card rather than Privacy: it
+                                // changes nothing fetched or sent, only
+                                // density.
+                                SettingsCheckBox {
+                                    palette.windowText: AppTheme.stormText
+                                    objectName: "collapseEmbedsCheck"
+                                    Layout.topMargin: AppTheme.spacing8
+                                    text: qsTr("Collapse media and link embeds")
+                                    checked: app.settings.collapseEmbeds
+                                    onToggled: app.settings.collapseEmbeds = checked
+                                    Accessible.description: qsTr(
+                                        "Show attachments and link previews as one line "
+                                        + "with an arrow that expands them")
+                                }
+                                Label {
+                                    objectName: "collapseEmbedsHint"
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: AppTheme.spacing4
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.settingsHintSize
+                                    // Names what it covers and what it does not
+                                    // (reply quotes stay).
+                                    text: qsTr("Pictures, GIFs, stickers, video, audio, "
+                                               + "voice messages, files and loaded link "
+                                               + "previews each become one line naming what "
+                                               + "they are. Click the arrow, or focus the "
+                                               + "line and press Enter, to show one. Reply "
+                                               + "quotes, thread cards, polls and shared "
+                                               + "places are not affected. A collapsed "
+                                               + "attachment is not downloaded until you "
+                                               + "expand it.")
+                                }
+                                Label {
+                                    Layout.topMargin: AppTheme.spacing8
+                                    text: qsTr("Mouse-wheel speed")
+                                    color: AppTheme.stormTextSecondary
+                                    font.pixelSize: AppTheme.settingsOptionSize
+                                }
+                                AppComboBox {
+                                    storm: true
+                                    id: wheelSpeedCombo
+                                    objectName: "timelineWheelSpeedCombo"
+                                    Layout.fillWidth: true
+                                    textRole: "label"
+                                    valueRole: "value"
+                                    // Values map to
+                                    // TimelineScrollController::WheelSpeed.
+                                    model: [
+                                        { label: qsTr("Standard"),  value: 0 },
+                                        { label: qsTr("Fast"),      value: 1 },
+                                        { label: qsTr("Very fast"), value: 2 }
+                                    ]
+                                    // indexOfValue() only resolves once the
+                                    // model is ready; sync on completion and on
+                                    // change.
+                                    function syncFromSetting() {
+                                        syncToValue(app.settings.timelineWheelSpeed)
+                                    }
+                                    Component.onCompleted: syncFromSetting()
+                                    Connections {
+                                        target: app.settings
+                                        function onTimelineWheelSpeedChanged() {
+                                            wheelSpeedCombo.syncFromSetting()
+                                        }
+                                    }
+                                    onActivated: app.settings.timelineWheelSpeed = currentValue
+                                    Accessible.description: qsTr(
+                                        "How far one physical mouse-wheel notch scrolls the timeline")
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: AppTheme.spacing4
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.settingsHintSize
+                                    text: qsTr("How far one physical mouse-wheel notch moves "
+                                               + "the timeline. Touchpad and precision scrolling "
+                                               + "stay fine-grained regardless of this setting.")
+                                }
+                                // Where a passive return to a conversation
+                                // lands. An explicit target (a link, a
+                                // notification, a search hit) always wins.
+                                Label {
+                                    Layout.topMargin: AppTheme.spacing8
+                                    text: qsTr("When returning to a conversation")
+                                    color: AppTheme.stormTextSecondary
+                                    font.pixelSize: AppTheme.settingsOptionSize
+                                }
+                                AppComboBox {
+                                    storm: true
+                                    id: returnModeCombo
+                                    objectName: "conversationReturnCombo"
+                                    Layout.fillWidth: true
+                                    textRole: "label"
+                                    valueRole: "value"
+                                    model: [
+                                        { label: qsTr("Previous position"), value: 0 },
+                                        { label: qsTr("Latest messages"), value: 1 },
+                                        { label: qsTr("Selected message when available"),
+                                          value: 2 }
+                                    ]
+                                    function syncFromSetting() {
+                                        syncToValue(app.settings.conversationReturnMode)
+                                    }
+                                    Component.onCompleted: syncFromSetting()
+                                    Connections {
+                                        target: app.settings
+                                        function onConversationReturnModeChanged() {
+                                            returnModeCombo.syncFromSetting()
+                                        }
+                                    }
+                                    onActivated: app.settings.conversationReturnMode = currentValue
+                                    Accessible.description: qsTr(
+                                        "Where a room opens when you come back to it")
+                                }
+                                Label {
+                                    objectName: "conversationReturnHint"
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: AppTheme.spacing4
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.settingsHintSize
+                                    text: qsTr("Previous position puts you back where you were "
+                                               + "reading, or at the newest messages if you "
+                                               + "were following them. Selected message opens "
+                                               + "at the message you last selected with the "
+                                               + "keyboard, and otherwise at your previous "
+                                               + "position. Opening a link or a notification "
+                                               + "always goes to its message.")
+                                }
+                                SettingsCheckBox {
+                                    palette.windowText: AppTheme.stormText
+                                    objectName: "showSelectionOnReturnCheck"
+                                    text: qsTr("Show the message selection outline when returning")
+                                    checked: app.settings.showSelectionOnReturn
+                                    onToggled: app.settings.showSelectionOnReturn = checked
+                                    Accessible.description: qsTr(
+                                        "Outline the message you last selected without "
+                                        + "moving the keyboard focus")
                                 }
                             }
                         }
