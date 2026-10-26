@@ -500,6 +500,32 @@ private:
     // is a plain http URL there, so image rows make Qt fail to resolve
     // `mock.local`. Pinned to that host so a fixture reaching a real host still
     // fails.
+    // Every input to the pane's row-hover suspension, for failure messages:
+    // a hover that never arrives must say whether hover was suspended and by
+    // what, or whether it was free and simply not delivered.
+    static QString rowHoverState(QQuickItem *timeline, QObject *rowHover)
+    {
+        QQuickItem *root = timeline;
+        while (auto *parent = qobject_cast<QQuickItem *>(root->parent()))
+            root = parent;
+        auto *scroller = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineMiddleClickScroller"));
+        return QStringLiteral(
+                   "suspended=%1 motion=%2 moving=%3 wheel=%4 barHeld=%5 "
+                   "autoscroll=%6 handlerEnabled=%7 hovered=%8 key='%9' "
+                   "exposed=%10")
+            .arg(timeline->property("rowHoverSuspended").toBool())
+            .arg(timeline->property("viewportMotionActive").toBool())
+            .arg(timeline->property("moving").toBool())
+            .arg(timeline->property("wheelAnimating").toBool())
+            .arg(timeline->property("scrollBarHeld").toBool())
+            .arg(scroller ? scroller->property("active").toBool() : false)
+            .arg(rowHover ? rowHover->property("enabled").toBool() : false)
+            .arg(rowHover ? rowHover->property("hovered").toBool() : false)
+            .arg(timeline->property("hoveredActionsKey").toString())
+            .arg(timeline->window() && timeline->window()->isExposed());
+    }
+
     static QStringList realWarnings(const QStringList &warnings)
     {
         QStringList out;
@@ -10217,10 +10243,19 @@ private Q_SLOTS:
             QStringLiteral("messageRowHover"));
         QVERIFY2(rowHover != nullptr, "the row has no messageRowHover handler");
 
-        // Premise: idle, the row under the pointer is hovered and owns the bar.
+        // Premise: idle (no suspension), the row under the pointer is hovered
+        // and owns the bar.
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            !timeline->property("rowHoverSuspended").toBool(),
+            qPrintable(QStringLiteral("row hover stayed suspended at idle: ")
+                       + rowHoverState(timeline, rowHover)),
+            kSignalTimeoutMs);
         QTest::mouseMove(&window, at);
-        QTRY_COMPARE_WITH_TIMEOUT(
-            timeline->property("hoveredActionsKey").toString(), actionKey,
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            timeline->property("hoveredActionsKey").toString() == actionKey,
+            qPrintable(QStringLiteral("idle hover did not reach %1: ")
+                           .arg(actionKey)
+                       + rowHoverState(timeline, rowHover)),
             2000);
         QVERIFY(rowHover->property("hovered").toBool());
 
@@ -10265,8 +10300,12 @@ private Q_SLOTS:
             underPointer->property("actionKey").toString();
         QVERIFY2(!keyUnder.isEmpty(),
                  "premise: the row under the pointer has no action bar");
-        QTRY_COMPARE_WITH_TIMEOUT(
-            timeline->property("hoveredActionsKey").toString(), keyUnder,
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            timeline->property("hoveredActionsKey").toString() == keyUnder,
+            qPrintable(QStringLiteral("hover did not return to %1 after the "
+                                      "glide: ")
+                           .arg(keyUnder)
+                       + rowHoverState(timeline, rowHover)),
             2000);
     }
 
@@ -10312,10 +10351,25 @@ private Q_SLOTS:
             return !messageRow->property("menuEventId").toString().isEmpty();
         };
 
-        // Idle, the row gets hover.
+        // Idle, the row gets hover. Idle means row hover is not suspended:
+        // the pane's own settle after load can still be moving the view, and
+        // hover is withheld while it does (TimelinePane rowHoverSuspended).
+        // A suspension that never clears at idle is a defect, so this waits
+        // for it rather than for the hover alone.
+        auto *rowHover = messageRow->findChild<QObject *>(
+            QStringLiteral("messageRowHover"));
+        QVERIFY2(rowHover != nullptr, "the row has no messageRowHover handler");
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            !timeline->property("rowHoverSuspended").toBool(),
+            qPrintable(QStringLiteral("row hover stayed suspended at idle: ")
+                       + rowHoverState(timeline, rowHover)),
+            kSignalTimeoutMs);
         QTest::mouseMove(&window, at);
-        QTRY_COMPARE_WITH_TIMEOUT(
-            timeline->property("hoveredActionsKey").toString(), actionKey,
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            timeline->property("hoveredActionsKey").toString() == actionKey,
+            qPrintable(QStringLiteral("idle hover did not reach %1: ")
+                           .arg(actionKey)
+                       + rowHoverState(timeline, rowHover)),
             2000);
 
         // Latched, a left click ends it.
