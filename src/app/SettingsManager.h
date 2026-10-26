@@ -1606,6 +1606,10 @@ private:
     // Whether threadPlacement is an explicit choice rather than derived. A
     // helper of the setter, not a property: nothing binds to it.
     bool threadPlacementIsExplicit() const;
+    // Device-local pane widths, kept per layout preset (see paneWidthKey).
+    QString paneWidthKey(const char *key) const;
+    QVariant paneWidthValue(const char *key, int fallback) const;
+    void announcePaneWidthsIfMoved(int roomList, int rail, int sidePanel);
     // The same per-account storage, for reads and writes that are NOT a
     // notifying property of their own (the threadPlacement setter's
     // explicit-choice test, and settings sync's view of the Lightning layout

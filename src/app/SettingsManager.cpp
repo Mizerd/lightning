@@ -733,6 +733,10 @@ void SettingsManager::setActiveAccountUserId(const QString &userId)
     Q_EMIT threadStyleChanged();
     Q_EMIT threadPlacementChanged();
     Q_EMIT layoutPresetChanged();
+    // Pane widths follow the account's preset (paneWidthKey).
+    Q_EMIT roomListWidthChanged();
+    Q_EMIT spacesRailWidthChanged();
+    Q_EMIT sidePanelWidthChanged();
     Q_EMIT smoothScrollingChanged();
     Q_EMIT conversationReturnModeChanged();
     Q_EMIT showSelectionOnReturnChanged();
@@ -1899,8 +1903,12 @@ void SettingsManager::setLayoutPreset(int preset)
     const int layoutBefore = messageLayout();
     const int spacingBefore = messageSpacing();
     const int placementBefore = threadPlacement();
+    const int roomListBefore = roomListWidth();
+    const int railBefore = spacesRailWidth();
+    const int sidePanelBefore = sidePanelWidth();
     setAppearanceValue(kLayoutPreset, preset);
     Q_EMIT layoutPresetChanged();
+    announcePaneWidthsIfMoved(roomListBefore, railBefore, sidePanelBefore);
     if (messageLayout() != layoutBefore)
         Q_EMIT messageLayoutChanged();
     if (messageSpacing() != spacingBefore)
@@ -1964,6 +1972,17 @@ QVariant SettingsManager::lightningPresentationValue(
         return threadStyle() == kThreadStyleInline ? kThreadPlacementMain
                                                    : kThreadPlacementSide;
     }
+    // Pane widths: the Lightning preset's (device-local) width.
+    if (property == QLatin1String("roomListWidth"))
+        return std::clamp(m_store->value(kRoomListWidth, 300).toInt(),
+                          kRoomListMinWidth, kRoomListMaxWidth);
+    if (property == QLatin1String("spacesRailWidth"))
+        return std::clamp(m_store->value(kSpacesRailWidth,
+                                         kSpacesRailMinWidth).toInt(),
+                          kSpacesRailMinWidth, kSpacesRailMaxWidth);
+    if (property == QLatin1String("sidePanelWidth"))
+        return std::clamp(m_store->value(kSidePanelWidth, 320).toInt(),
+                          kSidePanelMinWidth, kSidePanelMaxWidth);
     return {};
 }
 
@@ -1982,6 +2001,18 @@ bool SettingsManager::setLightningPresentationValue(const QString &property,
         }
         if (property == QLatin1String("threadPlacement")) {
             setThreadPlacement(value.toInt());
+            return true;
+        }
+        if (property == QLatin1String("roomListWidth")) {
+            setRoomListWidth(value.toInt());
+            return true;
+        }
+        if (property == QLatin1String("spacesRailWidth")) {
+            setSpacesRailWidth(value.toInt());
+            return true;
+        }
+        if (property == QLatin1String("sidePanelWidth")) {
+            setSidePanelWidth(value.toInt());
             return true;
         }
         return false;
@@ -2006,6 +2037,24 @@ bool SettingsManager::setLightningPresentationValue(const QString &property,
         const int placement = value.toInt() == kThreadPlacementMain
             ? kThreadPlacementMain : kThreadPlacementSide;
         setAppearanceValueUnannounced(kThreadPlacement, placement);
+        return true;
+    }
+    if (property == QLatin1String("roomListWidth")) {
+        m_store->setValue(kRoomListWidth,
+                          std::clamp(value.toInt(), kRoomListMinWidth,
+                                     kRoomListMaxWidth));
+        return true;
+    }
+    if (property == QLatin1String("spacesRailWidth")) {
+        m_store->setValue(kSpacesRailWidth,
+                          std::clamp(value.toInt(), kSpacesRailMinWidth,
+                                     kSpacesRailMaxWidth));
+        return true;
+    }
+    if (property == QLatin1String("sidePanelWidth")) {
+        m_store->setValue(kSidePanelWidth,
+                          std::clamp(value.toInt(), kSidePanelMinWidth,
+                                     kSidePanelMaxWidth));
         return true;
     }
     return false;
@@ -3595,10 +3644,38 @@ void SettingsManager::setMemberPanelOpen(bool v)
     Q_EMIT memberPanelOpenChanged();
 }
 
+QString SettingsManager::paneWidthKey(const char *key) const
+{
+    // Pane widths are device-local and remembered PER LAYOUT PRESET: a width
+    // dragged under Nheko compact is that preset's, and the Lightning width
+    // comes back with the Lightning preset. A preset with no width of its own
+    // yet starts from the Lightning one (see paneWidthValue).
+    if (layoutPreset() == kLayoutPresetNhekoCompact)
+        return QStringLiteral("nhekoCompactWidths/") + QLatin1String(key);
+    return QLatin1String(key);
+}
+
+QVariant SettingsManager::paneWidthValue(const char *key, int fallback) const
+{
+    const QVariant lightning = m_store->value(QLatin1String(key), fallback);
+    return m_store->value(paneWidthKey(key), lightning);
+}
+
+void SettingsManager::announcePaneWidthsIfMoved(int roomList, int rail,
+                                                int sidePanel)
+{
+    if (roomListWidth() != roomList)
+        Q_EMIT roomListWidthChanged();
+    if (spacesRailWidth() != rail)
+        Q_EMIT spacesRailWidthChanged();
+    if (sidePanelWidth() != sidePanel)
+        Q_EMIT sidePanelWidthChanged();
+}
+
 int SettingsManager::roomListWidth() const
 {
     // Clamped on read: a hand-edited value must not break the layout.
-    const int stored = m_store->value(kRoomListWidth, 300).toInt();
+    const int stored = paneWidthValue(kRoomListWidth, 300).toInt();
     return std::clamp(stored, kRoomListMinWidth, kRoomListMaxWidth);
 }
 
@@ -3607,7 +3684,7 @@ void SettingsManager::setRoomListWidth(int px)
     const int clamped = std::clamp(px, kRoomListMinWidth, kRoomListMaxWidth);
     if (roomListWidth() == clamped)
         return;
-    m_store->setValue(kRoomListWidth, clamped);
+    m_store->setValue(paneWidthKey(kRoomListWidth), clamped);
     Q_EMIT roomListWidthChanged();
 }
 
@@ -3692,7 +3769,7 @@ void SettingsManager::setDownloadFolder(const QString &path)
 int SettingsManager::spacesRailWidth() const
 {
     // Defaults to the minimum. Clamped on read like roomListWidth.
-    const int stored = m_store->value(kSpacesRailWidth,
+    const int stored = paneWidthValue(kSpacesRailWidth,
                                       kSpacesRailMinWidth).toInt();
     return std::clamp(stored, kSpacesRailMinWidth, kSpacesRailMaxWidth);
 }
@@ -3703,7 +3780,7 @@ void SettingsManager::setSpacesRailWidth(int px)
         std::clamp(px, kSpacesRailMinWidth, kSpacesRailMaxWidth);
     if (spacesRailWidth() == clamped)
         return;
-    m_store->setValue(kSpacesRailWidth, clamped);
+    m_store->setValue(paneWidthKey(kSpacesRailWidth), clamped);
     Q_EMIT spacesRailWidthChanged();
 }
 
@@ -3730,7 +3807,7 @@ void SettingsManager::setSpacesRailDepthStyle(int style)
 
 int SettingsManager::sidePanelWidth() const
 {
-    const int stored = m_store->value(kSidePanelWidth, 320).toInt();
+    const int stored = paneWidthValue(kSidePanelWidth, 320).toInt();
     return std::clamp(stored, kSidePanelMinWidth, kSidePanelMaxWidth);
 }
 
@@ -3739,7 +3816,7 @@ void SettingsManager::setSidePanelWidth(int px)
     const int clamped = std::clamp(px, kSidePanelMinWidth, kSidePanelMaxWidth);
     if (sidePanelWidth() == clamped)
         return;
-    m_store->setValue(kSidePanelWidth, clamped);
+    m_store->setValue(paneWidthKey(kSidePanelWidth), clamped);
     Q_EMIT sidePanelWidthChanged();
 }
 

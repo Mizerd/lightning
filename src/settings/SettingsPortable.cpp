@@ -218,7 +218,8 @@ QStringList writeProperties(QObject *object, const QVariantMap &values)
 QStringList presentationKeys()
 {
     return { QStringLiteral("messageLayout"), QStringLiteral("messageSpacing"),
-             QStringLiteral("threadPlacement") };
+             QStringLiteral("threadPlacement"), QStringLiteral("roomListWidth"),
+             QStringLiteral("spacesRailWidth"), QStringLiteral("sidePanelWidth") };
 }
 
 QVariantMap readSettings(const SettingsManager *settings, int flag)

@@ -70,7 +70,8 @@ QStringList writeProperties(QObject *object, const QVariantMap &values);
 
 // The same for a SettingsManager, with the layout preset kept LOCAL: the
 // presentation keys a preset can supply (messageLayout, messageSpacing,
-// threadPlacement) are read and written as the stored LIGHTNING configuration,
+// threadPlacement, and the per-preset pane widths) are read and written as the
+// stored LIGHTNING configuration,
 // never as the values the selected preset answers. layoutPreset itself travels
 // as an ordinary field. Settings sync, export, the import preview and the
 // import (and its rollback) all go through these, so a file exported or a

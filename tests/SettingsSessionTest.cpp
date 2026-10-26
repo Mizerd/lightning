@@ -127,6 +127,7 @@ private Q_SLOTS:
     void messageLayoutAndTextScalePersistAndClamp();
     void layoutPresetIsAReversibleProfile();
     void layoutPresetIsPerAccount();
+    void paneWidthsAreRememberedPerLayoutPreset();
     void accessibilityAndSpacingSettingsPersistAndFallBack();
     void interfaceZoomAndRoomFilterPersistAndClamp();
     void textRenderingRoundTripsAndUnknownValuesFallBack();
@@ -1390,6 +1391,32 @@ void SettingsSessionTest::layoutPresetIsAReversibleProfile()
     reopened.setLayoutPreset(0);
     QCOMPARE(reopened.messageLayout(), 1);
     QCOMPARE(reopened.messageSpacing(), SettingsManager::kSpacingRoomy);
+}
+
+// A pane width dragged under Nheko compact belongs to that preset: the
+// Lightning widths come back with Lightning, a preset with no width of its own
+// starts from the Lightning one, and export carries the Lightning widths.
+void SettingsSessionTest::paneWidthsAreRememberedPerLayoutPreset()
+{
+    SettingsManager settings;
+    settings.setRoomListWidth(360);
+    settings.setSidePanelWidth(400);
+    settings.setLayoutPreset(SettingsManager::kLayoutPresetNhekoCompact);
+    QCOMPARE(settings.roomListWidth(), 360);
+    QSignalSpy listSpy(&settings, &SettingsManager::roomListWidthChanged);
+    settings.setRoomListWidth(240);
+    QCOMPARE(settings.roomListWidth(), 240);
+    QCOMPARE(listSpy.count(), 1);
+    QCOMPARE(settings.lightningPresentationValue(
+                 QStringLiteral("roomListWidth")).toInt(), 360);
+    settings.setLayoutPreset(SettingsManager::kLayoutPresetLightning);
+    QCOMPARE(settings.roomListWidth(), 360);
+    QCOMPARE(settings.sidePanelWidth(), 400);
+    QCOMPARE(listSpy.count(), 2);
+    settings.setLayoutPreset(SettingsManager::kLayoutPresetNhekoCompact);
+    QCOMPARE(settings.roomListWidth(), 240);
+    QCOMPARE(settings.sidePanelWidth(), 400);
+    settings.setLayoutPreset(SettingsManager::kLayoutPresetLightning);
 }
 
 void SettingsSessionTest::layoutPresetIsPerAccount()
