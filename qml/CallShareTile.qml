@@ -404,6 +404,12 @@ Item {
                 snapMode: Slider.SnapAlways
                 Accessible.name: qsTr("Screen share volume")
                 onMoved: root.applyShareVolume(value)
+                // One write on release; the live effect follows every step.
+                onPressedChanged: if (app.settings.holdWritesWhileDragging)
+                    app.settings.holdWritesWhileDragging(pressed)
+                Component.onDestruction: if (pressed
+                        && app.settings.holdWritesWhileDragging)
+                    app.settings.holdWritesWhileDragging(false)
                 background: Rectangle {
                     x: shareVolumeSlider.leftPadding
                     y: shareVolumeSlider.topPadding

@@ -202,6 +202,12 @@ ColumnLayout {
             // `onMoved`, not `onValueChanged`, which also fires for values from
             // the store and would write them straight back.
             onMoved: app.settings.microphoneGain = Math.round(value)
+            // One write on release; the live effect follows every step.
+            onPressedChanged: if (app.settings.holdWritesWhileDragging)
+                app.settings.holdWritesWhileDragging(pressed)
+            Component.onDestruction: if (pressed
+                    && app.settings.holdWritesWhileDragging)
+                app.settings.holdWritesWhileDragging(false)
             // Home/End/Page/Up/Down as every slider answers them; the Slider
             // itself takes Left/Right only. The setting is written, never
             // `value`, so the binding above survives.

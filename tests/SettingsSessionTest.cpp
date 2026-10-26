@@ -93,7 +93,7 @@ class SettingsSessionTest : public QObject
 private Q_SLOTS:
     void initTestCase();
     void init();
-    void aParticipantVolumeReachesTheDiskImmediately();
+    void aParticipantVolumeIsWrittenOnceWhenTheSliderIsReleased();
     void writesAreGatheredIntoOneThrottledFlush();
     void aPendingWriteReachesTheDiskOnDestruction();
     void anUnchangedValueDoesNotDirtyTheSettingsFile();
@@ -225,11 +225,20 @@ void SettingsSessionTest::init()
     settings.sync();
 }
 
-// A participant volume reaches the settings file immediately (explicit
-// sync()): QSettings writes lazily, and calls are when the client is least
-// likely to exit cleanly. Asserted against the file, since reading back
+namespace {
+QByteArray settingsFileBytes(const QString &path)
+{
+    QFile file(path);
+    return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray();
+}
+}
+
+// A call volume is written when its slider is RELEASED, once, and never
+// mid-drag: the live effect follows every step (the changed signal fires), but
+// the disk is touched on release. Decision recorded 2026-10-26 (Rokas),
+// replacing "every step syncs". Asserted against the file, since reading back
 // through QSettings would be answered from its cache.
-void SettingsSessionTest::aParticipantVolumeReachesTheDiskImmediately()
+void SettingsSessionTest::aParticipantVolumeIsWrittenOnceWhenTheSliderIsReleased()
 {
     FakeSecretStore secrets;
     SettingsManager settings;
@@ -238,32 +247,42 @@ void SettingsSessionTest::aParticipantVolumeReachesTheDiskImmediately()
     settings.saveSession(QStringLiteral("https://matrix.example"), me,
                          QStringLiteral("ALICEDEVICE"),
                          QStringLiteral("alice-token-fixture"));
-
-    QFile file(QSettings().fileName());   // path resolved BEFORE the write
-
-    const QString other = QStringLiteral("@bob:matrix.example");
-    settings.setCallParticipantVolume(other, 47);
-    QCOMPARE(settings.callParticipantVolume(other), 47);
+    settings.flushPendingWrites();
 
     // Resolve the path before the write: constructing a QSettings syncs the
     // shared per-path QConfFile, so asking afterwards would flush the very
     // write under test.
-    QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(file.fileName()));
-    const QString onDisk = QString::fromUtf8(file.readAll());
-    // The value, under the right account, not merely the group name.
+    const QString path = QSettings().fileName();
+    const QString other = QStringLiteral("@bob:matrix.example");
+    QSignalSpy live(&settings, &SettingsManager::callParticipantVolumeChanged);
+
+    settings.holdWritesWhileDragging(true);
+    for (int step = 40; step <= 47; ++step)
+        settings.setCallParticipantVolume(other, step);
+    settings.setCallShareVolume(other, 150);
+    // Past the throttle's delay, still held: nothing on disk mid-drag.
+    QTest::qWait(SettingsManager::kFlushDelayMs + 300);
+    QCOMPARE(live.count(), 8);   // every step reached the live audio
+    QCOMPARE(settings.callParticipantVolume(other), 47);
+    QVERIFY2(!QString::fromUtf8(settingsFileBytes(path))
+                  .contains(QStringLiteral("callVolumes")),
+             "a volume reached the disk in the middle of a drag");
+
+    settings.holdWritesWhileDragging(false);   // release
+    const QString onDisk = QString::fromUtf8(settingsFileBytes(path));
     QVERIFY2(onDisk.contains(QStringLiteral("=47")),
-             qPrintable(QStringLiteral("volume not on disk; file said:\n%1")
-                            .arg(onDisk)));
+             qPrintable(QStringLiteral("volume not on disk after release; "
+                                       "file said:\n%1").arg(onDisk)));
     QVERIFY(onDisk.contains(QStringLiteral("callVolumes")));
+    QVERIFY(onDisk.contains(QStringLiteral("=150")));
+    QVERIFY(!settings.hasUnflushedWrites());
+
+    // A hold nobody releases (a popup destroyed mid-drag) lets go by itself.
+    settings.holdWritesWhileDragging(true);
+    QVERIFY(settings.writesHeld());
 }
 
 namespace {
-QByteArray settingsFileBytes(const QString &path)
-{
-    QFile file(path);
-    return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray();
-}
-
 // Lets a posted QSettings update request reach the manager's filter, then
 // writes it, so the next assertion starts from a file with nothing pending.
 void settle(SettingsManager &settings)

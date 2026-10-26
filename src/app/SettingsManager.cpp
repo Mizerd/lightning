@@ -264,6 +264,10 @@ SettingsManager::SettingsManager(QObject *parent)
     m_flushTimer.setTimerType(Qt::CoarseTimer);
     connect(&m_flushTimer, &QTimer::timeout, this,
             [this] { m_store->sync(); });
+    m_holdTimer.setSingleShot(true);
+    m_holdTimer.setInterval(kDragHoldMaxMs);
+    connect(&m_holdTimer, &QTimer::timeout, this,
+            [this] { holdWritesWhileDragging(false); });
     m_store->installEventFilter(this);
     if (QCoreApplication *app = QCoreApplication::instance()) {
         connect(app, &QCoreApplication::aboutToQuit, this,
@@ -343,12 +347,29 @@ void SettingsManager::flushPendingWrites()
     m_store->sync();
 }
 
+void SettingsManager::holdWritesWhileDragging(bool held)
+{
+    if (held == m_writesHeld)
+        return;
+    m_writesHeld = held;
+    if (held) {
+        // Nothing is written mid-drag, not even what the timer was already
+        // waiting to write.
+        m_flushTimer.stop();
+        m_holdTimer.start();
+        return;
+    }
+    m_holdTimer.stop();
+    flushPendingWrites();
+}
+
 bool SettingsManager::eventFilter(QObject *watched, QEvent *event)
 {
     if (watched == m_store.get() && event->type() == QEvent::UpdateRequest) {
         // QSettings keeps the change pending (and posts no further request)
         // until the timer's sync() clears it.
-        if (!m_flushTimer.isActive())
+        // Held while a slider is being dragged: the release writes once.
+        if (!m_writesHeld && !m_flushTimer.isActive())
             m_flushTimer.start();
         return true;
     }
@@ -1654,8 +1675,8 @@ void SettingsManager::setCallParticipantVolume(const QString &userId,
     } else {
         m_store->setValue(key, clamped);
     }
-    // Flush: calls are when the client is least likely to exit cleanly.
-    m_store->sync();
+    // Written when the slider is released (holdWritesWhileDragging) or by the
+    // throttled flush, never once per step of a drag.
     Q_EMIT callParticipantVolumeChanged(userId, clamped);
 }
 
@@ -1685,8 +1706,7 @@ void SettingsManager::setCallShareVolume(const QString &userId, int percent)
         m_store->remove(key);
     else
         m_store->setValue(key, clamped);
-    // Flush: calls are when the client is least likely to exit cleanly.
-    m_store->sync();
+    // As setCallParticipantVolume(): one write on release.
     Q_EMIT callShareVolumeChanged(userId, clamped);
 }
 

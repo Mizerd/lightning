@@ -256,6 +256,12 @@ AppMenu {
                 // values arriving from the store and would write them straight
                 // back.
                 onMoved: app.settings.microphoneGain = Math.round(value)
+                // One write on release; the live effect follows every step.
+                onPressedChanged: if (app.settings.holdWritesWhileDragging)
+                    app.settings.holdWritesWhileDragging(pressed)
+                Component.onDestruction: if (pressed
+                        && app.settings.holdWritesWhileDragging)
+                    app.settings.holdWritesWhileDragging(false)
 
                 background: Rectangle {
                     x: micGain.leftPadding

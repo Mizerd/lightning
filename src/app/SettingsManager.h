@@ -631,6 +631,15 @@ public:
     bool hasUnflushedWrites() const { return m_flushTimer.isActive(); }
     // Write any pending change now.
     void flushPendingWrites();
+    // A slider drag in progress (call volumes, microphone gain). While held
+    // nothing reaches the disk, however many steps the drag takes; releasing
+    // writes ONE batch. The live effect of each step is not delayed: the
+    // setters emit their change signals as before. A hold that is never
+    // released (a popup destroyed under the pointer) lets go after
+    // kDragHoldMaxMs.
+    Q_INVOKABLE void holdWritesWhileDragging(bool held);
+    bool writesHeld() const { return m_writesHeld; }
+    static constexpr int kDragHoldMaxMs = 30000;
 
     bool eventFilter(QObject *watched, QEvent *event) override;
 
@@ -1705,6 +1714,8 @@ private:
     // Declared after m_store, so it is destroyed first and ~QSettings then
     // writes whatever the throttle still held.
     QTimer m_flushTimer;
+    QTimer m_holdTimer;
+    bool m_writesHeld = false;
     SecretStore *m_secretStore = nullptr; // not owned; lifetime = process
     // Captured once in the constructor; see the CONSTANT properties.
     QRect m_initialWindowGeometry;

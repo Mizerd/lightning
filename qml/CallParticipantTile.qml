@@ -740,6 +740,12 @@ Item {
                 // back on every open, recording the default the store
                 // deliberately omits.
                 onMoved: root.applyVolumePercent(value)
+                // One write on release; the live effect follows every step.
+                onPressedChanged: if (app.settings.holdWritesWhileDragging)
+                    app.settings.holdWritesWhileDragging(pressed)
+                Component.onDestruction: if (pressed
+                        && app.settings.holdWritesWhileDragging)
+                    app.settings.holdWritesWhileDragging(false)
 
                 background: Rectangle {
                     x: volumeSlider.leftPadding
