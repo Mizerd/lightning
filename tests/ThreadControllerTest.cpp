@@ -10,6 +10,7 @@
 #include "models/TimelineModel.h"
 #include "threads/ThreadController.h"
 #include "threads/ThreadManager.h"
+#include "crypto/E2eeDiagnostics.h"
 
 #include <QBuffer>
 #include <QDir>
@@ -29,6 +30,17 @@ constexpr int kSignalTimeoutMs = 2000;
 const QString kGeneral = QStringLiteral("!general:mock.local");
 const QString kDevs = QStringLiteral("!devs:mock.local");
 const QString kDm = QStringLiteral("!dm-bob:mock.local");
+QStringList *threadTraceLines = nullptr;
+QtMessageHandler priorThreadMessageHandler = nullptr;
+void captureThreadTrace(QtMsgType type, const QMessageLogContext &context,
+                        const QString &message)
+{
+    if (threadTraceLines && type == QtInfoMsg
+        && qstrcmp(context.category, "matrix.thread") == 0)
+        threadTraceLines->append(message);
+    else if (priorThreadMessageHandler)
+        priorThreadMessageHandler(type, context, message);
+}
 } // namespace
 
 /// A mock that accepts a thread voice message and reports how it ended only
@@ -114,6 +126,50 @@ private:
     }
 
 private Q_SLOTS:
+    void optInTraceDistinguishesFailureAndStaleResultsWithoutContent()
+    {
+        QStringList lines;
+        threadTraceLines = &lines;
+        priorThreadMessageHandler = qInstallMessageHandler(captureThreadTrace);
+        const auto restore = qScopeGuard([&] {
+            qInstallMessageHandler(priorThreadMessageHandler);
+            priorThreadMessageHandler = nullptr;
+            threadTraceLines = nullptr;
+            qunsetenv("LIGHTNING_THREAD_TRACE");
+        });
+
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        const QString root = firstThreadRootId(client, kGeneral);
+        QVERIFY(!root.isEmpty());
+        ThreadController ordinary;
+        ordinary.setClient(&client);
+        ordinary.openThread(kGeneral, root);
+        QVERIFY(lines.isEmpty());
+
+        qputenv("LIGHTNING_THREAD_TRACE", "1");
+        ThreadController traced;
+        traced.setClient(&client);
+        traced.openThread(kGeneral, root);
+        traced.tracePresentation(1, true, false, 420, 620, 137);
+        Q_EMIT client.threadTimelineFailed(kDevs, root,
+                                           QStringLiteral("private error /tmp/secret"));
+        Q_EMIT client.threadTimelineFailed(kGeneral, root,
+                                           QStringLiteral("network"));
+        const QString log = lines.join(QLatin1Char('\n'));
+        QVERIFY(log.contains(QStringLiteral("reason=stale_failure")));
+        QVERIFY(log.contains(QStringLiteral("reason=session_failed")));
+        QVERIFY(log.contains(QStringLiteral("generation=1")));
+        QVERIFY(log.contains(QStringLiteral("receipt_scope=thread")));
+        QVERIFY(log.contains(QStringLiteral(
+            "thread_layout generation=1 preset=1 placement=main visible=false viewport=420x620 content_y=137")));
+        QVERIFY(log.contains(matrix::e2ee::redactId(kGeneral)));
+        QVERIFY(log.contains(matrix::e2ee::redactId(root)));
+        QVERIFY(!log.contains(kGeneral));
+        QVERIFY(!log.contains(root));
+        QVERIFY(!log.contains(QStringLiteral("private error")));
+        QVERIFY(!log.contains(QStringLiteral("/tmp/secret")));
+    }
     void theRoomThreadUnreadHintFollowsTheOpenRoomAndClearsOnThreadRead()
     {
         MockMatrixClient client;

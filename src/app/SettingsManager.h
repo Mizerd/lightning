@@ -1019,9 +1019,10 @@ public:
     static constexpr int kRoomListExpandedMinWidth = 212;
     static constexpr int kRoomListSnapThreshold = 156;
     static constexpr int kRoomListMaxWidth = 560;
-    // Rail floor: a 40px tile with 14px margins. The ceiling limits how much
-    // indentation a nested Space tree can use.
+    // Lightning rail floor; compact has a separate floor for its 32px tile
+    // and 15px gutter. The ceiling limits drag width in both presets.
     static constexpr int kSpacesRailMinWidth = 68;
+    static constexpr int kCompactSpacesRailMinWidth = 62;
     static constexpr int kSpacesRailMaxWidth = 260;
     /// Rail depth styles. Clamped on read too: an unknown value (hand-edited,
     /// or from a newer build) must land on a style this build can draw.

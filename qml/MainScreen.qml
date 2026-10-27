@@ -734,7 +734,8 @@ Item {
             // storable at any scale).
             SplitView.preferredWidth: app.settings.spacesRailWidth
             SplitView.minimumWidth:
-                Math.max(app.settings.spacesRailMinWidth,
+                Math.max(AppTheme.compactDensity ? 62
+                                                 : app.settings.spacesRailMinWidth,
                          spacesRail.minRailWidth)
             SplitView.maximumWidth:
                 Math.min(app.settings.spacesRailMaxWidth,

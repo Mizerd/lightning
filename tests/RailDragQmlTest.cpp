@@ -43,6 +43,7 @@
 #include <QTemporaryDir>
 
 #include "app/AppController.h"
+#include "app/SettingsManager.h"
 #include "auth/AuthManager.h"
 #include "matrix/MatrixClient.h"
 #include "spaces/RailEntryModel.h"
@@ -298,6 +299,97 @@ private:
     }
 
 private slots:
+    void compactDensityKeepsEveryRailChildInsideItsBand()
+    {
+        const int originalPreset = m_controller->settings()->layoutPreset();
+        const QSizeF originalSize = m_rail->size();
+        const auto restore = qScopeGuard([&] {
+            m_controller->settings()->setLayoutPreset(originalPreset);
+            m_rail->setSize(originalSize);
+            entries()->setSources(m_spaces, store());
+            QCoreApplication::processEvents();
+        });
+        m_controller->settings()->setLayoutPreset(
+            SettingsManager::kLayoutPresetNhekoCompact);
+        m_rail->setSize(QSizeF(66, 700));
+
+        RailFakeClient nested;
+        RoomInfo parent = joinedSpace(QStringLiteral("!compact-parent:example.org"),
+                                      QStringLiteral("Parent"));
+        parent.childRoomIds = { QStringLiteral("!compact-child:example.org") };
+        RoomInfo child = joinedSpace(QStringLiteral("!compact-child:example.org"),
+                                     QStringLiteral("Child"));
+        child.childRoomIds = { QStringLiteral("!compact-room:example.org") };
+        nested.roomList = { parent, child,
+                            joinedRoom(QStringLiteral("!compact-room:example.org"),
+                                       QStringLiteral("Room")) };
+        SpaceManager nestedSpaces;
+        nestedSpaces.setClient(&nested);
+        store()->setSpaceExpanded(parent.id, true);
+        entries()->setSources(&nestedSpaces, store());
+        QCoreApplication::processEvents();
+        QTest::qWait(180);
+
+        QCOMPARE(m_rail->property("railTileSize").toInt(), 36);
+        QCOMPARE(m_rail->property("rowPad").toInt(), 2);
+        QVERIFY(m_rail->property("normalRowBand").toInt() < 48);
+        int rowsChecked = 0;
+        int regionsChecked = 0;
+        for (const QString &id : { parent.id, child.id }) {
+            QQuickItem *row = delegateFor(id);
+            QVERIFY2(row, qPrintable(QStringLiteral("missing %1").arg(id)));
+            for (const QString &name : {
+                     QStringLiteral("railSpaceTile"),
+                     QStringLiteral("railSpaceExpandPlate"),
+                     QStringLiteral("railSpaceActiveRing"),
+                     QStringLiteral("railSpaceFocusRing"),
+                     QStringLiteral("railSpaceDropRing"),
+                     QStringLiteral("railMentionBadge"),
+                     QStringLiteral("railUnreadDot") }) {
+                QQuickItem *item = descendantNamed(row, name);
+                if (!item || !item->isVisible())
+                    continue;
+                const QPointF at = item->mapToItem(row, QPointF(0, 0));
+                QVERIFY2(at.x() >= -0.5 && at.y() >= -0.5
+                             && at.x() + item->width() <= row->width() + 0.5
+                             && at.y() + item->height() <= row->height() + 0.5,
+                         qPrintable(QStringLiteral("%1 escapes %2's compact band")
+                                        .arg(name, id)));
+                ++rowsChecked;
+            }
+            QQuickItem *glyph = descendantNamed(
+                row, QStringLiteral("railSpaceExpandGlyph"));
+            if (glyph && glyph->isVisible()) {
+                const QPointF at = glyph->mapToItem(row, QPointF(0, 0));
+                const qreal inkWidth = m_rail->property("chevronInkWidth").toReal();
+                const qreal inkLeft = at.x() + (glyph->width() - inkWidth) / 2;
+                QVERIFY(inkLeft >= -0.5);
+                QVERIFY(inkLeft + inkWidth <= row->width() + 0.5);
+                QVERIFY(at.y() >= -0.5);
+                QVERIFY(at.y() + glyph->height() <= row->height() + 0.5);
+                ++rowsChecked;
+            }
+            QList<QQuickItem *> regions;
+            collectDescendantsNamed(row, QStringLiteral("railGroupField"),
+                                    regions);
+            if (regions.isEmpty())
+                continue;
+            QQuickItem *tile = descendantNamed(row, QStringLiteral("railSpaceTile"));
+            QVERIFY(tile);
+            QQuickItem *band = regions.last();
+            const QPointF tileAt = tile->mapToItem(row, QPointF(0, 0));
+            const QPointF bandAt = band->mapToItem(row, QPointF(0, 0));
+            QVERIFY(tileAt.x() >= bandAt.x() - 0.5);
+            QVERIFY(tileAt.y() >= bandAt.y() - 0.5);
+            QVERIFY(tileAt.x() + tile->width()
+                    <= bandAt.x() + band->width() + 0.5);
+            QVERIFY(tileAt.y() + tile->height()
+                    <= bandAt.y() + band->height() + 0.5);
+            ++regionsChecked;
+        }
+        QVERIFY(rowsChecked >= 3);
+        QVERIFY(regionsChecked >= 1);
+    }
     void initTestCase()
     {
         QVERIFY(m_configHome.isValid());

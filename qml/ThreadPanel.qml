@@ -40,6 +40,22 @@ Rectangle {
     // Threads open in: Main view) rather than beside the room. Presentation
     // only: the thread session, draft and scroll position are the same.
     property bool inMainView: false
+    function traceLayout() {
+        if (!replyList || !app.thread || !app.thread.traceEnabled
+            || !app.settings)
+            return
+        app.thread.tracePresentation(app.settings.layoutPreset, inMainView,
+                                     visible, Math.round(replyList.width),
+                                     Math.round(replyList.height),
+                                     Math.round(replyList.contentY))
+    }
+    onVisibleChanged: traceLayout()
+    onInMainViewChanged: traceLayout()
+    Timer {
+        id: layoutTraceDebounce
+        interval: 200
+        onTriggered: panel.traceLayout()
+    }
     // Media entry points supplied by TimelinePane.
     property var openImage: function(mediaKey, httpUrl) {}
     // (mediaKey, filename, mimetype, ask): ask = "Save as…", otherwise
@@ -146,6 +162,7 @@ Rectangle {
     Connections {
         target: app.thread
         function onStateChanged() {
+            panel.traceLayout()
             panel.refreshRoot()
             // A thread switch/close abandons any open mention popup.
             threadMentionPopup.tokenActive = false
@@ -268,7 +285,11 @@ Rectangle {
             replyList.positionAtNavigationRow(row)
         }
     }
-    Component.onCompleted: { refreshRoot(); refreshPanelRoom() }
+    Component.onCompleted: {
+        refreshRoot()
+        refreshPanelRoom()
+        traceLayout()
+    }
 
     ColumnLayout {
         anchors.fill: parent
@@ -920,6 +941,10 @@ Rectangle {
             ListView {
                 id: replyList
                 objectName: "threadReplyList"
+                onWidthChanged: if (app.thread.traceEnabled)
+                                    layoutTraceDebounce.restart()
+                onHeightChanged: if (app.thread.traceEnabled)
+                                     layoutTraceDebounce.restart()
                 anchors.fill: parent
                 visible: app.thread.state === ThreadController.Ready
                 clip: true

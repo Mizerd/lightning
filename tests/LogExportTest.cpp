@@ -235,6 +235,21 @@ private Q_SLOTS:
         QVERIFY(lx::maskMatrixId(id, "s").startsWith(QLatin1Char('!')));
     }
 
+    void threadTraceCategorySurvivesExportWithoutPaths()
+    {
+        const QString line = QStringLiteral(
+            "2026-10-27T10:00:00.000Z info matrix.thread: "
+            "thread_diag reason=session_failed generation=3 "
+            "room=!deadbeef root=$cafe1234 loaded_rows=7 "
+            "receipt_scope=thread path=/home/alice/private/thread.txt");
+        const QString out = sanitize(line, opts("report-salt"));
+        QVERIFY(out.contains(QStringLiteral("matrix.thread: thread_diag")));
+        QVERIFY(out.contains(QStringLiteral("reason=session_failed")));
+        QVERIFY(out.contains(QStringLiteral("receipt_scope=thread")));
+        QVERIFY(!out.contains(QStringLiteral("/home/alice")));
+        QVERIFY(!out.contains(QStringLiteral("thread.txt")));
+    }
+
     void filesystemPathsAndLocalpartsAreRemoved()
     {
         const QString line = QStringLiteral(

@@ -1542,15 +1542,19 @@ void SettingsSessionTest::layoutPresetIsAReversibleProfile()
 }
 
 // A pane width dragged under Nheko compact belongs to that preset: the
-// Lightning widths come back with Lightning, a preset with no width of its own
-// starts from the Lightning one, and export carries the Lightning widths.
+// Lightning widths come back with Lightning. Compact starts with its own rail
+// width so its smaller tiles do not sit in an otherwise empty 68 px column.
 void SettingsSessionTest::paneWidthsAreRememberedPerLayoutPreset()
 {
     SettingsManager settings;
+    QCOMPARE(settings.spacesRailWidth(), 68);
     settings.setRoomListWidth(360);
     settings.setRoomListExpandedWidth(360);
     settings.setSidePanelWidth(400);
     settings.setLayoutPreset(SettingsManager::kLayoutPresetNhekoCompact);
+    QCOMPARE(settings.spacesRailWidth(), 66);
+    settings.setSpacesRailWidth(62);
+    QCOMPARE(settings.spacesRailWidth(), 62);
     QCOMPARE(settings.roomListWidth(), 360);
     QSignalSpy listSpy(&settings, &SettingsManager::roomListWidthChanged);
     settings.setRoomListWidth(240);
@@ -1563,11 +1567,13 @@ void SettingsSessionTest::paneWidthsAreRememberedPerLayoutPreset()
     QCOMPARE(settings.lightningPresentationValue(
                  QStringLiteral("roomListWidth")).toInt(), 360);
     settings.setLayoutPreset(SettingsManager::kLayoutPresetLightning);
+    QCOMPARE(settings.spacesRailWidth(), 68);
     QCOMPARE(settings.roomListWidth(), 360);
     QCOMPARE(settings.roomListExpandedWidth(), 360);
     QCOMPARE(settings.sidePanelWidth(), 400);
     QCOMPARE(listSpy.count(), 3);
     settings.setLayoutPreset(SettingsManager::kLayoutPresetNhekoCompact);
+    QCOMPARE(settings.spacesRailWidth(), 62);
     QCOMPARE(settings.roomListWidth(), 64);
     QCOMPARE(settings.roomListExpandedWidth(), 240);
     QCOMPARE(settings.sidePanelWidth(), 400);
@@ -1577,6 +1583,7 @@ void SettingsSessionTest::paneWidthsAreRememberedPerLayoutPreset()
     QCOMPARE(reopened.roomListWidth(), 360);
     QCOMPARE(reopened.roomListExpandedWidth(), 360);
     reopened.setLayoutPreset(SettingsManager::kLayoutPresetNhekoCompact);
+    QCOMPARE(reopened.spacesRailWidth(), 62);
     QCOMPARE(reopened.roomListWidth(), 64);
     QCOMPARE(reopened.roomListExpandedWidth(), 240);
 }

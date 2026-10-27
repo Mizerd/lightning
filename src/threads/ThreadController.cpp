@@ -6,6 +6,7 @@
 #include "media/ImageMetadata.h"
 #include "matrix/MatrixClient.h"
 #include "models/UserLookup.h"
+#include "crypto/E2eeDiagnostics.h"
 
 #include <QBuffer>
 #include <QClipboard>
@@ -13,6 +14,7 @@
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QImage>
+#include <QLoggingCategory>
 #include <QMimeData>
 
 #include <algorithm>
@@ -21,12 +23,14 @@ namespace {
 // Clipboard images beyond this edge are scaled down before encoding, as in
 // the room composer, to bound allocation and upload size.
 constexpr int kMaxPasteEdge = 4096;
+Q_LOGGING_CATEGORY(lcThread, "matrix.thread")
 }
 
 ThreadController::ThreadController(QObject *parent)
     : QObject(parent)
     , m_attachments(new AttachmentQueueModel(this))
 {
+    m_traceEnabled = qEnvironmentVariableIsSet("LIGHTNING_THREAD_TRACE");
     connect(m_attachments, &AttachmentQueueModel::countChanged, this,
             [this] { Q_EMIT attachmentsChanged(); });
     // A video queued before its poster decoded dispatches once the poster
@@ -224,8 +228,11 @@ void ThreadController::setClient(MatrixClient *client)
                 [this](const QString &timelineId) {
                     // Only the requested thread's reset promotes to Ready;
                     // composite-id identity is the staleness gate.
-                    if (timelineId != this->timelineId())
+                    if (timelineId != this->timelineId()) {
+                        if (m_state != Closed)
+                            traceState("stale_reset");
                         return;
+                    }
                     if (m_state == Opening)
                         setState(Ready);
                     // A reset replaces the loaded replies with whatever the
@@ -239,6 +246,8 @@ void ThreadController::setClient(MatrixClient *client)
                     if (m_state != Closed && roomId == m_roomId
                         && rootEventId == m_rootEventId)
                         setState(Failed, category);
+                    else if (m_state != Closed)
+                        traceState("stale_failure");
                 });
         connect(m_client, &MatrixClient::threadSubscriptionState, this,
                 [this](const QString &roomId, const QString &rootEventId,
@@ -319,6 +328,7 @@ void ThreadController::setClient(MatrixClient *client)
                         return;
                     const PendingThreadRead done = it.value();
                     m_pendingThreadReads.erase(it);
+                    traceState("receipt_ack");
                     Q_EMIT threadReadSent(done.roomId, done.rootId,
                                           done.timestampMs);
                 });
@@ -330,6 +340,7 @@ void ThreadController::setClient(MatrixClient *client)
                         return;
                     const PendingThreadRead failed = it.value();
                     m_pendingThreadReads.erase(it);
+                    traceState("receipt_failed");
                     // The reply it covered must be retried by the next
                     // markRead(), not deduplicated away for good.
                     if (failed.roomId == m_roomId && failed.rootId == m_rootEventId
@@ -368,6 +379,7 @@ void ThreadController::openThread(const QString &roomId,
     saveDraftNow();
 
     stopHistoryFill();
+    ++m_traceGeneration;
     m_roomId = roomId;
     m_rootEventId = rootEventId;
     m_failureCategory.clear();
@@ -408,6 +420,8 @@ void ThreadController::close()
     saveDraftNow();
     stopHistoryFill();
     const bool wasActive = m_state != Closed;
+    if (wasActive)
+        traceState("close_requested");
     if (m_client && wasActive)
         m_client->closeThread();
     m_roomId.clear();
@@ -1173,17 +1187,23 @@ void ThreadController::syncViewerAtLatest()
 
 void ThreadController::markRead()
 {
-    if (!m_client || m_state != Ready)
+    if (!m_client || m_state != Ready) {
+        traceState("receipt_not_ready");
         return;
+    }
     // Only what the reader is looking at: a panel left open behind another
     // window, minimised or in the tray, or scrolled up, reads nothing. The
     // room timeline holds the same line (ReadReceiptCoordinator).
-    if (!viewerAtLatest())
+    if (!viewerAtLatest()) {
+        traceState("receipt_view_hidden_or_old");
         return;
+    }
     // A notification is moving the reader to a particular reply; the newest
     // one is not what they are being shown.
-    if (!m_pendingNavigationEventId.isEmpty() || !m_navigationEventId.isEmpty())
+    if (!m_pendingNavigationEventId.isEmpty() || !m_navigationEventId.isEmpty()) {
+        traceState("receipt_navigation_pending");
         return;
+    }
     qint64 latestMs = 0;
     const QString latest = m_model.latestReadableEventId(&latestMs);
     if (latest.isEmpty() || latest == m_lastMarkedReadEventId)
@@ -1195,6 +1215,7 @@ void ThreadController::markRead()
     const quint64 opId = m_nextThreadReadId++;
     m_pendingThreadReads.insert(
         opId, {m_roomId, m_rootEventId, latest, latestMs});
+    traceState("receipt_pending_ack");
     m_client->markThreadRead(m_roomId, m_rootEventId, opId);
 }
 
@@ -1319,6 +1340,8 @@ void ThreadController::continueHistoryFill()
     // A reply search paginates for itself; the fill must not spend its pages.
     if (!m_client || m_state != Ready || !m_navigationEventId.isEmpty()
         || m_model.rowForStableId(m_rootEventId) >= 0) {
+        traceState(m_model.rowForStableId(m_rootEventId) >= 0
+                       ? "root_loaded" : "fill_paused");
         stopHistoryFill();
         return;
     }
@@ -1326,10 +1349,13 @@ void ThreadController::continueHistoryFill()
     if (m_client->paginating(id))
         return;   // ride the batch in flight; its completion edge continues
     if (m_fillBatches >= m_maxFillBatches || !m_client->canPaginate(id)) {
+        traceState(m_fillBatches >= m_maxFillBatches
+                       ? "fill_limit" : "history_exhausted");
         stopHistoryFill();
         return;
     }
     ++m_fillBatches;
+    traceState("page_requested");
     m_model.requestOlder();
     // Re-read so the busy -> idle edge above can be recognised.
     m_modelPaginating = m_client->paginating(id);
@@ -1451,6 +1477,7 @@ void ThreadController::setState(State state, const QString &failureCategory)
         return;
     m_state = state;
     m_failureCategory = failureCategory;
+    traceState(state == Failed ? "session_failed" : "state_changed");
     Q_EMIT stateChanged();
     bool landed = false;
     if (!m_pendingNavigationEventId.isEmpty()) {
@@ -1497,4 +1524,41 @@ void ThreadController::openThreadAt(const QString &roomId,
     m_pendingNavigationEventId = eventId;
     m_pendingNavigationRoomId = roomId;
     m_pendingNavigationRootEventId = rootEventId;
+}
+
+void ThreadController::traceState(const char *reason) const
+{
+    if (!m_traceEnabled)
+        return;
+    // Every variable is selected metadata. Never pass a backend error string,
+    // composite timeline id, body, draft, URL, or filesystem path here.
+    qCInfo(lcThread).nospace()
+        << "thread_diag reason=" << reason
+        << " generation=" << m_traceGeneration
+        << " room=" << matrix::e2ee::redactId(m_roomId)
+        << " root=" << matrix::e2ee::redactId(m_rootEventId)
+        << " state=" << static_cast<int>(m_state)
+        << " loaded_rows=" << m_model.rowCount()
+        << " root_loaded=" << (m_model.rowForStableId(m_rootEventId) >= 0)
+        << " paginating=" << m_model.paginating()
+        << " pagination_failed=" << m_model.paginationFailed()
+        << " fill_pages=" << m_fillBatches
+        << " visible_read_owner=" << viewerAtLatest()
+        << " receipt_scope=thread pending_acks=" << m_pendingThreadReads.size();
+}
+
+void ThreadController::tracePresentation(int preset, bool mainView, bool visible,
+                                         int viewportWidth, int viewportHeight,
+                                         int contentY)
+{
+    if (!m_traceEnabled)
+        return;
+    traceState("presentation");
+    qCInfo(lcThread).nospace()
+        << "thread_layout generation=" << m_traceGeneration
+        << " preset=" << (preset == 1 ? 1 : 0)
+        << " placement=" << (mainView ? "main" : "side")
+        << " visible=" << visible
+        << " viewport=" << qMax(0, viewportWidth) << 'x' << qMax(0, viewportHeight)
+        << " content_y=" << contentY;
 }

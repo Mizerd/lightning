@@ -3780,7 +3780,8 @@ QString SettingsManager::paneWidthKey(const char *key) const
     // Pane widths are device-local and remembered PER LAYOUT PRESET: a width
     // dragged under Nheko compact is that preset's, and the Lightning width
     // comes back with the Lightning preset. A preset with no width of its own
-    // yet starts from the Lightning one (see paneWidthValue).
+    // yet starts from the Lightning one, except the compact rail's own narrow
+    // default (see paneWidthValue).
     if (layoutPreset() == kLayoutPresetNhekoCompact)
         return QStringLiteral("nhekoCompactWidths/") + QLatin1String(key);
     return QLatin1String(key);
@@ -3789,6 +3790,9 @@ QString SettingsManager::paneWidthKey(const char *key) const
 QVariant SettingsManager::paneWidthValue(const char *key, int fallback) const
 {
     const QVariant lightning = m_store->value(QLatin1String(key), fallback);
+    if (layoutPreset() == kLayoutPresetNhekoCompact
+        && QLatin1String(key) == QLatin1String(kSpacesRailWidth))
+        return m_store->value(paneWidthKey(key), 66);
     return m_store->value(paneWidthKey(key), lightning);
 }
 
@@ -3920,13 +3924,17 @@ int SettingsManager::spacesRailWidth() const
     // Defaults to the minimum. Clamped on read like roomListWidth.
     const int stored = paneWidthValue(kSpacesRailWidth,
                                       kSpacesRailMinWidth).toInt();
-    return std::clamp(stored, kSpacesRailMinWidth, kSpacesRailMaxWidth);
+    const int minimum = layoutPreset() == kLayoutPresetNhekoCompact
+        ? kCompactSpacesRailMinWidth : kSpacesRailMinWidth;
+    return std::clamp(stored, minimum, kSpacesRailMaxWidth);
 }
 
 void SettingsManager::setSpacesRailWidth(int px)
 {
     const int clamped =
-        std::clamp(px, kSpacesRailMinWidth, kSpacesRailMaxWidth);
+        std::clamp(px, layoutPreset() == kLayoutPresetNhekoCompact
+                           ? kCompactSpacesRailMinWidth : kSpacesRailMinWidth,
+                   kSpacesRailMaxWidth);
     if (spacesRailWidth() == clamped)
         return;
     m_store->setValue(paneWidthKey(kSpacesRailWidth), clamped);

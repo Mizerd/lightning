@@ -142,7 +142,8 @@ Rectangle {
     /// rather than a stray mark. Square and sized for the wider of the two
     /// glyphs: expand_more and chevron_right have transposed ink boxes, so any
     /// other shape looks like it changes size between states.
-    readonly property int chevronPlatePad: AppTheme.scaled(2)
+    readonly property int chevronPlatePad:
+        AppTheme.scaled(AppTheme.compactDensity ? 0 : 2)
     readonly property int chevronInkLongest: AppTheme.scaled(8)
     readonly property int chevronPlateWidth:
         chevronInkLongest + 2 * chevronPlatePad
@@ -164,7 +165,8 @@ Rectangle {
     /// shrink the plate. The Icon's box width is its advance and its ink centres
     /// in it, so the placement is written at the Icon itself.
     readonly property int railSideMargin:
-        root.classicDepth ? AppTheme.scaled(10) : AppTheme.scaled(19)
+        root.classicDepth ? AppTheme.scaled(10)
+                          : AppTheme.scaled(AppTheme.compactDensity ? 15 : 19)
 
     /// Classic depth: a plain top-level Space list, as before the hierarchy.
     /// RailEntryModel::setFlat drops subspaces and expansion from the rows; this
@@ -176,13 +178,12 @@ Rectangle {
     /// rail exactly.
     readonly property bool classicDepth:
         app.settings ? app.settings.spacesRailDepthStyle === 1 : false
-    /// Past the default width the tile grows up to a ceiling, then the margins
-    /// take the rest. 40..48: a denser column than Discord's (tint layers,
-    /// nested steps, revealed rooms), so a smaller unit. Derived tiers stay
-    /// legible (a room tile is 28 at the 40 floor).
+    /// Past the preset's default width the tile grows up to a ceiling, then
+    /// the margins take the rest. Compact uses a 32..36 tile and a tighter
+    /// gutter; Lightning keeps 40..48. Derived tiers share the same axis.
     readonly property int railTileSize:
-        Math.min(AppTheme.scaled(48),
-                 Math.max(AppTheme.scaled(40),
+        Math.min(AppTheme.scaled(AppTheme.railTileMax),
+                 Math.max(AppTheme.scaled(AppTheme.railTileMin),
                           width - 2 * railSideMargin))
     /// Proportional corners (0.30 of the tile) at every tier via
     /// tileRadiusFor(), so the size ladder is not undone by flatter corners.
@@ -209,15 +210,15 @@ Rectangle {
     readonly property int railRoomTileSize:
         railTileSize - 2 * Math.round((railTileSize
                                        - railTileSize * 0.7) / 2)
-    /// Air above and below a tile in a run, and the extra after a run's last
-    /// row.
-    readonly property int rowPad: AppTheme.scaled(4)
+    /// Air above and below a tile in a run. The tile, add button and drag
+    /// bands all read this same value.
+    readonly property int rowPad: AppTheme.scaled(AppTheme.railRowPadding)
     /// The gap between two tiles. One number, shared with the bottom cluster.
     readonly property int railTileGap: 2 * rowPad + AppTheme.spacing4
     /// Two gap sizes for two meanings: leaving a nested region needs only enough
     /// air to show the parent's tint; a top-level break must carry on its own.
-    readonly property int groupGap: AppTheme.scaled(8)
-    readonly property int groupBreakGap: AppTheme.scaled(18)
+    readonly property int groupGap: AppTheme.scaled(AppTheme.railGroupGap)
+    readonly property int groupBreakGap: AppTheme.scaled(AppTheme.railGroupBreakGap)
     /// Regions stack, one per ancestor, outermost first, each inset a step
     /// further, so a parent's region runs unbroken behind all its descendants.
     /// Depth is carried mainly by tone (AppTheme.railNestSurfaces); the inset
@@ -251,9 +252,9 @@ Rectangle {
     /// Both stops are the tile range plus the gutter, so the gutter is constant
     /// across the draggable range.
     readonly property int minRailWidth:
-        AppTheme.scaled(40) + 2 * railSideMargin
+        AppTheme.scaled(AppTheme.railTileMin) + 2 * railSideMargin
     readonly property int maxRailWidth:
-        AppTheme.scaled(48) + 2 * railSideMargin
+        AppTheme.scaled(AppTheme.railTileMax) + 2 * railSideMargin
 
     function revealCount(spaceId) {
         // No revealed rooms in Classic. The model drops nested Spaces, but
@@ -1216,7 +1217,7 @@ Rectangle {
                     x: root.tileColumnX
                        + Math.round((root.railTileSize
                                      - spaceItem.rowTileSize) / 2)
-                    y: spaceItem.contentTop + AppTheme.scaled(4)
+                    y: spaceItem.contentTop + root.rowPad
                        + spaceItem.dragLift
                     // This row's own size: a nested tile at the full tile's
                     // radius would look rounder than its parent.
@@ -1305,7 +1306,8 @@ Rectangle {
                         border.width: 2
                         anchors.bottom: parent.bottom
                         anchors.right: parent.right
-                        anchors.bottomMargin: -AppTheme.scaled(5)
+                        anchors.bottomMargin:
+                            -AppTheme.scaled(AppTheme.compactDensity ? 2 : 5)
                         anchors.rightMargin: -AppTheme.scaled(5)
 
                         Label {
@@ -1333,7 +1335,7 @@ Rectangle {
                         color: AppTheme.rail
                         anchors.bottom: parent.bottom
                         anchors.right: parent.right
-                        anchors.bottomMargin: -3
+                        anchors.bottomMargin: AppTheme.compactDensity ? -2 : -3
                         anchors.rightMargin: -3
                         Rectangle {
                             anchors.fill: parent
@@ -1751,7 +1753,7 @@ Rectangle {
                 IconButton {
                     id: railAddSpaceButton
                     objectName: "railAddSpaceButton"
-                    y: AppTheme.scaled(4)
+                    y: root.rowPad
                     x: root.tileColumnX
                     implicitWidth: root.railTileSize
                     implicitHeight: root.railTileSize

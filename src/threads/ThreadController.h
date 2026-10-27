@@ -35,6 +35,7 @@ class ThreadController : public QObject
     // Exposed only as app.threads; registered so QML can name the State enum.
     QML_UNCREATABLE("ThreadController is exposed via app.threads")
     Q_PROPERTY(bool supported READ supported NOTIFY supportedChanged)
+    Q_PROPERTY(bool traceEnabled READ traceEnabled CONSTANT)
     /// Why the open room is still unread once its main timeline is read: 0 no
     /// thread holds it, 1 unread in a thread, 2 a mention in a thread. A
     /// conservative hint (never a count) that clears when the thread is opened
@@ -119,6 +120,12 @@ public:
     explicit ThreadController(QObject *parent = nullptr);
 
     void setClient(MatrixClient *client);
+    bool traceEnabled() const { return m_traceEnabled; }
+    // Called only by the thread surface on placement/visibility transitions;
+    // values are numeric geometry, with no QML text or identifiers.
+    Q_INVOKABLE void tracePresentation(int preset, bool mainView, bool visible,
+                                       int viewportWidth, int viewportHeight,
+                                       int contentY);
     QString imageMetadataMode() const { return m_imageMetadataMode; }
     void setImageMetadataMode(const QString &mode);
     // Per-thread drafts, keyed on the internal composite id (never leaves the
@@ -313,6 +320,9 @@ private Q_SLOTS:
                                    bool ok, const QString &category);
 
 private:
+    // Opt-in, bounded metadata only. The support-log exporter may include
+    // these lines, so IDs are hashed before they reach the local log too.
+    void traceState(const char *reason) const;
     void setState(State state, const QString &failureCategory = QString());
     // Announces a change of viewerAtLatest() and reads the newest reply on a
     // rising edge.
@@ -344,6 +354,8 @@ private:
     int m_lastReplyCount = -1;
     AttachmentQueueModel *m_attachments = nullptr;
     State m_state = Closed;
+    bool m_traceEnabled = false;
+    quint64 m_traceGeneration = 0;
     QString m_roomId;
     QString m_rootEventId;
     // Bumped on sign-out and client change; see MessageComposer's twin.

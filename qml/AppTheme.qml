@@ -88,6 +88,12 @@ QtObject {
     readonly property bool compactDensity:
         typeof app !== "undefined" && !!app && !!app.settings
         && app.settings.layoutPreset === 1
+    // Rail rhythm is shared by its delegate and pointer-band arithmetic.
+    readonly property int railTileMax: compactDensity ? 36 : 48
+    readonly property int railTileMin: compactDensity ? 32 : 40
+    readonly property int railRowPadding: compactDensity ? spacing2 : spacing4
+    readonly property int railGroupGap: compactDensity ? spacing6 : spacing8
+    readonly property int railGroupBreakGap: compactDensity ? spacing12 + spacing2 : spacing16 + spacing2
     // 48 still fits the 34 px room avatar and the 34 px header buttons with
     // 7 px above and below; Nheko's own header is a 40 px avatar plus padding.
     readonly property int headerBandHeight: compactDensity ? 48 : 60
