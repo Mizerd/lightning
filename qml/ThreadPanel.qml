@@ -2131,6 +2131,10 @@ Rectangle {
                                         event.accepted = true
                                 }
                                 Keys.onPressed: (event) => {
+                                    // Let the input method finish its composition before
+                                    // shortcuts, completion, or sending see this key.
+                                    if (threadRichInput.preeditText !== "")
+                                        return
                                     // Backspace or Ctrl+Z right after an
                                     // autocorrection puts the word back.
                                     if (threadRichAutocorrect.handleKey(event))
@@ -2413,6 +2417,8 @@ Rectangle {
                                     event.accepted = true
                             }
                             Keys.onPressed: (event) => {
+                                if (threadComposerInput.preeditText !== "")
+                                    return
                                 if (threadPlainAutocorrect.handleKey(event))
                                     return
                                 var threadTimelineAction =

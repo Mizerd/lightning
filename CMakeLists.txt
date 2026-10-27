@@ -2777,6 +2777,12 @@ if(BUILD_TESTING)
     add_test(NAME thread-panel-keyboard-contract
         COMMAND thread-panel-keyboard-contract-test)
 
+    qt_add_executable(thread-matrix-b-test tests/ThreadMatrixBTest.cpp)
+    target_compile_definitions(thread-matrix-b-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    target_link_libraries(thread-matrix-b-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME thread-matrix-b COMMAND thread-matrix-b-test)
+
     # GIF picker contract: chrome plus the exact-selection invariants.
     qt_add_executable(gif-picker-redesign-contract-test
         tests/GifPickerRedesignContractTest.cpp)
