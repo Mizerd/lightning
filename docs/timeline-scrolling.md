@@ -127,9 +127,10 @@ reader can reach the bottom. Policy (`applyRowWindow`,
 TimelinePane.qml): `windowRunwayRows` 220 below the reader (≈30
 viewports vs a largest observed gesture of ≈7.5 — that runway is the
 strand-prevention), `windowMarginRows` 120 above, never below
-`windowMinRows` 320, move only for a change of 40+ rows. **Applied ONLY
-from the scroll-settle timer** — no structural change mid-gesture, which
-is what sank the reverted bounded retained window. With a window active
+`windowMinRows` 320, move only for a change of 40+ rows. **Started from the
+scroll-settle timer**; the 2026-10-27 follow-up below applies subsequent
+bounded steps on timer turns, cancelling them when a new gesture starts.
+With a window active
 `atBottomEdge()` returns FALSE so follow-latest cannot latch onto a
 false newest message. Correction on a newest-end release is ONE exact
 write: sum the MEASURED heights of the released rows (the Column has no
@@ -217,7 +218,7 @@ scroll itself. Also open: which stall category (`row-reveal`,
 `writePlayableFile` still writes up to 32 MiB synchronously on the GUI
 thread (unmeasured).
 
-*2026-10-27 big-room follow-up (unmeasured worktree).* A return from a deep
+*2026-10-27 big-room follow-up (live NOT TESTED).* A return from a deep
 trip built 60 newest-end delegates in one wheel handler, with 500–900 ms
 stalls; the bottom settle removed a large slice in one operation. The pane now
 adds at most three newest rows per operation and replenishes a three-viewport
@@ -229,8 +230,10 @@ decoded pictures have a separate symmetric 2.5-viewport retention range and
 uncached `Image` sources are cleared outside it. `LIGHTNING_SCROLL_MEMORY_TRACE=1`
 logs RSS, bridge byte-cache use, Qt's public pixmap-cache limit, and row counts
 every five seconds. Qt Quick's internal pixmap-cache occupancy is not exposed
-by public API; RSS is the outcome measure. None of these changes have been
-built or live measured in this worktree yet.
+by public API; RSS is the outcome measure. Media worker shutdown has bounded
+thread joins, so an unresponsive poster extraction or playable-file writer
+cannot hold application shutdown indefinitely. The change was recorded as
+unmeasured in its commit; no later live validation is recorded here.
 
 *The positive-only anchor guard: do not "fix" it.* The timeline is a
 rotated `Flickable` + `Column` (`qml/TimelinePane.qml`), not a ListView:

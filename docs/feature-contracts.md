@@ -13,6 +13,82 @@ several say plainly what must never be done again.
 Treat the following as implemented in the current repository, while preserving
 backend capability checks and honest live-test status.
 
+### Waves 4–5 additions (2026-10-27)
+
+Unless an entry below says otherwise, these are source contracts; **live status:
+NOT TESTED**. Automated tests named in commits do not establish live behavior.
+
+- **Bulk message deletion.** Moderators can select eligible messages in one
+  real room, including a range, up to 50 at once. The action has a confirmation
+  before redaction and an optional reason. Eligibility uses the SDK's actual
+  redaction grant, including the distinction between one's own messages and
+  other members' messages; the server remains the authority when a level
+  changes after selection. The room permission editor reuses the Space power
+  level controls and includes the custom per-member level in the grant
+  confirmation. A batch sends one request at a time, reports per-message
+  progress and failures, and stops after a `rate_limited` result. Results
+  carry categories (`rate_limited`, `forbidden`, `not_found`, `invalid`,
+  `unrecognized`, `network`, `not_ready`, `rejected`), never raw SDK or server
+  error text in UI. A missing response fails that item after 60 seconds and
+  advances; a late response is ignored. A cancelled or timed-out request's
+  message cannot be reselected for ten minutes, since it may still land.
+- **Settings and navigation.** Appearance, Layout and Chat are separate
+  Settings sections with one-line navigation rows. A branch toggles from the
+  whole row; Return/Enter activates a focused navigation row. Layout has a
+  conversation-list preview. The room list can collapse to an avatar column;
+  its divider has focus, click-to-expand and double-click-to-collapse behavior.
+  The expanded width floor fits an invite. Batch room selection in the
+  expanded list supports mark read, favourite, notification setting and leave,
+  with a result for each room; selection exits on compacting. Channels has
+  an opt-in collapsed-group setting that retains the current, calling,
+  hovered and unread rooms, deduplicating a room shown under multiple parents
+  and keeping the hidden unread count for rows actually hidden.
+- **Activity and message rows.** The Activity Center Threads area and the
+  saved-message hub are specified below. Reply quotes label a redacted or
+  otherwise removed original as removed. Grouped room activity still surfaces
+  security changes, including power and encryption changes. Media captions
+  use the denser row spacing. Per-message receipts remain the default: the
+  experimental compact receipt footer was removed before HEAD.
+- **Composers and commands.** Room, edit and thread composers share one height
+  and Enter behavior policy, including the tall mode. New navigation commands
+  route through the command palette; actions that have no safe default key
+  binding are palette-only rather than acquiring an implicit shortcut.
+- **Image edit before send.** A queued raster image may be cropped, rotated,
+  mirrored and marked up before dispatch. The preview is rendered into a new
+  PNG from pixels, stripping source metadata. Commit replaces the queued
+  upload source with that edited file; the original file stays untouched and
+  is never uploaded for that edited send. Invalid, oversized, SVG, pending or
+  already-dispatching entries are refused. The editor is available from both
+  room and thread composers.
+- **Diagnostics and density.** `LIGHTNING_THREAD_TRACE` emits selected thread
+  state, receipt, pagination and presentation metadata (generation, redacted
+  room/root IDs, row counts, preset, placement and geometry), without message
+  body, draft, URL, path or backend error text. The compact preset tightens
+  the Spaces rail tile, gutter and row gaps. Its compact default is 66 px,
+  chosen to leave air around a 32 px tile; the actual compact floor is 62 px
+  (32 px tile plus two 15 px gutters), enforced by both Settings and the
+  SplitView. Widths are stored per layout preset.
+- **Timeline cost and shutdown.** Newest-end row-window extension exposes at
+  most three rows per 16 ms turn while the reader is within a three-viewport
+  runway. A settled trim moves at most eight rows at each end per turn,
+  remeasures the reader's anchor, and stops on new motion. Decoded image
+  sources outside the symmetric 2.5-viewport retention range are released;
+  this is separate from the fetch band's open newest edge. The opt-in scroll
+  memory trace reports RSS, bridge cache bytes, Qt's public pixmap-cache
+  *limit* and row counts; it cannot report Qt Quick's private texture-cache
+  occupancy. Shutdown first hides windows and clears timeline delegates,
+  while media worker joins have a bounded wait. The detailed anchoring rules
+  remain in `docs/timeline-scrolling.md`.
+- **Camera and identity.** After a portal camera fails, the portal capture is
+  released before opening the direct device. A release signalled during
+  unpublish is remembered; a missing release has a bounded fallback window.
+  A busy direct device gets bounded retries, with format selected from probed
+  caps. `camera_busy` means a busy resource; other resource errors are
+  `camera_resource`. The call controller handles both in its fallback policy.
+  Issue #57 resolves hashed LiveKit participant identities against membership
+  data in both legacy and sticky membership formats; ambiguous identity is
+  left unresolved rather than assigned to the wrong device.
+
 ### Authentication and lifecycle
 
 - Password login, persistent SDK session/store, session restoration, logout,

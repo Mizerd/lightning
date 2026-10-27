@@ -1,5 +1,35 @@
 # Round history
 
+## 2026-10-27 — waves 4–5: the small boundaries that decided the behavior
+
+- **A QML fixture's location changes how C++ sees it.** A `static constexpr`
+  compact-row fixture in a Qt test class's `slots` section was presented to
+  moc as a slot. Keep constants at file scope or outside `slots`.
+- **An unchanged pointer position is not a move.** Qt dropped the hover
+  test's mouse-move event when its target matched the old position. The test
+  first moves the pointer away, then moves it onto the row; ordering is part
+  of the fixture.
+- **A paced row-window mutation changes the test's observation point.** The
+  three cases that read the trimmed window immediately after
+  `applyRowWindow()` assumed a synchronous whole trim. Once the pane moved
+  at most eight rows per timer turn, they had to wait for the target window.
+  The reader's anchor is remeasured on each turn, and a new gesture cancels
+  the pending trim.
+- **Arm a wait before the call that can satisfy it.** Camera M1 exposed a
+  portal-release signal emitted synchronously inside `unpublish()`. Waiting
+  only afterward loses it. The controller now remembers an early release and
+  bounds the wait before trying the direct device.
+- **A SplitView handle owns its pointer presses.** Its event filter consumed
+  the `TapHandler` press on the room-list divider. Reading
+  `SplitHandle.pressed`, with width movement to distinguish a drag, made
+  click and double-click behavior observable.
+- **The icon font is a subset.** Naming a new icon in QML or C++ is not enough:
+  regenerate it with `scripts/generate-icon-font.sh`. `IconChromeTest` guards
+  the mapping, including names held only in C++.
+- **Scratch capacity is a test constraint.** Debug test binaries filled the
+  btrfs scratch disk during this round. Check free space before another large
+  build or test campaign; this documentation pass did not run one.
+
 ## 2026-09-30 — the overnight live-test campaign, and what it found in the packages
 
 Rokas asked for everything marked NOT TESTED to be tested live overnight, OS-
