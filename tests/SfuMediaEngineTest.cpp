@@ -7973,7 +7973,7 @@ private slots:
 #endif
     }
 
-    void onlyV4l2ResourceErrorsAreBusy()
+    void onlyV4l2ResourceErrorsAreCameraResourceErrors()
     {
 #ifndef Q_OS_LINUX
         QSKIP("V4L2 and PipeWire camera sources are Linux only");
@@ -8000,7 +8000,7 @@ private slots:
             g_error_free(error);
             QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 1, 10000);
             QCOMPARE(failed.at(0).at(1).toString(),
-                     QByteArray(factory) == "v4l2src" ? QStringLiteral("camera_busy")
+                     QByteArray(factory) == "v4l2src" ? QStringLiteral("camera_resource")
                                                      : QStringLiteral("camera_failed"));
             engine.stop();
         }
@@ -8008,9 +8008,10 @@ private slots:
     }
 
     // The category a camera that errored before its first buffer is reported
-    // as: a capture source's resource error is `camera_busy`, everything else
-    // stays `camera_failed`, and a share keeps its own.
-    void aCameraResourceErrorIsReportedAsBusy()
+    // as: an actual busy V4L2 error is `camera_busy`, any other resource error
+    // from the capture source is `camera_resource`, everything else stays
+    // `camera_failed`, and a share keeps its own.
+    void aCameraResourceErrorIsReportedByKind()
     {
         QCOMPARE(SfuMediaEngine::cameraPublishErrorCategory(false, true),
                  QStringLiteral("camera_busy"));
@@ -8021,7 +8022,10 @@ private slots:
 
         // Through the engine's real handler, on a camera that never
         // delivered: the flag picks the category.
-        for (const bool resource : { true, false }) {
+        struct Case { bool resource; bool busy; const char *category; };
+        for (const Case c : { Case{ true, true, "camera_busy" },
+                              Case{ true, false, "camera_resource" },
+                              Case{ false, false, "camera_failed" } }) {
             SfuMediaEngine engine;
             engine.setTestSourceMode(true);
             engine.setVideoSourceForTest(
@@ -8031,11 +8035,11 @@ private slots:
             engine.publishVideo(QStringLiteral("cid-camera"),
                                 /*screenShare=*/false, -1, -1);
             QVERIFY(engine.hasPublishedBinForTest(QStringLiteral("cid-camera")));
-            engine.handlePublishError(QStringLiteral("cid-camera"), resource);
+            engine.handlePublishError(QStringLiteral("cid-camera"), c.resource,
+                                      c.busy);
             QCOMPARE(trackFailed.count(), 1);
             QCOMPARE(trackFailed.at(0).at(1).toString(),
-                     resource ? QStringLiteral("camera_busy")
-                              : QStringLiteral("camera_failed"));
+                     QString::fromLatin1(c.category));
             engine.stop();
         }
     }
