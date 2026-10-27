@@ -13,6 +13,30 @@ Rectangle {
     id: panel
     AttachmentImageEditDialog { id: threadImageEditor }
     property bool composerExpanded: false
+    property string threadSearchQuery: ""
+    // Use the open room's posting facts, refreshed on membership and power
+    // changes. The info panel is a fallback only while it describes this room.
+    readonly property bool openPostFactsAreOurs:
+        !!app.openRoomPermissions
+        && app.openRoomPermissions.roomId === panel.panelRoomId
+        && app.openRoomPermissions.sendKnown === true
+    readonly property bool roomInfoPostFactsAreOurs:
+        app.roomInfo.roomId === panel.panelRoomId
+    readonly property var threadPostFacts: openPostFactsAreOurs
+        ? app.openRoomPermissions
+        : (roomInfoPostFactsAreOurs ? app.roomInfo : null)
+    readonly property bool threadPostBlocked:
+        (app.roomUpgrade.upgraded === true
+         && panel.panelRoomId === app.currentRoomId)
+        || (!!threadPostFacts && threadPostFacts.canSendMessages === false)
+    readonly property string threadPostBlockedReason: {
+        if (app.roomUpgrade.upgraded === true
+                && panel.panelRoomId === app.currentRoomId)
+            return qsTr("This room has been replaced.")
+        var why = threadPostFacts ? threadPostFacts.sendBlockedReason : ""
+        return (typeof why === "string" && why.length > 0)
+            ? why : qsTr("You do not have permission to post in this room.")
+    }
     function toggleComposerHeight() { composerExpanded = !composerExpanded }
     function returnShouldSend(modifiers) {
         return ComposerBehavior.returnShouldSend(
@@ -162,6 +186,8 @@ Rectangle {
     Connections {
         target: app.thread
         function onStateChanged() {
+            panel.threadSearchQuery = ""
+            threadSearchField.text = ""
             panel.traceLayout()
             panel.refreshRoot()
             // A thread switch/close abandons any open mention popup.
@@ -525,8 +551,10 @@ Rectangle {
                     Accessible.name: {
                         var parts = [threadRow.rowSender,
                                      modelData.rootPreview || "",
-                                     qsTr("%n reply(s)", "",
-                                          modelData.replyCount || 0)]
+                                     modelData.replyCount >= 0
+                                         ? qsTr("%n reply(s)", "",
+                                                modelData.replyCount)
+                                         : qsTr("Replies")]
                         if (threadRow.rowUnread)
                             parts.push(qsTr("Unread"))
                         return parts.filter(function(x) { return x.length > 0 })
@@ -619,8 +647,10 @@ Rectangle {
                                 // Untrusted text: never markup.
                                 textFormat: Text.PlainText
                                 Layout.fillWidth: true
-                                text: qsTr("%n reply(s)", "",
-                                           modelData.replyCount || 0)
+                                text: (modelData.replyCount >= 0
+                                       ? qsTr("%n reply(s)", "",
+                                              modelData.replyCount)
+                                       : qsTr("Replies"))
                                       + ((modelData.latestPreview || "").length > 0
                                          ? " · " + (modelData.latestSenderName || "")
                                            + ": " + modelData.latestPreview
@@ -858,12 +888,10 @@ Rectangle {
                 color: AppTheme.border
             }
             Label {
-                // Resolved by the controller (SDK num_replies when known, else
-                // a loaded count, with the root subtracted only when it is a
-                // row). See ThreadController::replyCount.
-                readonly property int replies: app.thread.replyCount
-                text: qsTr("%n reply(s)", "replies in the open thread",
-                           replies)
+                readonly property int replies: app.thread.exactReplyCount
+                text: replies >= 0
+                    ? qsTr("%n reply(s)", "replies in the open thread", replies)
+                    : qsTr("Replies")
                 color: AppTheme.textMuted
                 font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                 font.weight: AppTheme.weightStrong
@@ -928,6 +956,40 @@ Rectangle {
                 }
             }
 
+            RowLayout {
+                id: threadSearchRow
+                objectName: "threadReplySearchRow"
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.leftMargin: AppTheme.spacing12
+                anchors.rightMargin: AppTheme.spacing12
+                visible: app.thread.state === ThreadController.Ready
+                Label {
+                    text: qsTr("Replies")
+                    color: AppTheme.textMuted
+                }
+                AppTextField {
+                    id: threadSearchField
+                    objectName: "threadReplySearchField"
+                    Layout.fillWidth: true
+                    searchIcon: true
+                    clearButton: true
+                    placeholderText: qsTr("Search replies")
+                    Accessible.name: qsTr("Search replies in this thread")
+                    onTextEdited: panel.threadSearchQuery = text
+                }
+                IconButton {
+                    iconName: "close"
+                    Accessible.name: qsTr("Clear thread search")
+                    enabled: panel.threadSearchQuery.length > 0
+                    onClicked: {
+                        panel.threadSearchQuery = ""
+                        threadSearchField.text = ""
+                    }
+                }
+            }
+
             // Empty state: ready, but only the root is loaded.
             Label {
                 anchors.centerIn: parent
@@ -945,7 +1007,10 @@ Rectangle {
                                     layoutTraceDebounce.restart()
                 onHeightChanged: if (app.thread.traceEnabled)
                                      layoutTraceDebounce.restart()
-                anchors.fill: parent
+                anchors.top: threadSearchRow.bottom
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
                 visible: app.thread.state === ThreadController.Ready
                 clip: true
                 spacing: 0
@@ -958,6 +1023,8 @@ Rectangle {
                 // MessageDelegate view contract, shared with TimelinePane.
                 property var timelineModel: app.thread.model
                 property string suppressRootEventId: app.thread.rootEventId
+                property string threadSearchQuery: panel.threadSearchQuery
+                property bool readOnlyContext: panel.threadPostBlocked
                 property bool threadContext: true
                 property string pinnedActionsKey: ""
                 property bool emojiPickerOpen: false
@@ -1802,9 +1869,18 @@ Rectangle {
         // Mini composer: one row in a raised card, pinned at the bottom. Sends
         // only through ThreadController.sendText (the SDK m.thread path, text
         // and attachments); the room composer and its draft are untouched.
+        Label {
+            objectName: "threadPostingBlockedReason"
+            Layout.fillWidth: true
+            Layout.margins: AppTheme.spacing12
+            visible: app.thread.active && panel.threadPostBlocked
+            text: panel.threadPostBlockedReason
+            color: AppTheme.textMuted
+            wrapMode: Text.WordWrap
+        }
         Item {
             Layout.fillWidth: true
-            visible: app.thread.active
+            visible: app.thread.active && !panel.threadPostBlocked
             implicitHeight: threadComposerCol.implicitHeight
                             + AppTheme.spacing12
 
@@ -1815,6 +1891,7 @@ Rectangle {
                 id: threadDropArea
                 anchors.fill: parent
                 enabled: app.thread.attachmentsSupported
+                         && !panel.threadPostBlocked
                 keys: ["text/uri-list", "application/vnd.portal.filetransfer",
                        "application/vnd.portal.files"]
                 function portalKey(drop) {
@@ -2782,6 +2859,7 @@ Rectangle {
         currentFolder: app.defaultFileDialogFolder()
         fileMode: "openMany"
         onAccepted: {
+            if (panel.threadPostBlocked) return
             for (var i = 0; i < selectedFiles.length; ++i)
                 app.thread.addAttachment(selectedFiles[i])
         }
@@ -2836,6 +2914,10 @@ Rectangle {
             // Release ownership first, so a re-entrant signal finds us
             // disarmed.
             app.endVoiceRecording()
+            if (panel.threadPostBlocked) {
+                app.discardPreparedVoice(filePath)
+                return
+            }
             if (panel.voiceWantsPreview) {
                 panel.voiceWantsPreview = false
                 // An unanswered preview is replaced and its file deleted.
@@ -2860,7 +2942,7 @@ Rectangle {
     property var pendingVoice: null
     property bool voiceWantsPreview: false
     function sendPendingVoice() {
-        if (!panel.pendingVoice)
+        if (!panel.pendingVoice || panel.threadPostBlocked)
             return
         var v = panel.pendingVoice
         panel.pendingVoice = null
@@ -3431,6 +3513,7 @@ Rectangle {
     // Download, validate and send into this thread (captured room + root); the
     // SDK produces a real m.thread reply.
     function onThreadGifPicked(result) {
+        if (panel.threadPostBlocked) return
         app.gifSend.sendToThread(app.thread.roomId, app.thread.rootEventId,
                                  result, app.thread.replyToEventId)
         app.thread.cancelReply()
@@ -3450,6 +3533,7 @@ Rectangle {
     // Send the chosen pack sticker into this thread. No room-send fallback
     // (CLAUDE.md §8); the SDK attaches the m.thread relation.
     function onThreadStickerPicked(image) {
+        if (panel.threadPostBlocked) return
         app.stickers.sendToThread(app.thread.roomId, app.thread.rootEventId,
                                   image)
     }
@@ -3542,7 +3626,8 @@ Rectangle {
         return false
     }
     function sendComposerText() {
-        if (app.thread.state !== ThreadController.Ready)
+        if (app.thread.state !== ThreadController.Ready
+                || panel.threadPostBlocked)
             return
         if (panel.richMode) {
             var plain = threadRichInput.getText(0, threadRichInput.length).trim()

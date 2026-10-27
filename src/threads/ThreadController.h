@@ -67,6 +67,8 @@ class ThreadController : public QObject
     /// `num_replies` (covers history beyond the lazily paginated window) and
     /// the loaded real events, excluding virtual rows and the root.
     Q_PROPERTY(int replyCount READ replyCount NOTIFY replyCountChanged)
+    // -1 until the SDK supplies a total. Loaded rows are only a lower bound.
+    Q_PROPERTY(int exactReplyCount READ exactReplyCount NOTIFY replyCountChanged)
     // Thread composer text, kept here so outgoing @-mentions can be tracked.
     // The panel two-way-binds its TextArea to this.
     Q_PROPERTY(QString text READ text WRITE setText NOTIFY textChanged)
@@ -257,6 +259,7 @@ public:
     // nowhere. Safe fields only.
     Q_INVOKABLE QVariantMap rootInfo() const;
     int replyCount() const;
+    int exactReplyCount() const;
     void notifyReplyCountIfChanged();
 
     // Reply navigation within the open thread. Paginates this thread's
@@ -352,6 +355,7 @@ private:
     // De-duplication only; notifyReplyCountIfChanged() recomputes from live
     // state. Not `mutable`, so a const getter can never emit.
     int m_lastReplyCount = -1;
+    int m_lastExactReplyCount = -1;
     AttachmentQueueModel *m_attachments = nullptr;
     QHash<QString, QList<AttachmentQueueModel::Entry>> m_committedAttachments;
     State m_state = Closed;

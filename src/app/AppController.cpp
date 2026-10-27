@@ -531,6 +531,22 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_roomUpgrade  = std::make_unique<RoomUpgradeController>(this);
     m_openRoomPermissions = std::make_unique<OpenRoomPermissions>(this);
     m_thread       = std::make_unique<ThreadController>(this);
+    connect(m_thread.get(), &ThreadController::stateChanged, this, [this] {
+        if (m_roomHistoryNavigating || m_currentRoomId.isEmpty())
+            return;
+        if (m_thread->active()) {
+            if (m_thread->roomId() == m_currentRoomId)
+                m_roomHistory.visitThread(m_currentRoomId,
+                                          m_thread->rootEventId());
+            return;
+        }
+        const auto places = m_roomHistory.places();
+        const int cursor = m_roomHistory.cursor();
+        if (cursor >= 0 && cursor < places.size()
+            && places.at(cursor).kind == lightning::RoomHistory::Place::Thread
+            && places.at(cursor).roomId == m_currentRoomId)
+            m_roomHistory.visit(m_currentRoomId);
+    });
     m_eventContext = std::make_unique<ContextController>(this);
     // Their timelines carry state rows too.
     connect(AppLocale::instance(), &AppLocale::changed,
@@ -3975,11 +3991,8 @@ void AppController::showThread(const QString &roomId,
     // TimelineFocus::Thread history, its own drafts, thread receipts), in both
     // thread styles. Where it is shown -- beside the room or in the main
     // column -- is SettingsManager::threadPlacement, a presentation choice the
-    // conversation view applies. The inline style used to narrow the loaded
-    // room rows instead, which could only show replies that happened to be in
-    // the room window; a narrowed room is left as the reader had it before.
-    if (m_timeline && !m_timeline->threadFilterRootId().isEmpty())
-        m_timeline->setThreadFilterRootId(QString());
+    // conversation view applies. Keep any room timeline filter intact so
+    // closing the independently loaded thread returns to the same room view.
     m_thread->openThread(roomId, rootEventId);
 }
 
@@ -6251,20 +6264,34 @@ bool AppController::stepRoomHistory(bool forward)
         const RoomInfo info = m_client->roomInfo(roomId);
         return !info.id.isEmpty() && info.membership != RoomInfo::Left;
     };
-    const QString target = forward ? m_roomHistory.forward(openable)
-                                   : m_roomHistory.back(openable);
-    if (target.isEmpty())
+    const auto place = forward ? m_roomHistory.forwardPlace(openable)
+                               : m_roomHistory.backPlace(openable);
+    if (place.roomId.isEmpty())
         return false;
     // A scoped list (space overview) would otherwise stay scoped around a
     // room that is not in it, with no row highlighted. A room the active
     // Space contains keeps the Space (stepping between two of its rooms must
     // not drop the list to Home).
     if (m_spaces && !m_spaces->activeSpaceId().isEmpty()
-        && !m_spaces->includesRoom(m_spaces->activeSpaceId(), target))
+        && !m_spaces->includesRoom(m_spaces->activeSpaceId(), place.roomId))
         m_spaces->setActiveSpaceId(QString());
     const QScopedValueRollback moving(m_roomHistoryNavigating, true);
-    openRoom(target);
+    if (m_thread->active())
+        m_thread->close();
+    openRoom(place.roomId);
+    if (place.kind == lightning::RoomHistory::Place::Thread)
+        showThread(place.roomId, place.rootEventId);
+    else if (place.kind == lightning::RoomHistory::Place::SearchResult)
+        m_pagination->jumpToEvent(place.eventId);
     return true;
+}
+
+void AppController::recordSearchResult(const QString &roomId,
+                                       const QString &eventId)
+{
+    if (!m_roomHistoryNavigating && roomId == m_currentRoomId
+        && !roomId.isEmpty() && !eventId.isEmpty())
+        m_roomHistory.visitSearchResult(roomId, eventId);
 }
 
 bool AppController::navigateRoomBack()

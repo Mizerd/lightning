@@ -305,11 +305,20 @@ Item {
                 === CryptoBootstrapModel.ManualRecoveryRequired
             || app.cryptoBootstrap.phase
                 === CryptoBootstrapModel.NoBackupAvailable)
+    readonly property bool threadSearchVisible: {
+        if (!root.timelineView || !root.timelineView.threadSearchQuery
+                || root.timelineView.threadSearchQuery.trim().length === 0)
+            return true
+        var id = model.eventId || ""
+        return id !== "" && id !== root.timelineView.suppressRootEventId
+            && root.timelineModel.visibleTextForEvent(id).toLowerCase()
+                .indexOf(root.timelineView.threadSearchQuery.trim().toLowerCase()) >= 0
+    }
     visible: roomActivityVisible && !suppressedAsThreadRoot && !dividerSuppressed
-             && !deletedFollower && threadFilterVisible
+             && !deletedFollower && threadFilterVisible && threadSearchVisible
     readonly property real naturalImplicitHeight:
         (!roomActivityVisible || suppressedAsThreadRoot || dividerSuppressed
-         || deletedFollower) ? 0
+         || deletedFollower || !threadSearchVisible) ? 0
         : !threadFilterVisible ? 0
         : isVirtualRow ? virtualRow.implicitHeight
         : isCallEvent ? callEventRow.implicitHeight + AppTheme.spacingS * 2

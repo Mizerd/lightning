@@ -2551,6 +2551,8 @@ Rectangle {
                         onTapped: {
                             // Paginates until the event is loaded, then centres
                             // and highlights it.
+                            app.recordSearchResult(app.currentRoomId,
+                                                   historyRow.eventId)
                             app.pagination.jumpToEvent(historyRow.eventId)
                         }
                     }

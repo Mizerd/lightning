@@ -977,6 +977,10 @@ public Q_SLOTS:
     // caller can tell "nowhere to go" from "went".
     Q_INVOKABLE bool navigateRoomBack();
     Q_INVOKABLE bool navigateRoomForward();
+    // A room search result is a distinct navigation destination. The event
+    // identity is a real event id, never a thread timeline id.
+    Q_INVOKABLE void recordSearchResult(const QString &roomId,
+                                      const QString &eventId);
     // The keyboard's way in (nav.historyBack/Forward): the same gate as the
     // mouse, popups included. Qt already keeps a window Shortcut out of a
     // modal or Escape-closing popup, but not out of the composer's mention,

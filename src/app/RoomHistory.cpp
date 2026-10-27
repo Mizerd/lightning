@@ -10,17 +10,34 @@ void RoomHistory::visit(const QString &roomId)
         trim();
         return;
     }
+    visitPlace({ Place::Room, roomId, {}, {} });
+}
+
+void RoomHistory::visitThread(const QString &roomId, const QString &rootEventId)
+{
+    if (!roomId.isEmpty() && !rootEventId.isEmpty())
+        visitPlace({ Place::Thread, roomId, rootEventId, {} });
+}
+
+void RoomHistory::visitSearchResult(const QString &roomId, const QString &eventId)
+{
+    if (!roomId.isEmpty() && !eventId.isEmpty())
+        visitPlace({ Place::SearchResult, roomId, {}, eventId });
+}
+
+void RoomHistory::visitPlace(const Place &place)
+{
     // Coming back to the room the cursor is on (after the lobby, or the same
     // room re-selected) is not a new navigation: the forward list stays.
     if (m_cursor >= 0 && m_cursor < m_entries.size()
-        && m_entries.at(m_cursor) == roomId) {
+        && m_entries.at(m_cursor) == place) {
         m_detached = false;
         return;
     }
     // A new navigation drops everything ahead of the cursor.
     while (m_entries.size() > m_cursor + 1)
         m_entries.removeLast();
-    m_entries.append(roomId);
+    m_entries.append(place);
     m_cursor = m_entries.size() - 1;
     m_detached = false;
     trim();
@@ -30,18 +47,18 @@ void RoomHistory::prune(const Openable &openable)
 {
     if (!openable)
         return;
-    QStringList kept;
+    QList<Place> kept;
     int keptUpToCursor = 0;
     for (int i = 0; i < m_entries.size(); ++i) {
-        const QString &room = m_entries.at(i);
+        const Place &place = m_entries.at(i);
         // The open room is never pruned; a detached cursor entry may be.
         const bool protectedEntry = !m_detached && i == m_cursor;
-        if (!protectedEntry && !openable(room))
+        if (!protectedEntry && !openable(place.roomId))
             continue;
         // Removing a room can leave the same one twice in a row.
-        if (!kept.isEmpty() && kept.last() == room)
+        if (!kept.isEmpty() && kept.last() == place)
             continue;
-        kept.append(room);
+        kept.append(place);
         if (i <= m_cursor)
             ++keptUpToCursor;
     }
@@ -68,6 +85,11 @@ void RoomHistory::trim()
 
 QString RoomHistory::back(const Openable &openable)
 {
+    return backPlace(openable).roomId;
+}
+
+RoomHistory::Place RoomHistory::backPlace(const Openable &openable)
+{
     prune(openable);
     const int target = backTarget();
     if (target < 0 || target >= m_entries.size())
@@ -79,6 +101,11 @@ QString RoomHistory::back(const Openable &openable)
 
 QString RoomHistory::forward(const Openable &openable)
 {
+    return forwardPlace(openable).roomId;
+}
+
+RoomHistory::Place RoomHistory::forwardPlace(const Openable &openable)
+{
     prune(openable);
     const int target = forwardTarget();
     if (target < 0 || target >= m_entries.size())
@@ -86,6 +113,14 @@ QString RoomHistory::forward(const Openable &openable)
     m_cursor = target;
     m_detached = false;
     return m_entries.at(target);
+}
+
+QStringList RoomHistory::entries() const
+{
+    QStringList rooms;
+    for (const Place &place : m_entries)
+        rooms.append(place.roomId);
+    return rooms;
 }
 
 bool RoomHistory::canGoBack(const Openable &openable) const

@@ -2777,9 +2777,13 @@ if(BUILD_TESTING)
     add_test(NAME thread-panel-keyboard-contract
         COMMAND thread-panel-keyboard-contract-test)
 
-    qt_add_executable(thread-matrix-b-test tests/ThreadMatrixBTest.cpp)
+    qt_add_executable(thread-matrix-b-test tests/ThreadMatrixBTest.cpp
+        src/app/RoomHistory.cpp)
     target_compile_definitions(thread-matrix-b-test PRIVATE
-        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml"
+        SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_include_directories(thread-matrix-b-test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src)
     target_link_libraries(thread-matrix-b-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME thread-matrix-b COMMAND thread-matrix-b-test)
 

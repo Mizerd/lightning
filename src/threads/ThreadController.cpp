@@ -1036,6 +1036,14 @@ QStringList ThreadController::participants() const
 
 int ThreadController::replyCount() const
 {
+    const int known = exactReplyCount();
+    const int rootRow = m_model.rowForStableId(m_rootEventId);
+    const int loaded = qMax(0, m_model.realEventCount() - (rootRow >= 0 ? 1 : 0));
+    return qMax(known, loaded);
+}
+
+int ThreadController::exactReplyCount() const
+{
     // Read the event, not ThreadReplyCountRole: the role reports 0 when the
     // summary is absent, while TimelineEvent::threadReplyCount is -1 exactly
     // when unknown.
@@ -1054,23 +1062,17 @@ int ThreadController::replyCount() const
     if (rootRow < 0 && known < 0 && m_client)
         known = summaryFor(m_client->timeline(m_roomId), m_rootEventId);
 
-    // Real loaded events (virtual rows are not replies), less the root.
-    const int loaded = qMax(0, m_model.realEventCount() - (rootRow >= 0 ? 1 : 0));
-
-    // The divider sits above the replies, so loaded replies are a floor: the
-    // server summary can lag behind a just-sent reply. The SDK number covers
-    // history beyond the loaded window. As a result the label may exceed the
-    // room card by one after a redaction (the redacted row stays) or while a
-    // local echo is pending; it describes the rows beneath it.
-    return qMax(known, loaded);
+    return known;
 }
 
 void ThreadController::notifyReplyCountIfChanged()
 {
     const int now = replyCount();
-    if (now == m_lastReplyCount)
+    const int exact = exactReplyCount();
+    if (now == m_lastReplyCount && exact == m_lastExactReplyCount)
         return;
     m_lastReplyCount = now;
+    m_lastExactReplyCount = exact;
     Q_EMIT replyCountChanged();
 }
 
