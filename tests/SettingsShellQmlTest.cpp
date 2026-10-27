@@ -1719,24 +1719,27 @@ private slots:
         QTest::keyClick(m_window, Qt::Key_Comma, Qt::ControlModifier);
         QTRY_VERIFY(search->hasActiveFocus());
 
-        // "room activity" matches only Appearance's "Show room activity", so
-        // the nav narrows to that section.
+        // "room activity" matches only Chat's "Show room activity" (it moved
+        // out of Appearance in the settings split), so the nav narrows to
+        // that section.
         const bool activityBefore = m_controller->settings()->showRoomActivity();
         search->setProperty("text", QStringLiteral("room activity"));
         QCoreApplication::processEvents();
         QTRY_VERIFY(resultsPanel->isVisible());
 
-        auto *appearanceNav = item("settingsNavRow_appearance");
+        auto *chatNav = item("settingsNavRow_chat");
         auto *accountNav = item("settingsNavRow_account");
-        QVERIFY(appearanceNav && accountNav);
-        QTRY_VERIFY(appearanceNav->isVisible());
+        auto *appearanceNav = item("settingsNavRow_appearance");
+        QVERIFY(chatNav && accountNav && appearanceNav);
+        QTRY_VERIFY(chatNav->isVisible());
         QVERIFY(!accountNav->isVisible());
+        QVERIFY(!appearanceNav->isVisible());
 
         auto *resultRow = item("settingsSearchResult_0");
         QVERIFY(resultRow);
 
         // The inline control binds the same SettingsManager property as the
-        // Appearance control.
+        // Chat page's control.
         auto *inlineToggle = item("settingsSearchInlineShowRoomActivity_0");
         QVERIFY(inlineToggle);
         QVERIFY(inlineToggle->isVisible());
@@ -2006,13 +2009,17 @@ private slots:
     {
         openSection(QStringLiteral("appearance"));
         auto *screen = item("settingsScreenRoot");
-        auto *row = item("settingsNavRow_about");
+        // Keyboard shortcuts, not About: About draws the Storm Band from an
+        // image provider this harness does not register, so visiting it fills
+        // noQmlWarnings with "Invalid image provider" lines.
+        auto *row = item("settingsNavRow_shortcuts");
         QVERIFY(screen && row);
         QVERIFY(!row->property("hasOutline").toBool());
         QVERIFY(clickNavRowBody(row, nullptr));
-        QCOMPARE(screen->property("section").toString(), QStringLiteral("about"));
+        QCOMPARE(screen->property("section").toString(), QStringLiteral("shortcuts"));
         QVERIFY(clickNavRowBody(row, nullptr));
-        QCOMPARE(screen->property("section").toString(), QStringLiteral("about"));
+        QCOMPARE(screen->property("section").toString(), QStringLiteral("shortcuts"));
+        openSection(QStringLiteral("appearance"));
     }
 
     // UI-019/020: a sub-section under another open branch selects that page

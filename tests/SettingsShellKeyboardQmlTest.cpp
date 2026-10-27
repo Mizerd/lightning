@@ -415,7 +415,8 @@ private slots:
         auto *search = item("settingsSearchField");
         search->forceActiveFocus();
         QTest::keyClick(m_window, Qt::Key_Tab);
-        QCOMPARE(screen->property("section").toString(), QStringLiteral("shortcuts"));
+        // Layout follows Appearance since the Appearance split (settings-ia.md).
+        QCOMPARE(screen->property("section").toString(), QStringLiteral("layout"));
         QTest::keyClick(m_window, Qt::Key_Backtab, Qt::ShiftModifier);
         QCOMPARE(screen->property("section").toString(), QStringLiteral("appearance"));
         auto *flick = item("settingsContentFlick");

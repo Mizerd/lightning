@@ -1462,7 +1462,7 @@ Item {
         // Selecting another page keeps an already open branch open. A repeat
         // activation of the selected row folds it; selecting a folded branch
         // opens it. Capture both states before onSectionChanged opens it.
-        onClicked: {
+        function activate() {
             if (!navRow.hasOutline) {
                 root.section = navRow.sectionKey
             } else {
@@ -1471,9 +1471,20 @@ Item {
                 root.setOutlineExpanded(navRow.sectionKey, !fold)
             }
         }
+        onClicked: navRow.activate()
         // Right opens a folded branch, Left folds an open one (swapped under
-        // RTL). Up/Down and Tab keep their existing meaning.
+        // RTL). Up/Down and Tab keep their existing meaning. Return and Enter
+        // activate the row like a click (the Basic ItemDelegate only takes
+        // Space), so the keyboard can select and fold a branch as the mouse
+        // does.
         Keys.onPressed: (event) => {
+            if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter)
+                    && (event.modifiers & ~Qt.KeypadModifier) === Qt.NoModifier) {
+                if (!event.isAutoRepeat)
+                    navRow.activate()
+                event.accepted = true
+                return
+            }
             if (!navRow.hasOutline || event.modifiers !== Qt.NoModifier)
                 return
             var openKey = navRow.mirrored ? Qt.Key_Left : Qt.Key_Right
