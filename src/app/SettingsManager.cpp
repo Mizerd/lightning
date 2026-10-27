@@ -74,6 +74,7 @@ constexpr auto kRoomListSort = "shell/roomListSort";
 constexpr auto kRailSort = "shell/railSort";
 constexpr auto kRoomListVisible   = "shell/roomListVisible";
 constexpr auto kRoomListWidth     = "shell/roomListWidth";
+constexpr auto kRoomListExpandedWidth = "shell/roomListExpandedWidth";
 constexpr auto kMemberPanelOpen   = "shell/memberPanelOpen";
 constexpr auto kLastAttachFolder = "shell/lastAttachFolder";
 constexpr auto kSpacesRailWidth   = "shell/spacesRailWidth";
@@ -3803,18 +3804,36 @@ void SettingsManager::announcePaneWidthsIfMoved(int roomList, int rail,
 
 int SettingsManager::roomListWidth() const
 {
-    // Clamped on read: a hand-edited value must not break the layout.
+    // Keep imported/hand-edited values out of the unusable gap between the
+    // icon column and the invite row's measured 212 px floor.
     const int stored = paneWidthValue(kRoomListWidth, 300).toInt();
-    return std::clamp(stored, kRoomListMinWidth, kRoomListMaxWidth);
+    return stored < kRoomListSnapThreshold ? kRoomListMinWidth
+                        : std::clamp(stored, kRoomListExpandedMinWidth,
+                                     kRoomListMaxWidth);
 }
 
 void SettingsManager::setRoomListWidth(int px)
 {
-    const int clamped = std::clamp(px, kRoomListMinWidth, kRoomListMaxWidth);
+    const int clamped = px < kRoomListSnapThreshold ? kRoomListMinWidth
+                        : std::clamp(px, kRoomListExpandedMinWidth,
+                                     kRoomListMaxWidth);
     if (roomListWidth() == clamped)
         return;
     m_store->setValue(paneWidthKey(kRoomListWidth), clamped);
     Q_EMIT roomListWidthChanged();
+}
+
+int SettingsManager::roomListExpandedWidth() const
+{
+    return std::clamp(paneWidthValue(kRoomListExpandedWidth, 300).toInt(),
+                      kRoomListExpandedMinWidth, kRoomListMaxWidth);
+}
+
+void SettingsManager::setRoomListExpandedWidth(int px)
+{
+    m_store->setValue(paneWidthKey(kRoomListExpandedWidth),
+                      std::clamp(px, kRoomListExpandedMinWidth,
+                                 kRoomListMaxWidth));
 }
 
 QUrl SettingsManager::lastAttachFolder() const

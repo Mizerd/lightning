@@ -4907,23 +4907,28 @@ Item {
                                 }
                                 Label {
                                     Layout.topMargin: AppTheme.spacing8
-                                    text: qsTr("Conversation list width: %1 px")
-                                        .arg(app.settings.roomListWidth)
+                                    text: app.settings.roomListWidth
+                                          < app.settings.roomListExpandedMinWidth
+                                          ? qsTr("Conversation list: compact")
+                                          : qsTr("Conversation list width: %1 px")
+                                              .arg(app.settings.roomListWidth)
                                     color: AppTheme.stormTextSecondary
                                     font.pixelSize: AppTheme.settingsOptionSize
                                 }
                                 SettingsSlider {
                                     objectName: "roomListWidthSlider"
                                     Layout.fillWidth: true
-                                    // Bounds come from SettingsManager: a
-                                    // narrower range would silently forbid
-                                    // supported widths and misplace the handle
-                                    // for a stored value.
-                                    from: app.settings.roomListMinWidth
+                                    // The slider covers expanded widths; the
+                                    // divider controls the icon-only state.
+                                    from: app.settings.roomListExpandedMinWidth
                                     to: app.settings.roomListMaxWidth
                                     stepSize: 10
-                                    value: app.settings.roomListWidth
-                                    onMoved: app.settings.roomListWidth = Math.round(value)
+                                    value: Math.max(app.settings.roomListExpandedMinWidth,
+                                                    app.settings.roomListWidth)
+                                    onMoved: {
+                                        app.settings.roomListWidth = Math.round(value)
+                                        app.settings.setRoomListExpandedWidth(Math.round(value))
+                                    }
                                     Accessible.name: qsTr("Conversation list width")
                                 }
                                 SettingsCheckBox {

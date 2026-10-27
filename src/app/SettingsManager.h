@@ -288,6 +288,8 @@ class SettingsManager : public QObject
     // The clamps, exposed so a slider cannot invent narrower bounds than the
     // setter enforces.
     Q_PROPERTY(int roomListMinWidth READ roomListMinWidth CONSTANT)
+    Q_PROPERTY(int roomListExpandedMinWidth READ roomListExpandedMinWidth CONSTANT)
+    Q_PROPERTY(int roomListSnapThreshold READ roomListSnapThreshold CONSTANT)
     Q_PROPERTY(int roomListMaxWidth READ roomListMaxWidth CONSTANT)
     Q_PROPERTY(int sidePanelMinWidth READ sidePanelMinWidth CONSTANT)
     Q_PROPERTY(int sidePanelMaxWidth READ sidePanelMaxWidth CONSTANT)
@@ -981,6 +983,8 @@ public:
     void setMemberPanelOpen(bool v);
     int roomListWidth() const;
     void setRoomListWidth(int px);
+    Q_INVOKABLE int roomListExpandedWidth() const;
+    Q_INVOKABLE void setRoomListExpandedWidth(int px);
     /// The folder the attach dialog last picked from; per device, shared by
     /// every account. Empty when unset or no longer present on disk.
     Q_INVOKABLE QUrl lastAttachFolder() const;
@@ -1011,7 +1015,9 @@ public:
     Q_INVOKABLE void saveWindowGeometry(int x, int y, int width, int height);
     Q_INVOKABLE void saveWindowMaximized(bool maximized);
     // Resize bounds, kept here so QML cannot drift from the clamp.
-    static constexpr int kRoomListMinWidth = 200;
+    static constexpr int kRoomListMinWidth = 64;
+    static constexpr int kRoomListExpandedMinWidth = 212;
+    static constexpr int kRoomListSnapThreshold = 156;
     static constexpr int kRoomListMaxWidth = 560;
     // Rail floor: a 40px tile with 14px margins. The ceiling limits how much
     // indentation a nested Space tree can use.
@@ -1025,6 +1031,8 @@ public:
     static constexpr int kSidePanelMinWidth = 240;
     static constexpr int kSidePanelMaxWidth = 640;
     static constexpr int roomListMinWidth() { return kRoomListMinWidth; }
+    static constexpr int roomListExpandedMinWidth() { return kRoomListExpandedMinWidth; }
+    static constexpr int roomListSnapThreshold() { return kRoomListSnapThreshold; }
     static constexpr int roomListMaxWidth() { return kRoomListMaxWidth; }
     static constexpr int spacesRailMinWidth() { return kSpacesRailMinWidth; }
     static constexpr int spacesRailMaxWidth() { return kSpacesRailMaxWidth; }

@@ -1548,23 +1548,37 @@ void SettingsSessionTest::paneWidthsAreRememberedPerLayoutPreset()
 {
     SettingsManager settings;
     settings.setRoomListWidth(360);
+    settings.setRoomListExpandedWidth(360);
     settings.setSidePanelWidth(400);
     settings.setLayoutPreset(SettingsManager::kLayoutPresetNhekoCompact);
     QCOMPARE(settings.roomListWidth(), 360);
     QSignalSpy listSpy(&settings, &SettingsManager::roomListWidthChanged);
     settings.setRoomListWidth(240);
     QCOMPARE(settings.roomListWidth(), 240);
-    QCOMPARE(listSpy.count(), 1);
+    settings.setRoomListExpandedWidth(240);
+    settings.setRoomListWidth(64);
+    QCOMPARE(settings.roomListWidth(), 64);
+    QCOMPARE(settings.roomListExpandedWidth(), 240);
+    QCOMPARE(listSpy.count(), 2);
     QCOMPARE(settings.lightningPresentationValue(
                  QStringLiteral("roomListWidth")).toInt(), 360);
     settings.setLayoutPreset(SettingsManager::kLayoutPresetLightning);
     QCOMPARE(settings.roomListWidth(), 360);
+    QCOMPARE(settings.roomListExpandedWidth(), 360);
     QCOMPARE(settings.sidePanelWidth(), 400);
-    QCOMPARE(listSpy.count(), 2);
+    QCOMPARE(listSpy.count(), 3);
     settings.setLayoutPreset(SettingsManager::kLayoutPresetNhekoCompact);
-    QCOMPARE(settings.roomListWidth(), 240);
+    QCOMPARE(settings.roomListWidth(), 64);
+    QCOMPARE(settings.roomListExpandedWidth(), 240);
     QCOMPARE(settings.sidePanelWidth(), 400);
     settings.setLayoutPreset(SettingsManager::kLayoutPresetLightning);
+    settle(settings);
+    SettingsManager reopened;
+    QCOMPARE(reopened.roomListWidth(), 360);
+    QCOMPARE(reopened.roomListExpandedWidth(), 360);
+    reopened.setLayoutPreset(SettingsManager::kLayoutPresetNhekoCompact);
+    QCOMPARE(reopened.roomListWidth(), 64);
+    QCOMPARE(reopened.roomListExpandedWidth(), 240);
 }
 
 void SettingsSessionTest::layoutPresetIsPerAccount()

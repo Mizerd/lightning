@@ -155,11 +155,14 @@ private slots:
         flat.replace(QRegularExpression(QStringLiteral("\\s+")),
                      QStringLiteral(" "));
         QVERIFY2(flat.contains(QStringLiteral(
-                     "active: !parent.channelsUsable")),
+                     "active: !root.compact && !parent.channelsUsable")),
                  "the Classic presenter is not gated on the layout choice");
         QVERIFY2(flat.contains(QStringLiteral(
-                     "active: parent.channelsUsable")),
+                     "active: !root.compact && parent.channelsUsable")),
                  "the Channels presenter is not gated on the layout choice");
+        QVERIFY2(flat.contains(QStringLiteral(
+                     "active: root.compact")),
+                 "the compact presenter is not gated on the compact width");
     }
 
     void channelsIsGlobalAndNeverFallsBackToClassic()

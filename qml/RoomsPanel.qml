@@ -9,6 +9,15 @@ import MatrixClient
 Rectangle {
     id: root
     color: AppTheme.roomList
+    readonly property bool compact: width < app.settings.roomListExpandedMinWidth
+    function collapse() {
+        if (!compact)
+            app.settings.setRoomListExpandedWidth(Math.round(width))
+        app.settings.roomListWidth = app.settings.roomListMinWidth
+    }
+    function expand() {
+        app.settings.roomListWidth = app.settings.roomListExpandedWidth()
+    }
 
     // The room list's ground when the theme gives `sidebar` a gradient (Depth
     // or a custom theme); draws nothing otherwise. The header strips below
@@ -131,6 +140,7 @@ Rectangle {
     ColumnLayout {
         anchors.fill: parent
         spacing: 0
+        visible: !root.compact
 
         // Workspace header, 60px with a trailing hairline to match the other
         // column headers.
@@ -815,7 +825,7 @@ Rectangle {
             Loader {
                 id: classicLoader
                 anchors.fill: parent
-                active: !parent.channelsUsable
+                active: !root.compact && !parent.channelsUsable
                 visible: active
                 sourceComponent: RoomListClassicPresenter {
                     currentRoomId: app.currentRoomId
@@ -847,7 +857,7 @@ Rectangle {
             Loader {
                 id: channelsLoader
                 anchors.fill: parent
-                active: parent.channelsUsable
+                active: !root.compact && parent.channelsUsable
                 visible: active
                 sourceComponent: RoomChannelsPresenter {
                     currentRoomId: app.currentRoomId
@@ -896,6 +906,72 @@ Rectangle {
                     // openRoomTimeline(). Its alreadyOpen guard would then skip
                     // the real open.
                     app.openRoom(app.groupCall.roomId)
+            }
+        }
+    }
+
+    ColumnLayout {
+        anchors.fill: parent
+        visible: root.compact
+        spacing: 0
+        IconButton {
+            objectName: "compactRoomListHeader"
+            Layout.alignment: Qt.AlignHCenter
+            Layout.topMargin: AppTheme.spacing8
+            iconName: app.spaces && app.spaces.activeSpaceId ? "workspaces" : "home"
+            Accessible.name: qsTr("Expand %1 room list").arg(workspaceLabel.text)
+            ToolTip.text: workspaceLabel.text
+            ToolTip.visible: hovered
+            onClicked: root.expand()
+        }
+        IconButton {
+            objectName: "compactRoomListSearch"
+            Layout.alignment: Qt.AlignHCenter
+            iconName: "search"
+            Accessible.name: qsTr("Search rooms")
+            ToolTip.text: qsTr("Search rooms")
+            ToolTip.visible: hovered
+            onClicked: {
+                root.expand()
+                Qt.callLater(function() { roomSearch.forceActiveFocus() })
+            }
+        }
+        IconButton {
+            objectName: "compactRoomListFilter"
+            Layout.alignment: Qt.AlignHCenter
+            iconName: "format_list_bulleted"
+            Accessible.name: app.settings.roomFilterMode === 3
+                             ? qsTr("Show all rooms") : qsTr("Show unread rooms")
+            ToolTip.text: Accessible.name
+            ToolTip.visible: hovered
+            onClicked: app.settings.roomFilterMode =
+                       app.settings.roomFilterMode === 3 ? 0 : 3
+        }
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.topMargin: AppTheme.spacing8
+            height: 1
+            color: AppTheme.headerDivider
+        }
+        Loader {
+            active: root.compact
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            sourceComponent: RoomListCompactPresenter {
+                onRoomActivated: (roomId) => app.openRoom(roomId)
+                onLobbyActivated: app.openLobby()
+                onMessageSearchRequested: root.messageSearchRequested()
+                onExpandRequested: root.expand()
+                onActionRequested: (actionId) => {
+                    if (actionId === "@new-room")
+                        newConversationDialog.openDialog("room")
+                    else if (actionId === "@new-chat")
+                        newConversationDialog.openDialog("dm")
+                    else if (actionId === "@join-address")
+                        discoverJoinDialog.openDialog("address")
+                    else if (actionId === "@explore")
+                        discoverJoinDialog.openDialog("browse")
+                }
             }
         }
     }

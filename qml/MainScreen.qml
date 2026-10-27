@@ -555,6 +555,43 @@ Item {
         handle: Item {
             id: splitHandle
             implicitWidth: 1
+            readonly property bool roomHandle:
+                Math.abs(x - (roomsPanel.x + roomsPanel.width)) < 3
+            activeFocusOnTab: roomHandle && roomsPanel.visible
+            Accessible.role: Accessible.Separator
+            Accessible.name: qsTr("Resize room list")
+            Keys.onPressed: (event) => {
+                if (!roomHandle) return
+                if (event.key === Qt.Key_Home) {
+                    roomsPanel.collapse(); event.accepted = true
+                } else if (event.key === Qt.Key_End) {
+                    roomsPanel.expand(); event.accepted = true
+                } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                    if (roomsPanel.compact) roomsPanel.expand()
+                    else roomsPanel.collapse()
+                    event.accepted = true
+                } else if (event.key === Qt.Key_Left || event.key === Qt.Key_Right) {
+                    if (roomsPanel.compact) {
+                        if (event.key === Qt.Key_Right) roomsPanel.expand()
+                    } else {
+                        const next = app.settings.roomListWidth
+                                     + (event.key === Qt.Key_Right ? 10 : -10)
+                        if (next < app.settings.roomListExpandedMinWidth)
+                            roomsPanel.collapse()
+                        else {
+                            app.settings.roomListWidth = Math.min(560, next)
+                            app.settings.setRoomListExpandedWidth(app.settings.roomListWidth)
+                        }
+                    }
+                    event.accepted = true
+                }
+            }
+            TapHandler {
+                onTapped: if (splitHandle.roomHandle && roomsPanel.compact)
+                    roomsPanel.expand()
+                onDoubleTapped: if (splitHandle.roomHandle && !roomsPanel.compact)
+                    roomsPanel.collapse()
+            }
 
             // Every handle is live; the rail is resizable too.
             containmentMask: grabMask
@@ -642,7 +679,7 @@ Item {
             // 200 clipped the Reject button of an invite row by up to 8 px (en,
             // 100%); 212 clears the measured worst case. Other languages and
             // scales need the invite row itself to shrink (RoomDelegate).
-            SplitView.minimumWidth:   212
+            SplitView.minimumWidth:   app.settings.roomListMinWidth
             SplitView.maximumWidth:   560
             // The Channels "Message Search" row opens the same dialog as
             // Ctrl+Shift+F.
@@ -672,7 +709,17 @@ Item {
                     dragged = false
                     if (!roomsPanel.visible || roomsPanel.width <= 0)
                         return
-                    app.settings.roomListWidth = Math.round(roomsPanel.width)
+                    const chosen = Math.round(roomsPanel.width)
+                    if (chosen < app.settings.roomListSnapThreshold) {
+                        if (app.settings.roomListWidth > app.settings.roomListMinWidth)
+                            app.settings.setRoomListExpandedWidth(app.settings.roomListWidth)
+                        app.settings.roomListWidth = app.settings.roomListMinWidth
+                    } else {
+                        const expanded = Math.max(app.settings.roomListExpandedMinWidth,
+                                                  chosen)
+                        app.settings.setRoomListExpandedWidth(expanded)
+                        app.settings.roomListWidth = expanded
+                    }
                     // SplitView writes preferredWidth while dragging, which
                     // breaks the binding; restore it so the setting keeps
                     // driving the pane.

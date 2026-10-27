@@ -29,7 +29,7 @@
     { QStringLiteral("roomListVisible"), Kind::Bool, 0, 0, 1, QStringLiteral("Layout"), 0, {  }, QVariant(true) },
     { QStringLiteral("memberPanelOpen"), Kind::Bool, 0, 0, 1, QStringLiteral("Layout"), 0, {  }, QVariant(false) },
     { QStringLiteral("roomFilterMode"), Kind::Int, 0, 4, 1, QStringLiteral("Layout"), 0, {  }, QVariant(int(0)) },
-    { QStringLiteral("roomListWidth"), Kind::Int, 120, 1200, 1, QStringLiteral("Layout"), 0, {  }, QVariant(int(300)) },
+    { QStringLiteral("roomListWidth"), Kind::Int, 64, 1200, 1, QStringLiteral("Layout"), 0, {  }, QVariant(int(300)) },
     { QStringLiteral("spacesRailWidth"), Kind::Int, 40, 600, 1, QStringLiteral("Layout"), 0, {  }, QVariant(int(68)) },
     { QStringLiteral("sidePanelWidth"), Kind::Int, 120, 1200, 1, QStringLiteral("Layout"), 0, {  }, QVariant(int(320)) },
     { QStringLiteral("voiceMiniPlayerCorner"), Kind::Int, 0, 3, 1, QStringLiteral("Layout"), 0, {  }, QVariant(int(0)) },

@@ -27,6 +27,7 @@
 #include <memory>
 
 #include "app/AppController.h"
+#include "app/SettingsManager.h"
 #include "auth/AuthManager.h"
 #include "models/RoomListModel.h"
 #include "spaces/SpaceManager.h"
@@ -455,6 +456,128 @@ RoomsPanel { objectName: "panel"; width: 380; height: 700 }
         const QString src = QString::fromUtf8(file.readAll());
         QVERIFY(src.contains(
             QStringLiteral("ToolTip.visible: hovered && !roomListSortMenu.opened")));
+    }
+
+    static constexpr const char *kCompactRows = R"QML(
+import QtQuick
+import MatrixClient
+ListView {
+    objectName: "compactTestList"
+    width: 64; height: 160
+    focus: true
+    currentIndex: 0
+    keyNavigationEnabled: true
+    model: ListModel {
+        ListElement { title: "Alice"; room: "!alice:test"; unread: 3; mentions: 1 }
+        ListElement { title: "General"; room: "!general:test"; unread: 0; mentions: 0 }
+    }
+    delegate: RoomListCompactRow {
+        label: title
+        rowId: room
+        unreadCount: unread
+        highlightCount: mentions
+        hasUnread: unread > 0
+    }
+}
+)QML";
+
+    void compactRowsKeepAvatarBadgeAndTooltipInsideColumn()
+    {
+        Fixture f;
+        QVERIFY(load(f, kCompactRows, 64, 160));
+        auto compactRows = [&]() {
+            QList<QQuickItem *> all;
+            visualTree(f.item.get(), all);
+            QList<QQuickItem *> rows;
+            for (auto *item : all)
+                if (item->objectName() == QStringLiteral("compactRoomRow"))
+                    rows.append(item);
+            return rows;
+        };
+        QTRY_COMPARE_WITH_TIMEOUT(compactRows().size(), 2, kTimeoutMs);
+        const auto rows = compactRows();
+        for (auto *row : rows) {
+            QCOMPARE(row->width(), 64.0);
+            QCOMPARE(row->property("tooltipText").toString().isEmpty(), false);
+            for (const QString &name : { QStringLiteral("compactRoomAvatar"),
+                                         QStringLiteral("compactRoomBadge") }) {
+                auto *child = byName(row, name);
+                QVERIFY(child);
+                if (!child->isVisible()) continue;
+                const QRectF bounds(child->mapToItem(row, QPointF()), child->size());
+                QVERIFY2(bounds.left() >= -0.1 && bounds.top() >= -0.1
+                         && bounds.right() <= row->width() + 0.1
+                         && bounds.bottom() <= row->height() + 0.1,
+                         qPrintable(name + QStringLiteral(" escapes compact row")));
+            }
+        }
+        auto *badge = byName(rows.first(), QStringLiteral("compactRoomBadge"));
+        QVERIFY(badge->isVisible());
+        QCOMPARE(badge->property("mention").toBool(), true);
+        QCOMPARE(rows.first()->property("tooltipText").toString(), QStringLiteral("Alice"));
+    }
+
+    void compactRowsNavigateWithKeyboard()
+    {
+        Fixture f;
+        QVERIFY(load(f, kCompactRows, 64, 160));
+        f.item->forceActiveFocus(Qt::TabFocusReason);
+        QTest::keyClick(&f.window, Qt::Key_Down);
+        QTRY_COMPARE_WITH_TIMEOUT(f.item->property("currentIndex").toInt(), 1, kTimeoutMs);
+        QTest::keyClick(&f.window, Qt::Key_Up);
+        QTRY_COMPARE_WITH_TIMEOUT(f.item->property("currentIndex").toInt(), 0, kTimeoutMs);
+    }
+
+    void compactPresenterSwitchesBetweenClassicAndChannelsModels()
+    {
+        Fixture f;
+        QVERIFY(load(f, R"QML(
+import QtQuick
+import MatrixClient
+RoomListCompactPresenter { width: 64; height: 320 }
+)QML", 64, 320));
+        auto *classic = byName(f.item.get(), QStringLiteral("compactClassicList"));
+        auto *channels = byName(f.item.get(), QStringLiteral("compactChannelsList"));
+        QVERIFY(classic);
+        QVERIFY(channels);
+        QVERIFY(classic->isVisible());
+        QVERIFY(!channels->isVisible());
+        QTRY_VERIFY_WITH_TIMEOUT(classic->property("count").toInt() >= 3, kTimeoutMs);
+        f.controller->settings()->setRoomNavigationLayout(1);
+        QTRY_VERIFY_WITH_TIMEOUT(channels->isVisible(), kTimeoutMs);
+        QVERIFY(!classic->isVisible());
+        QTRY_VERIFY_WITH_TIMEOUT(channels->property("count").toInt() > 0, kTimeoutMs);
+        channels->forceActiveFocus(Qt::TabFocusReason);
+        QTest::keyClick(&f.window, Qt::Key_Down);
+        QTRY_VERIFY_WITH_TIMEOUT(channels->property("currentIndex").toInt() >= 0,
+                                 kTimeoutMs);
+    }
+
+    void compactPanelKeepsItsControlsInsideTheSavedWidth()
+    {
+        Fixture f;
+        QVERIFY(load(f, R"QML(
+import QtQuick
+import MatrixClient
+RoomsPanel { width: 64; height: 700 }
+)QML", 64, 700));
+        QVERIFY(f.item->property("compact").toBool());
+        QCOMPARE(f.item->width(), 64.0);
+        for (const QString &name : { QStringLiteral("compactRoomListHeader"),
+                                     QStringLiteral("compactRoomListSearch"),
+                                     QStringLiteral("compactRoomListFilter"),
+                                     QStringLiteral("compactClassicList") }) {
+            auto *child = byName(f.item.get(), name);
+            QVERIFY2(child, qPrintable(name + QStringLiteral(" missing")));
+            QVERIFY(child->isVisible());
+            const QRectF bounds(child->mapToItem(f.item.get(), QPointF()), child->size());
+            QVERIFY2(bounds.left() >= -0.1 && bounds.top() >= -0.1
+                     && bounds.right() <= 64.1 && bounds.bottom() <= 700.1,
+                     qPrintable(name + QStringLiteral(" escapes panel")));
+        }
+        auto *fullSearch = byName(f.item.get(), QStringLiteral("roomSearchCard"));
+        QVERIFY(fullSearch);
+        QVERIFY(!fullSearch->isVisible());
     }
 };
 
