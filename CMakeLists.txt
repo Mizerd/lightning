@@ -2545,6 +2545,14 @@ if(BUILD_TESTING)
     set_tests_properties(thread-panel-pagination-anchor-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    qt_add_executable(thread-matrix-a-test
+        tests/ThreadMatrixATest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(thread-matrix-a-test)
+    target_link_libraries(thread-matrix-a-test PRIVATE Qt6::Test)
+    add_test(NAME thread-matrix-a COMMAND thread-matrix-a-test)
+
     # The account-identity <-> SDK-store binding: create and restore use the
     # same store path; adoption of a divergent-case store is unambiguous,
     # idempotent and non-destructive; a no-op reset says so; each failure has
