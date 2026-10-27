@@ -2122,7 +2122,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+4"/>
         <source>Select up to 50 messages at once.</source>
-        <translation>একবারে সর্বোচ্চ 50টি বার্তা নির্বাচন করুন।</translation>
+        <translation>একবারে সর্বোচ্চ ৫০টি বার্তা নির্বাচন করুন।</translation>
     </message>
     <message numerus="yes">
         <location line="+67"/>
@@ -4784,7 +4784,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+1"/>
         <source>The column of rooms and people</source>
-        <translation>ঘর এবং মানুষের কলাম</translation>
+        <translation>রুম এবং মানুষের কলাম</translation>
     </message>
     <message>
         <location line="+8"/>
@@ -5021,7 +5021,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+1"/>
         <source>Message bodies, room names, headings</source>
-        <translation>বার্তা সংস্থা, ঘরের নাম, শিরোনাম</translation>
+        <translation>বার্তা সংস্থা, রুমের নাম, শিরোনাম</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -5061,7 +5061,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+1"/>
         <source>The room name in the open room&apos;s row</source>
-        <translation>খোলা ঘরের সারিতে ঘরের নাম</translation>
+        <translation>খোলা রুমের সারিতে রুমের নাম</translation>
     </message>
     <message>
         <location line="+9"/>
@@ -11371,12 +11371,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+4"/>
         <source>Stop ignoring %1 in every room</source>
-        <translation>প্রতিটি ঘরে %1উপেক্ষা করা বন্ধ করুন</translation>
+        <translation>প্রতিটি রুমে %1উপেক্ষা করা বন্ধ করুন</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Ignore %1 in every room</source>
-        <translation>প্রতিটি ঘরে %1উপেক্ষা করুন</translation>
+        <translation>প্রতিটি রুমে %1উপেক্ষা করুন</translation>
     </message>
     <message>
         <location line="+32"/>
@@ -16089,7 +16089,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+1"/>
         <source>There is a call in this room</source>
-        <translation>এই ঘরে একটা ডাক আছে</translation>
+        <translation>এই রুমে একটা ডাক আছে</translation>
     </message>
 </context>
 <context>
@@ -16122,7 +16122,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+1"/>
         <source>No rooms outside your spaces. Pick a space on the left, or create a room.</source>
-        <translation>আপনার স্থানের বাইরে কোনো ঘর নেই। বাম দিকে একটি স্থান চয়ন করুন, বা একটি রুম তৈরি করুন৷</translation>
+        <translation>আপনার স্থানের বাইরে কোনো রুম নেই। বাম দিকে একটি স্থান চয়ন করুন, বা একটি রুম তৈরি করুন৷</translation>
     </message>
 </context>
 <context>
@@ -22588,17 +22588,17 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
     <message>
         <location line="+1"/>
         <source>Every space as a collapsible folder of its rooms.</source>
-        <translation>প্রতিটি স্থান তার কক্ষগুলির একটি বন্ধযোগ্য ফোল্ডার হিসাবে।</translation>
+        <translation>প্রতিটি স্থান তার রুমগুলির একটি বন্ধযোগ্য ফোল্ডার হিসাবে।</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Channels lists every space you are in as a folder, with the rooms it contains underneath. Rooms in no space, and your direct messages, stay together in Rooms.</source>
-        <translation>চ্যানেলের নীচে থাকা কক্ষগুলি সহ আপনি যে সমস্ত স্থানের মধ্যে আছেন একটি ফোল্ডার হিসাবে তালিকাভুক্ত করে৷ কোনো জায়গা ছাড়া রুম, এবং আপনার সরাসরি বার্তা, রুমে একসাথে থাকুন।</translation>
+        <translation>চ্যানেলের নীচে থাকা রুমগুলি সহ আপনি যে সমস্ত স্থানের মধ্যে আছেন একটি ফোল্ডার হিসাবে তালিকাভুক্ত করে৷ কোনো জায়গা ছাড়া রুম, এবং আপনার সরাসরি বার্তা, রুমে একসাথে থাকুন।</translation>
     </message>
     <message>
         <location line="+2009"/>
         <source>Your homeserver loads the preview, so the linked site sees your server rather than you. If your server cannot — many have previews turned off — Lightning loads it directly instead, which may reveal your IP address and request timing to a site the sender chose. Asking your homeserver also tells it which link was previewed, which in an encrypted room it would not otherwise know. No JavaScript is executed. Both switches are off by default; leave them off and use the “Show” button on each message&apos;s link card to decide one at a time.</source>
-        <translation>আপনার হোমসার্ভার পূর্বরূপ লোড করে, তাই লিঙ্ক করা সাইটটি আপনার পরিবর্তে আপনার সার্ভারটি দেখতে পায়। যদি আপনার সার্ভার না পারে — অনেকের প্রিভিউ বন্ধ করা আছে — Lightning এটি সরাসরি লোড করে, যা আপনার আইপি ঠিকানা প্রকাশ করতে পারে এবং প্রেরকের বেছে নেওয়া সাইটের সময় অনুরোধ করতে পারে। আপনার হোমসার্ভারকে জিজ্ঞাসা করা এটিও বলে যে কোন লিঙ্কটি প্রিভিউ করা হয়েছে, কোনটি এনক্রিপ্ট করা ঘরে এটি অন্যথায় জানতে পারবে না। কোন জাভাস্ক্রিপ্ট কার্যকর করা হয় না. উভয় সুইচ ডিফল্টরূপে বন্ধ; তাদের ছেড়ে দিন এবং প্রতিটি বার্তার লিঙ্ক কার্ডে &quot;দেখান&quot; বোতামটি একবারে একটি সিদ্ধান্ত নিতে ব্যবহার করুন৷</translation>
+        <translation>আপনার হোমসার্ভার পূর্বরূপ লোড করে, তাই লিঙ্ক করা সাইটটি আপনার পরিবর্তে আপনার সার্ভারটি দেখতে পায়। যদি আপনার সার্ভার না পারে — অনেকের প্রিভিউ বন্ধ করা আছে — Lightning এটি সরাসরি লোড করে, যা আপনার আইপি ঠিকানা প্রকাশ করতে পারে এবং প্রেরকের বেছে নেওয়া সাইটের সময় অনুরোধ করতে পারে। আপনার হোমসার্ভারকে জিজ্ঞাসা করা এটিও বলে যে কোন লিঙ্কটি প্রিভিউ করা হয়েছে, কোনটি এনক্রিপ্ট করা রুমে এটি অন্যথায় জানতে পারবে না। কোন জাভাস্ক্রিপ্ট কার্যকর করা হয় না. উভয় সুইচ ডিফল্টরূপে বন্ধ; তাদের ছেড়ে দিন এবং প্রতিটি বার্তার লিঙ্ক কার্ডে &quot;দেখান&quot; বোতামটি একবারে একটি সিদ্ধান্ত নিতে ব্যবহার করুন৷</translation>
     </message>
     <message>
         <location line="+1395"/>
@@ -26410,7 +26410,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+3"/>
         <source>Manage space rooms</source>
-        <translation>স্থান কক্ষ পরিচালনা করুন</translation>
+        <translation>স্থান রুম পরিচালনা করুন</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -28320,7 +28320,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+108"/>
         <source>Use this room&apos;s stickers in every room</source>
-        <translation>প্রতিটি ঘরে এই রুমের স্টিকার ব্যবহার করুন</translation>
+        <translation>প্রতিটি রুমে এই রুমের স্টিকার ব্যবহার করুন</translation>
     </message>
     <message>
         <location line="+10"/>

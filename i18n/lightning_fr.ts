@@ -4781,12 +4781,12 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
     <message>
         <location line="+15"/>
         <source>Room list</source>
-        <translation>Liste des chambres</translation>
+        <translation>Liste des salons</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The column of rooms and people</source>
-        <translation>La colonne des chambres et des personnes</translation>
+        <translation>La colonne des salons et des personnes</translation>
     </message>
     <message>
         <location line="+8"/>
@@ -18058,7 +18058,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     <message>
         <location line="+6"/>
         <source>No direct messages with people in this Space. All of them are under “All rooms”.</source>
-        <translation>Aucun message direct avec les personnes de cet espace. Tous se trouvent sous «&#xa0;Toutes les chambres&#xa0;».</translation>
+        <translation>Aucun message direct avec les personnes de cet espace. Tous se trouvent sous « Tous les salons ».</translation>
     </message>
     <message>
         <location line="+0"/>
@@ -28374,7 +28374,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location line="+19"/>
         <source>Right-click any sticker in a chat and choose “Add to my stickers” to start your own pack. Packs a room shares appear here too.</source>
-        <translation>Cliquez avec le bouton droit sur n’importe quel autocollant dans une discussion et choisissez « Ajouter à mes autocollants » pour démarrer votre propre pack. Les packs partagés par une chambre apparaissent également ici.</translation>
+        <translation>Cliquez avec le bouton droit sur n’importe quel autocollant dans une discussion et choisissez « Ajouter à mes autocollants » pour démarrer votre propre pack. Les packs partagés par un salon apparaissent également ici.</translation>
     </message>
     <message>
         <location line="+4"/>

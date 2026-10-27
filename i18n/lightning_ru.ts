@@ -4803,7 +4803,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+15"/>
         <source>Room list</source>
-        <translation>Список номеров</translation>
+        <translation>Список комнат</translation>
     </message>
     <message>
         <location line="+1"/>

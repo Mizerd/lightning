@@ -4759,7 +4759,7 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
     <message>
         <location line="+15"/>
         <source>Room list</source>
-        <translation>Daftar kamar</translation>
+        <translation>Daftar ruang</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -11300,7 +11300,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
     <message>
         <location line="+29"/>
         <source>Rooms in common</source>
-        <translation>Kamar yang sama</translation>
+        <translation>Ruang yang sama</translation>
     </message>
     <message>
         <location line="+27"/>
@@ -28268,7 +28268,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     <message>
         <location line="+19"/>
         <source>Right-click any sticker in a chat and choose “Add to my stickers” to start your own pack. Packs a room shares appear here too.</source>
-        <translation>Klik kanan stiker apa pun di obrolan dan pilih “Tambahkan ke stiker saya” untuk memulai paket Anda sendiri. Paket berbagi kamar juga muncul di sini.</translation>
+        <translation>Klik kanan stiker apa pun di obrolan dan pilih “Tambahkan ke stiker saya” untuk memulai paket Anda sendiri. Paket yang dibagikan sebuah ruang juga muncul di sini.</translation>
     </message>
     <message>
         <location line="+4"/>

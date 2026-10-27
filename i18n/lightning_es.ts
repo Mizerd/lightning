@@ -4781,12 +4781,12 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
     <message>
         <location line="+15"/>
         <source>Room list</source>
-        <translation>Lista de habitaciones</translation>
+        <translation>Lista de salas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The column of rooms and people</source>
-        <translation>La columna de habitaciones y personas.</translation>
+        <translation>La columna de salas y personas.</translation>
     </message>
     <message>
         <location line="+8"/>
@@ -11340,7 +11340,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     <message>
         <location line="+29"/>
         <source>Rooms in common</source>
-        <translation>Habitaciones en común</translation>
+        <translation>Salas en común</translation>
     </message>
     <message>
         <location line="+27"/>
@@ -11380,12 +11380,12 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     <message>
         <location line="+4"/>
         <source>Stop ignoring %1 in every room</source>
-        <translation>Deja de ignorar %1 en todas las habitaciones</translation>
+        <translation>Deja de ignorar %1 en todas las salas</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Ignore %1 in every room</source>
-        <translation>Ignora %1 en todas las habitaciones</translation>
+        <translation>Ignora %1 en todas las salas</translation>
     </message>
     <message>
         <location line="+32"/>
@@ -16126,12 +16126,12 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     <message>
         <location line="+2"/>
         <source>Nothing in this space yet. Open Lobby to add a room.</source>
-        <translation>Nada en este espacio todavía. Abra el lobby para agregar una habitación.</translation>
+        <translation>Nada en este espacio todavía. Abra el lobby para agregar una sala.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>No rooms outside your spaces. Pick a space on the left, or create a room.</source>
-        <translation>No hay habitaciones fuera de tus espacios. Elija un espacio a la izquierda o cree una habitación.</translation>
+        <translation>No hay salas fuera de tus espacios. Elija un espacio a la izquierda o cree una sala.</translation>
     </message>
 </context>
 <context>
@@ -18013,7 +18013,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     <message>
         <location line="+2"/>
         <source>Loading rooms…</source>
-        <translation>Cargando habitaciones…</translation>
+        <translation>Cargando salas…</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -18058,7 +18058,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     <message>
         <location line="+6"/>
         <source>No direct messages with people in this Space. All of them are under “All rooms”.</source>
-        <translation>No hay mensajes directos con personas en este Espacio. Todos ellos se encuentran en “Todas las habitaciones”.</translation>
+        <translation>No hay mensajes directos con personas en este Espacio. Todos ellos se encuentran en “Todas las salas”.</translation>
     </message>
     <message>
         <location line="+0"/>
@@ -20241,7 +20241,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     <message>
         <location line="-4654"/>
         <source>room list width panel size sidebar</source>
-        <translation>barra lateral del tamaño del panel del ancho de la lista de habitaciones</translation>
+        <translation>barra lateral del tamaño del panel del ancho de la lista de salas</translation>
     </message>
     <message>
         <location line="+11"/>
@@ -22597,7 +22597,7 @@ Escape y las letras individuales que utiliza el menú de mensajes mientras está
     <message>
         <location line="+1"/>
         <source>Every space as a collapsible folder of its rooms.</source>
-        <translation>Cada espacio como una carpeta plegable de sus habitaciones.</translation>
+        <translation>Cada espacio como una carpeta plegable de sus salas.</translation>
     </message>
     <message>
         <location line="+15"/>
@@ -25437,7 +25437,7 @@ Nota: importar claves no verifica esta sesión.</translation>
     <message>
         <location line="+3"/>
         <source>Create a room or Space</source>
-        <translation>Crear una habitación o espacio</translation>
+        <translation>Crear una sala o espacio</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -26010,7 +26010,7 @@ Nota: importar claves no verifica esta sesión.</translation>
     <message>
         <location filename="../src/models/SpaceChannelModel.cpp" line="+816"/>
         <source>Create Room</source>
-        <translation>Crear habitación</translation>
+        <translation>Crear sala</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -27027,7 +27027,7 @@ Nota: importar claves no verifica esta sesión.</translation>
     <message>
         <location line="+26"/>
         <source>A full room-state and account-data inspector isn&apos;t built yet.</source>
-        <translation>Aún no se ha creado un inspector completo de estado de la habitación y datos de la cuenta.</translation>
+        <translation>Aún no se ha creado un inspector completo de estado de la sala y datos de la cuenta.</translation>
     </message>
     <message>
         <location line="+105"/>
@@ -28329,7 +28329,7 @@ Nota: importar claves no verifica esta sesión.</translation>
     <message>
         <location line="+108"/>
         <source>Use this room&apos;s stickers in every room</source>
-        <translation>Usa las pegatinas de esta habitación en todas las habitaciones.</translation>
+        <translation>Usa las pegatinas de esta sala en todas las salas.</translation>
     </message>
     <message>
         <location line="+10"/>
@@ -28339,7 +28339,7 @@ Nota: importar claves no verifica esta sesión.</translation>
     <message>
         <location line="+7"/>
         <source>A room&apos;s stickers are always available inside that room. This makes them available everywhere else too.</source>
-        <translation>Las pegatinas de una habitación siempre están disponibles dentro de esa habitación. Esto también los hace disponibles en cualquier otro lugar.</translation>
+        <translation>Las pegatinas de una sala siempre están disponibles dentro de esa sala. Esto también los hace disponibles en cualquier otro lugar.</translation>
     </message>
     <message>
         <location line="+196"/>
@@ -28374,7 +28374,7 @@ Nota: importar claves no verifica esta sesión.</translation>
     <message>
         <location line="+19"/>
         <source>Right-click any sticker in a chat and choose “Add to my stickers” to start your own pack. Packs a room shares appear here too.</source>
-        <translation>Haz clic derecho en cualquier calcomanía en un chat y elige &quot;Agregar a mis calcomanías&quot; para comenzar tu propio paquete. Aquí también aparecen los packs para compartir habitación.</translation>
+        <translation>Haz clic derecho en cualquier calcomanía en un chat y elige &quot;Agregar a mis calcomanías&quot; para comenzar tu propio paquete. Aquí también aparecen los paquetes que comparte una sala.</translation>
     </message>
     <message>
         <location line="+4"/>

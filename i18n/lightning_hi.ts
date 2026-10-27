@@ -1149,7 +1149,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+18"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
-        <translation>यह कमरा एन्क्रिप्टेड है, और इस बिल्ड पर एन्क्रिप्टेड कॉल अभी तक उपलब्ध नहीं हैं।</translation>
+        <translation>यह रूम एन्क्रिप्टेड है, और इस बिल्ड पर एन्क्रिप्टेड कॉल अभी तक उपलब्ध नहीं हैं।</translation>
     </message>
     <message>
         <location line="+6"/>
@@ -4781,12 +4781,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+15"/>
         <source>Room list</source>
-        <translation>कमरे की सूची</translation>
+        <translation>रूम की सूची</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The column of rooms and people</source>
-        <translation>कमरों और लोगों का स्तंभ</translation>
+        <translation>रूम और लोगों का स्तंभ</translation>
     </message>
     <message>
         <location line="+8"/>
@@ -5023,7 +5023,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+1"/>
         <source>Message bodies, room names, headings</source>
-        <translation>संदेश का मुख्य भाग, कमरे के नाम, शीर्षक</translation>
+        <translation>संदेश का मुख्य भाग, रूम के नाम, शीर्षक</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -5063,7 +5063,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+1"/>
         <source>The room name in the open room&apos;s row</source>
-        <translation>खुले कमरे की पंक्ति में कमरे का नाम</translation>
+        <translation>खुले रूम की पंक्ति में रूम का नाम</translation>
     </message>
     <message>
         <location line="+9"/>
@@ -10692,12 +10692,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+34"/>
         <source>Added to this room&apos;s stickers as :%1:</source>
-        <translation>इस कमरे के स्टिकर में :%1 के रूप में जोड़ा गया:</translation>
+        <translation>इस रूम के स्टिकर में :%1 के रूप में जोड़ा गया:</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Added to this room&apos;s stickers</source>
-        <translation>इस कमरे के स्टिकर में जोड़ा गया</translation>
+        <translation>इस रूम के स्टिकर में जोड़ा गया</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -10712,7 +10712,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+6"/>
         <source>That sticker is already in this room&apos;s stickers</source>
-        <translation>वह स्टिकर पहले से ही इस कमरे के स्टिकर में है</translation>
+        <translation>वह स्टिकर पहले से ही इस रूम के स्टिकर में है</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -10722,7 +10722,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+5"/>
         <source>This room&apos;s sticker pack is full.</source>
-        <translation>इस कमरे का स्टिकर पैक भरा हुआ है.</translation>
+        <translation>इस रूम का स्टिकर पैक भरा हुआ है.</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -10732,7 +10732,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+7"/>
         <source>You do not have permission to change this room&apos;s stickers.</source>
-        <translation>आपको इस कमरे के स्टिकर बदलने की अनुमति नहीं है।</translation>
+        <translation>आपको इस रूम के स्टिकर बदलने की अनुमति नहीं है।</translation>
     </message>
     <message>
         <location line="+9"/>
@@ -11340,7 +11340,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+29"/>
         <source>Rooms in common</source>
-        <translation>साझा कमरे</translation>
+        <translation>साझा रूम</translation>
     </message>
     <message>
         <location line="+27"/>
@@ -11380,12 +11380,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+4"/>
         <source>Stop ignoring %1 in every room</source>
-        <translation>हर कमरे में %1 को नज़रअंदाज़ करना बंद करें</translation>
+        <translation>हर रूम में %1 को नज़रअंदाज़ करना बंद करें</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Ignore %1 in every room</source>
-        <translation>प्रत्येक कमरे में %1 को अनदेखा करें</translation>
+        <translation>प्रत्येक रूम में %1 को अनदेखा करें</translation>
     </message>
     <message>
         <location line="+32"/>
@@ -11602,7 +11602,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+84"/>
         <source>Notify everyone in this room</source>
-        <translation>इस कमरे में सभी को सूचित करें</translation>
+        <translation>इस रूम में सभी को सूचित करें</translation>
     </message>
 </context>
 <context>
@@ -12475,7 +12475,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+20"/>
         <source>Add to this room&apos;s stickers</source>
-        <translation>इस कमरे के स्टिकर में जोड़ें</translation>
+        <translation>इस रूम के स्टिकर में जोड़ें</translation>
     </message>
     <message>
         <location line="+46"/>
@@ -15912,7 +15912,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+2"/>
         <source>Local setting: it does not change this room&apos;s server push rules.</source>
-        <translation>स्थानीय सेटिंग: यह इस कमरे के सर्वर पुश नियमों को नहीं बदलता है।</translation>
+        <translation>स्थानीय सेटिंग: यह इस रूम के सर्वर पुश नियमों को नहीं बदलता है।</translation>
     </message>
     <message>
         <location line="+15"/>
@@ -16093,12 +16093,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/RoomCallGlyph.qml" line="+82"/>
         <source>You are in a call in this room</source>
-        <translation>आप इस कमरे में कॉल पर हैं</translation>
+        <translation>आप इस रूम में कॉल पर हैं</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>There is a call in this room</source>
-        <translation>इस कमरे में एक कॉल है</translation>
+        <translation>इस रूम में एक कॉल है</translation>
     </message>
 </context>
 <context>
@@ -16106,7 +16106,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/RoomChannelsPresenter.qml" line="+61"/>
         <source>No conversations yet. Rooms you join, and the spaces they belong to, will show up here.</source>
-        <translation>अभी तक कोई बातचीत नहीं. आप जिन कमरों से जुड़ते हैं, और वे स्थान जिनसे वे संबंधित हैं, वे यहां दिखाई देंगे।</translation>
+        <translation>अभी तक कोई बातचीत नहीं. आप जिन रूम से जुड़ते हैं, और वे स्थान जिनसे वे संबंधित हैं, वे यहां दिखाई देंगे।</translation>
     </message>
     <message>
         <location line="+23"/>
@@ -16126,12 +16126,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+2"/>
         <source>Nothing in this space yet. Open Lobby to add a room.</source>
-        <translation>इस स्थान पर अभी तक कुछ भी नहीं है. एक कमरा जोड़ने के लिए लॉबी खोलें।</translation>
+        <translation>इस स्थान पर अभी तक कुछ भी नहीं है. एक रूम जोड़ने के लिए लॉबी खोलें।</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>No rooms outside your spaces. Pick a space on the left, or create a room.</source>
-        <translation>आपके स्थान के बाहर कोई कमरा नहीं. बाईं ओर एक स्थान चुनें, या एक कमरा बनाएं।</translation>
+        <translation>आपके स्थान के बाहर कोई रूम नहीं. बाईं ओर एक स्थान चुनें, या एक रूम बनाएं।</translation>
     </message>
 </context>
 <context>
@@ -17977,7 +17977,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+1"/>
         <source>Rooms</source>
-        <translation>कमरे</translation>
+        <translation>रूम</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -18058,7 +18058,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+6"/>
         <source>No direct messages with people in this Space. All of them are under “All rooms”.</source>
-        <translation>इस स्पेस में लोगों के साथ कोई सीधा संदेश नहीं। ये सभी &quot;सभी कमरे&quot; के अंतर्गत हैं।</translation>
+        <translation>इस स्पेस में लोगों के साथ कोई सीधा संदेश नहीं। ये सभी &quot;सभी रूम&quot; के अंतर्गत हैं।</translation>
     </message>
     <message>
         <location line="+0"/>
@@ -18068,7 +18068,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+2"/>
         <source>Rooms with unread messages appear here.</source>
-        <translation>अपठित संदेशों वाले कमरे यहां दिखाई देते हैं।</translation>
+        <translation>अपठित संदेशों वाले रूम यहां दिखाई देते हैं।</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -22597,17 +22597,17 @@ Escape, and the single letters the message menu uses while it is open, are reser
     <message>
         <location line="+1"/>
         <source>Every space as a collapsible folder of its rooms.</source>
-        <translation>प्रत्येक स्थान अपने कमरों के एक बंधने योग्य फ़ोल्डर के रूप में।</translation>
+        <translation>प्रत्येक स्थान अपने रूम के एक बंधने योग्य फ़ोल्डर के रूप में।</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Channels lists every space you are in as a folder, with the rooms it contains underneath. Rooms in no space, and your direct messages, stay together in Rooms.</source>
-        <translation>चैनल प्रत्येक स्थान को एक फ़ोल्डर के रूप में सूचीबद्ध करता है, जिसमें नीचे मौजूद कमरे भी शामिल हैं। बिना जगह के कमरे, और आपके सीधे संदेश, कमरों में एक साथ रहते हैं।</translation>
+        <translation>चैनल प्रत्येक स्थान को एक फ़ोल्डर के रूप में सूचीबद्ध करता है, जिसमें नीचे मौजूद रूम भी शामिल हैं। बिना जगह के रूम, और आपके सीधे संदेश, रूम में एक साथ रहते हैं।</translation>
     </message>
     <message>
         <location line="+2009"/>
         <source>Your homeserver loads the preview, so the linked site sees your server rather than you. If your server cannot — many have previews turned off — Lightning loads it directly instead, which may reveal your IP address and request timing to a site the sender chose. Asking your homeserver also tells it which link was previewed, which in an encrypted room it would not otherwise know. No JavaScript is executed. Both switches are off by default; leave them off and use the “Show” button on each message&apos;s link card to decide one at a time.</source>
-        <translation>आपका होमसर्वर पूर्वावलोकन लोड करता है, इसलिए लिंक की गई साइट आपके बजाय आपके सर्वर को देखती है। यदि आपका सर्वर ऐसा नहीं कर सकता - कई लोगों ने पूर्वावलोकन बंद कर दिए हैं - Lightning इसे सीधे लोड करता है, जो आपके आईपी पते को प्रकट कर सकता है और प्रेषक द्वारा चुनी गई साइट पर समय का अनुरोध कर सकता है। अपने होमसर्वर से पूछने पर यह भी पता चलता है कि किस लिंक का पूर्वावलोकन किया गया था, जो एन्क्रिप्टेड कमरे में अन्यथा उसे पता नहीं चलेगा। कोई जावास्क्रिप्ट निष्पादित नहीं है. दोनों स्विच डिफ़ॉल्ट रूप से बंद हैं; उन्हें छोड़ दें और एक समय में एक निर्णय लेने के लिए प्रत्येक संदेश के लिंक कार्ड पर &quot;शो&quot; बटन का उपयोग करें।</translation>
+        <translation>आपका होमसर्वर पूर्वावलोकन लोड करता है, इसलिए लिंक की गई साइट आपके बजाय आपके सर्वर को देखती है। यदि आपका सर्वर ऐसा नहीं कर सकता - कई लोगों ने पूर्वावलोकन बंद कर दिए हैं - Lightning इसे सीधे लोड करता है, जो आपके आईपी पते को प्रकट कर सकता है और प्रेषक द्वारा चुनी गई साइट पर समय का अनुरोध कर सकता है। अपने होमसर्वर से पूछने पर यह भी पता चलता है कि किस लिंक का पूर्वावलोकन किया गया था, जो एन्क्रिप्टेड रूम में अन्यथा उसे पता नहीं चलेगा। कोई जावास्क्रिप्ट निष्पादित नहीं है. दोनों स्विच डिफ़ॉल्ट रूप से बंद हैं; उन्हें छोड़ दें और एक समय में एक निर्णय लेने के लिए प्रत्येक संदेश के लिंक कार्ड पर &quot;शो&quot; बटन का उपयोग करें।</translation>
     </message>
     <message>
         <location line="+1395"/>
@@ -22937,7 +22937,7 @@ Escape, and the single letters the message menu uses while it is open, are reser
     <message>
         <location line="-5021"/>
         <source>return reopen room position latest selected message reading restore remember scroll</source>
-        <translation>लौटना फिर खोलना कमरा स्थिति नवीनतम चुना संदेश पढ़ना पुनर्स्थापित याद स्क्रॉल return</translation>
+        <translation>लौटना फिर खोलना रूम स्थिति नवीनतम चुना संदेश पढ़ना पुनर्स्थापित याद स्क्रॉल return</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -23480,7 +23480,7 @@ Escape, and the single letters the message menu uses while it is open, are reser
     <message>
         <location line="+14"/>
         <source>Where a room opens when you come back to it</source>
-        <translation>लौटने पर कमरा कहाँ खुलता है</translation>
+        <translation>लौटने पर रूम कहाँ खुलता है</translation>
     </message>
     <message>
         <location line="+12"/>
@@ -25188,7 +25188,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="-4199"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
-        <translation>यह कमरा एन्क्रिप्टेड है, और इस बिल्ड पर एन्क्रिप्टेड कॉल अभी तक उपलब्ध नहीं हैं।</translation>
+        <translation>यह रूम एन्क्रिप्टेड है, और इस बिल्ड पर एन्क्रिप्टेड कॉल अभी तक उपलब्ध नहीं हैं।</translation>
     </message>
     <message>
         <location line="+240"/>
@@ -25437,7 +25437,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+3"/>
         <source>Create a room or Space</source>
-        <translation>एक कमरा या स्थान बनाएँ</translation>
+        <translation>एक रूम या स्थान बनाएँ</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -26037,7 +26037,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="-44"/>
         <source>Rooms</source>
-        <translation>कमरे</translation>
+        <translation>रूम</translation>
     </message>
     <message>
         <location line="+7"/>
@@ -28329,7 +28329,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+108"/>
         <source>Use this room&apos;s stickers in every room</source>
-        <translation>इस कमरे के स्टिकर का प्रयोग हर कमरे में करें</translation>
+        <translation>इस रूम के स्टिकर का प्रयोग हर रूम में करें</translation>
     </message>
     <message>
         <location line="+10"/>
@@ -28339,7 +28339,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+7"/>
         <source>A room&apos;s stickers are always available inside that room. This makes them available everywhere else too.</source>
-        <translation>किसी कमरे के स्टिकर हमेशा उस कमरे के अंदर उपलब्ध रहते हैं। यह उन्हें हर जगह भी उपलब्ध कराता है।</translation>
+        <translation>किसी रूम के स्टिकर हमेशा उस रूम के अंदर उपलब्ध रहते हैं। यह उन्हें हर जगह भी उपलब्ध कराता है।</translation>
     </message>
     <message>
         <location line="+196"/>
@@ -28374,7 +28374,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+19"/>
         <source>Right-click any sticker in a chat and choose “Add to my stickers” to start your own pack. Packs a room shares appear here too.</source>
-        <translation>चैट में किसी भी स्टिकर पर राइट-क्लिक करें और अपना खुद का पैक शुरू करने के लिए &quot;मेरे स्टिकर में जोड़ें&quot; चुनें। एक कमरे के शेयर पैक यहाँ भी दिखाई देते हैं।</translation>
+        <translation>चैट में किसी भी स्टिकर पर राइट-क्लिक करें और अपना खुद का पैक शुरू करने के लिए &quot;मेरे स्टिकर में जोड़ें&quot; चुनें। एक रूम के शेयर पैक यहाँ भी दिखाई देते हैं।</translation>
     </message>
     <message>
         <location line="+4"/>

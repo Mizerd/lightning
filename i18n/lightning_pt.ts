@@ -11340,7 +11340,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
     <message>
         <location line="+29"/>
         <source>Rooms in common</source>
-        <translation>Quartos em comum</translation>
+        <translation>Salas em comum</translation>
     </message>
     <message>
         <location line="+27"/>
@@ -16131,7 +16131,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
     <message>
         <location line="+1"/>
         <source>No rooms outside your spaces. Pick a space on the left, or create a room.</source>
-        <translation>Não há quartos fora dos seus espaços. Escolha um espaço à esquerda ou crie uma sala.</translation>
+        <translation>Não há salas fora dos seus espaços. Escolha um espaço à esquerda ou crie uma sala.</translation>
     </message>
 </context>
 <context>
@@ -18058,7 +18058,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
     <message>
         <location line="+6"/>
         <source>No direct messages with people in this Space. All of them are under “All rooms”.</source>
-        <translation>Não há mensagens diretas com pessoas neste Espaço. Todos eles estão em “Todos os quartos”.</translation>
+        <translation>Não há mensagens diretas com pessoas neste Espaço. Todas estão em “Todas as salas”.</translation>
     </message>
     <message>
         <location line="+0"/>
@@ -22597,7 +22597,7 @@ Escape e as letras únicas que o menu de mensagens usa enquanto está aberto sã
     <message>
         <location line="+1"/>
         <source>Every space as a collapsible folder of its rooms.</source>
-        <translation>Cada espaço como uma pasta dobrável de seus quartos.</translation>
+        <translation>Cada espaço como uma pasta dobrável das suas salas.</translation>
     </message>
     <message>
         <location line="+15"/>
@@ -28374,7 +28374,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+19"/>
         <source>Right-click any sticker in a chat and choose “Add to my stickers” to start your own pack. Packs a room shares appear here too.</source>
-        <translation>Clique com o botão direito em qualquer adesivo em um bate-papo e escolha “Adicionar aos meus adesivos” para iniciar seu próprio pacote. Pacotes e compartilhamentos de quarto também aparecem aqui.</translation>
+        <translation>Clique com o botão direito em qualquer autocolante numa conversa e escolha “Adicionar aos meus autocolantes” para iniciar o seu próprio pacote. Os pacotes partilhados por uma sala também aparecem aqui.</translation>
     </message>
     <message>
         <location line="+4"/>
