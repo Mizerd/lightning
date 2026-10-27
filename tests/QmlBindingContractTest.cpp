@@ -977,7 +977,7 @@ private Q_SLOTS:
         QVERIFY(delegate.contains(QStringLiteral(
             "(!roomActivityVisible || suppressedAsThreadRoot"
             " || dividerSuppressed"
-            "\n         || deletedFollower) ? 0")));
+            "\n         || deletedFollower || !threadSearchVisible) ? 0")));
         QVERIFY(settings.contains(QStringLiteral("Show room activity")));
         QVERIFY(settings.contains(QStringLiteral(
             "onToggled: app.settings.showRoomActivity = checked")));

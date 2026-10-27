@@ -138,7 +138,8 @@ private Q_SLOTS:
                  "its reason");
         // Five since 2026-10-15: mx_rust_set_fully_read_marker reports a
         // failed m.fully_read write the same way (action "fully_read").
-        QCOMPARE(lib.count(QStringLiteral("roomaction::failure_event(")), 5);
+        // Six since 2026-10-27: the m.lowpriority tag write does too.
+        QCOMPARE(lib.count(QStringLiteral("roomaction::failure_event(")), 6);
     }
 
     // A queue overflow must repair the stream, not only announce it. The

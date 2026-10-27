@@ -1930,7 +1930,10 @@ void SpaceChannelsTest::lowPriorityTagReachesTheChannelMenu()
     QVERIFY(f.model.data(f.model.index(row, 0),
                          SpaceChannelModel::IsLowPriorityRole).toBool());
     f.client.roomList[0].lowPriority = false;
+    const int before = f.model.rebuildCountForTest();
     f.client.announce();
+    // The model rebuilds on a coalescing timer, not inside the signal.
+    QTRY_VERIFY(f.model.rebuildCountForTest() > before);
     row = f.model.rowForRoom(tagged.id);
     QVERIFY(row >= 0);
     QVERIFY(!f.model.data(f.model.index(row, 0),

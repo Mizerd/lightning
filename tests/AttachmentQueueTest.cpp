@@ -226,6 +226,19 @@ QByteArray tinyPng()
     return png;
 }
 
+// A PNG that actually decodes (tinyPng() only has to sniff as one), for the
+// image-edit cases that render it.
+QByteArray decodablePng()
+{
+    QImage image(4, 3, QImage::Format_ARGB32);
+    image.fill(QColor(20, 120, 220, 200));
+    QByteArray bytes;
+    QBuffer buffer(&bytes);
+    buffer.open(QIODevice::WriteOnly);
+    image.save(&buffer, "PNG");
+    return bytes;
+}
+
 // The first bytes of a Matroska file: the EBML header with DocType
 // "matroska". The shared MIME database proves only the CONTAINER from these
 // (application/x-matroska); whether it holds a picture is in the tracks.
@@ -388,7 +401,7 @@ private Q_SLOTS:
         composer.setClient(&client);
         composer.setRoomId(QStringLiteral("!room:example.org"));
         QTemporaryDir dir;
-        const QString path = writeFile(dir, QStringLiteral("photo.png"), tinyPng());
+        const QString path = writeFile(dir, QStringLiteral("photo.png"), decodablePng());
         composer.addAttachment(QUrl::fromLocalFile(path));
         auto *queue = composer.attachments();
         const QVariantMap preview = queue->renderImageEdit(
@@ -399,7 +412,7 @@ private Q_SLOTS:
         queue->cancelImageEdit(0);
         QVERIFY(!QFileInfo::exists(previewPath));
         QCOMPARE(queue->entries().at(0).localPath, path);
-        QCOMPARE(readAll(path), tinyPng());
+        QCOMPARE(readAll(path), decodablePng());
     }
 
     void editedPngDropsEmbeddedTextButKeepsTransparency()
@@ -444,7 +457,7 @@ private Q_SLOTS:
         composer.setSendTextAsCaption(true);
         QTemporaryDir dir;
         composer.addAttachment(QUrl::fromLocalFile(
-            writeFile(dir, QStringLiteral("photo.png"), tinyPng())));
+            writeFile(dir, QStringLiteral("photo.png"), decodablePng())));
         auto *queue = composer.attachments();
         QVERIFY(queue->renderImageEdit(0, 0, 0, 1, 1, 1, false, {})
                     .contains(QStringLiteral("url")));
@@ -458,7 +471,9 @@ private Q_SLOTS:
         QCOMPARE(client.fileSends, 0);
         QCOMPARE(client.lastThreadRoot, QStringLiteral("$root:example.org"));
         QCOMPARE(client.lastReplyTo, QStringLiteral("$reply:example.org"));
-        QCOMPARE(client.lastCaption, QStringLiteral("edited"));
+        // In a thread the typed text never rides as a caption
+        // (MessageComposer::takeTextAsCaption): it is its own thread reply.
+        QCOMPARE(client.lastCaption, QString());
         QCOMPARE(client.lastMime, QStringLiteral("image/png"));
     }
 

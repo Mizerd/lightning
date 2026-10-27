@@ -98,6 +98,7 @@ AppDialog {
             text: root.animatedSource
                   ? qsTr("Editing this animation sends one still PNG frame.")
                   : qsTr("The original file stays unchanged. The preview is the image that will be sent.")
+            textFormat: Text.PlainText
             wrapMode: Text.WordWrap
         }
         Label {
