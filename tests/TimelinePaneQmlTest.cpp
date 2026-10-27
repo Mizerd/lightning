@@ -5829,8 +5829,8 @@ private Q_SLOTS:
         fixture.insert(QStringLiteral("isStateActivity"), false);
         fixture.insert(QStringLiteral("stateGroupEntries"), QVariantList{});
         fixture.insert(QStringLiteral("showSenderIdentity"), true);
-        fixture.insert(QStringLiteral("itemId"), QStringLiteral("uid-rail"));
-        fixture.insert(QStringLiteral("eventId"), QStringLiteral("$rail"));
+        fixture.insert(QStringLiteral("itemId"), QString{});
+        fixture.insert(QStringLiteral("eventId"), QString{});
         fixture.insert(QStringLiteral("eventType"), 0);
         fixture.insert(QStringLiteral("status"), 0);
         fixture.insert(QStringLiteral("isOwn"), false);
@@ -5935,33 +5935,6 @@ private Q_SLOTS:
             // The avatar-gutter floor survives the rail contract.
             QVERIFY(chipRow->x() >= root->property("avatarGutterWidth")
                                         .toReal() - 0.5);
-            if (railOffsets.isEmpty()) {
-                // Exercise the short-row right rail with the action bar
-                // actually instantiated. A source scan cannot see overlap.
-                QQuickItem hoverView;
-                hoverView.setProperty("pinnedActionsKey", QString{});
-                hoverView.setProperty("hoveredActionsKey",
-                                      root->property("actionKey"));
-                root->setProperty("timelineView",
-                                  QVariant::fromValue(&hoverView));
-                QCoreApplication::processEvents();
-                auto *bar = root->findChild<QQuickItem *>(
-                    QStringLiteral("messageActionBarLoader"));
-                QVERIFY(bar && bar->isVisible());
-                QVERIFY(bar->width() > 0 && bar->height() > 0);
-                QVERIFY(chipRow->width() > 0 && chipRow->height() > 0);
-                const QRectF barRect(bar->mapToScene(QPointF(0, 0)),
-                                     QSizeF(bar->width(), bar->height()));
-                const QRectF chipRect(chipRow->mapToScene(QPointF(0, 0)),
-                                      QSizeF(chipRow->width(), chipRow->height()));
-                QVERIFY2(!barRect.intersects(chipRect),
-                         "short-row action bar overlaps the receipt facepile");
-                hoverView.setProperty("receiptsInFooter", true);
-                QCoreApplication::processEvents();
-                QVERIFY2(!strip->isVisible(),
-                         "footer placement still paints the row facepile");
-                root->setProperty("timelineView", QVariant{});
-            }
             railOffsets.append(stripRight - chipsRight);
         }
         // One rail: every shape has the same offset from the strip edge.

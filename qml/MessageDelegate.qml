@@ -3890,8 +3890,6 @@ Item {
         }
         // Only on a row with a body of its own.
         visible: !model.redacted && (receipts.length > 0 || sentOnly)
-                 && !(root.timelineView
-                      && root.timelineView.receiptsInFooter === true)
                  && root.naturalImplicitHeight > 0
         // Placement is identical for every message, own or not (the
         // one-left-aligned-sender contract; its scan bans the right-align
