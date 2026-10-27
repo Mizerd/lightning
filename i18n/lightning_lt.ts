@@ -2151,7 +2151,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     <message>
         <location line="+56"/>
         <source>A deletion got no answer from the server; its result is unknown.</source>
-        <translation type="unfinished"></translation>
+        <translation>Į trynimą serveris neatsakė; jo rezultatas nežinomas.</translation>
     </message>
     <message>
         <location line="+73"/>
@@ -10849,37 +10849,37 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location filename="../src/matrix/MatrixClient.cpp" line="+11"/>
         <source>The server is limiting how fast messages can be deleted. Try again in a little while.</source>
-        <translation type="unfinished"></translation>
+        <translation>Serveris riboja, kaip greitai galima trinti žinutes. Netrukus bandykite dar kartą.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>You do not have permission to delete that message.</source>
-        <translation type="unfinished"></translation>
+        <translation>Neturite leidimo ištrinti šios žinutės.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>That message no longer exists on the server.</source>
-        <translation type="unfinished">Šios žinutės serveryje nebėra.</translation>
+        <translation>Šios žinutės serveryje nebėra.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>This room is still loading. Try that again in a moment.</source>
-        <translation type="unfinished">Šis kambarys vis dar įkeliamas. Po akimirkos bandykite dar kartą.</translation>
+        <translation>Šis kambarys dar įkeliamas. Po akimirkos bandykite dar kartą.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>The message could not be deleted. Check your connection and try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>Žinutės ištrinti nepavyko. Patikrinkite ryšį ir bandykite dar kartą.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Your server does not support deleting messages.</source>
-        <translation type="unfinished"></translation>
+        <translation>Jūsų serveris nepalaiko žinučių trynimo.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The message could not be deleted.</source>
-        <translation type="unfinished">Nepavyko ištrinti žinutės.</translation>
+        <translation>Žinutės ištrinti nepavyko.</translation>
     </message>
 </context>
 <context>

@@ -2137,7 +2137,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+56"/>
         <source>A deletion got no answer from the server; its result is unknown.</source>
-        <translation type="unfinished"></translation>
+        <translation>एक हटाने का सर्वर से कोई उत्तर नहीं मिला; उसका परिणाम अज्ञात है।</translation>
     </message>
     <message>
         <location line="+73"/>
@@ -10813,37 +10813,37 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../src/matrix/MatrixClient.cpp" line="+11"/>
         <source>The server is limiting how fast messages can be deleted. Try again in a little while.</source>
-        <translation type="unfinished"></translation>
+        <translation>सर्वर सीमित कर रहा है कि संदेश कितनी तेज़ी से हटाए जा सकते हैं। थोड़ी देर में फिर से कोशिश करें।</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>You do not have permission to delete that message.</source>
-        <translation type="unfinished"></translation>
+        <translation>आपको वह संदेश हटाने की अनुमति नहीं है।</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>That message no longer exists on the server.</source>
-        <translation type="unfinished">वह संदेश अब सर्वर पर मौजूद नहीं है।</translation>
+        <translation>वह संदेश अब सर्वर पर मौजूद नहीं है।</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>This room is still loading. Try that again in a moment.</source>
-        <translation type="unfinished">यह रूम अब भी लोड हो रहा है। थोड़ी देर बाद फिर कोशिश करें।</translation>
+        <translation>यह रूम अभी लोड हो रहा है। एक पल में फिर से कोशिश करें।</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>The message could not be deleted. Check your connection and try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>संदेश हटाया नहीं जा सका। अपना कनेक्शन जाँचें और फिर से कोशिश करें।</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Your server does not support deleting messages.</source>
-        <translation type="unfinished"></translation>
+        <translation>आपका सर्वर संदेश हटाने का समर्थन नहीं करता।</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The message could not be deleted.</source>
-        <translation type="unfinished">संदेश हटाया नहीं जा सका।</translation>
+        <translation>संदेश हटाया नहीं जा सका।</translation>
     </message>
 </context>
 <context>

@@ -2137,7 +2137,7 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
     <message>
         <location line="+56"/>
         <source>A deletion got no answer from the server; its result is unknown.</source>
-        <translation type="unfinished"></translation>
+        <translation>Uma eliminação não obteve resposta do servidor; o seu resultado é desconhecido.</translation>
     </message>
     <message>
         <location line="+73"/>
@@ -10813,37 +10813,37 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
     <message>
         <location filename="../src/matrix/MatrixClient.cpp" line="+11"/>
         <source>The server is limiting how fast messages can be deleted. Try again in a little while.</source>
-        <translation type="unfinished"></translation>
+        <translation>O servidor está a limitar a rapidez com que as mensagens podem ser eliminadas. Tente novamente daqui a pouco.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>You do not have permission to delete that message.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não tem permissão para eliminar essa mensagem.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>That message no longer exists on the server.</source>
-        <translation type="unfinished">Essa mensagem já não existe no servidor.</translation>
+        <translation>Essa mensagem já não existe no servidor.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>This room is still loading. Try that again in a moment.</source>
-        <translation type="unfinished">Esta sala ainda está a carregar. Tente novamente dentro de momentos.</translation>
+        <translation>Esta sala ainda está a carregar. Tente novamente dentro de momentos.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>The message could not be deleted. Check your connection and try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível eliminar a mensagem. Verifique a sua ligação e tente novamente.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Your server does not support deleting messages.</source>
-        <translation type="unfinished"></translation>
+        <translation>O seu servidor não suporta a eliminação de mensagens.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The message could not be deleted.</source>
-        <translation type="unfinished">Não foi possível eliminar a mensagem.</translation>
+        <translation>Não foi possível eliminar a mensagem.</translation>
     </message>
 </context>
 <context>

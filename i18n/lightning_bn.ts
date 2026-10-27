@@ -2135,7 +2135,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+56"/>
         <source>A deletion got no answer from the server; its result is unknown.</source>
-        <translation type="unfinished"></translation>
+        <translation>একটি মোছার কোনো উত্তর সার্ভার থেকে আসেনি; এর ফলাফল অজানা।</translation>
     </message>
     <message>
         <location line="+73"/>
@@ -10804,37 +10804,37 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../src/matrix/MatrixClient.cpp" line="+11"/>
         <source>The server is limiting how fast messages can be deleted. Try again in a little while.</source>
-        <translation type="unfinished"></translation>
+        <translation>সার্ভার কত দ্রুত বার্তা মোছা যাবে তা সীমিত করছে। কিছুক্ষণ পরে আবার চেষ্টা করুন।</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>You do not have permission to delete that message.</source>
-        <translation type="unfinished"></translation>
+        <translation>ওই বার্তাটি মোছার অনুমতি আপনার নেই।</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>That message no longer exists on the server.</source>
-        <translation type="unfinished">ওই বার্তাটি সার্ভারে আর নেই।</translation>
+        <translation>ওই বার্তাটি আর সার্ভারে নেই।</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>This room is still loading. Try that again in a moment.</source>
-        <translation type="unfinished">এই রুম এখনও লোড হচ্ছে। একটু পরে আবার চেষ্টা করুন।</translation>
+        <translation>এই রুমটি এখনও লোড হচ্ছে। একটু পরে আবার চেষ্টা করুন।</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>The message could not be deleted. Check your connection and try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>বার্তাটি মোছা যায়নি। আপনার সংযোগ পরীক্ষা করে আবার চেষ্টা করুন।</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Your server does not support deleting messages.</source>
-        <translation type="unfinished"></translation>
+        <translation>আপনার সার্ভার বার্তা মোছা সমর্থন করে না।</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The message could not be deleted.</source>
-        <translation type="unfinished">বার্তাটি মোছা যায়নি।</translation>
+        <translation>বার্তাটি মোছা যায়নি।</translation>
     </message>
 </context>
 <context>
