@@ -45,6 +45,20 @@ QString roleFor(const ShortcutRegistry &registry, const QString &actionId,
     return QStringLiteral("<no such action>");
 }
 
+// Actions reached from the command palette, shipped with no key so they take
+// none from anything else; the user can bind one. Named, so a new action
+// cannot ship unbound by accident.
+bool paletteOnly(const QString &id)
+{
+    static const QStringList ids = {
+        QStringLiteral("nav.threadsActivity"),
+        QStringLiteral("view.toggleLayoutPreset"),
+        QStringLiteral("thread.togglePlacement"),
+        QStringLiteral("thread.openRootInRoom"),
+        QStringLiteral("composer.toggleHeight"),
+    };
+    return ids.contains(id);
+}
 } // namespace
 
 class ShortcutRegistryTest : public QObject
@@ -392,7 +406,8 @@ private Q_SLOTS:
             const QString id =
                 registry.data(idx, ShortcutRegistry::IdRole).toString();
             if (seq.isEmpty()) {
-                QCOMPARE(ctx, QString::number(int(ShortcutRegistry::SettingsContext)));
+                if (!paletteOnly(id))
+                    QCOMPARE(ctx, QString::number(int(ShortcutRegistry::SettingsContext)));
                 continue;
             }
             auto &seen = seenPerContext[ctx];
@@ -464,8 +479,9 @@ private Q_SLOTS:
                 registry.data(idx, ShortcutRegistry::DefaultSequenceRole)
                     .toString();
             if (seq.isEmpty()
-                && registry.data(idx, ShortcutRegistry::ContextRole).toInt()
-                   == ShortcutRegistry::SettingsContext)
+                && (registry.data(idx, ShortcutRegistry::ContextRole).toInt()
+                        == ShortcutRegistry::SettingsContext
+                    || paletteOnly(id)))
                 continue; // Settings overrides are opt-in.
             QVERIFY2(!seq.isEmpty(),
                      qPrintable(QStringLiteral("%1 has an unparseable default")
@@ -496,8 +512,9 @@ private Q_SLOTS:
                 registry.data(idx, ShortcutRegistry::DefaultSequenceRole)
                     .toString();
             if (seq.isEmpty()
-                && registry.data(idx, ShortcutRegistry::ContextRole).toInt()
-                   == ShortcutRegistry::SettingsContext)
+                && (registry.data(idx, ShortcutRegistry::ContextRole).toInt()
+                        == ShortcutRegistry::SettingsContext
+                    || paletteOnly(id)))
                 continue;
             // A selection action is a Keys handler on the focused timeline,
             // so a bare key is exactly what it is for; it must still be
