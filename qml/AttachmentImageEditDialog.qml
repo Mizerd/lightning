@@ -18,7 +18,7 @@ AppDialog {
     property real cropRight: 1
     property real cropBottom: 1
     property int turns: 0
-    property bool mirrored: false
+    property bool flipped: false
     property var strokes: []
     property var activeStroke: []
     property var history: []
@@ -36,7 +36,7 @@ AppDialog {
         queue = model
         row = index
         cropLeft = 0; cropTop = 0; cropRight = 1; cropBottom = 1
-        turns = 0; mirrored = false; strokes = []; activeStroke = []
+        turns = 0; flipped = false; strokes = []; activeStroke = []
         history = []
         errorText = ""
         refresh()
@@ -46,7 +46,7 @@ AppDialog {
         if (!queue || row < 0) return
         var result = queue.renderImageEdit(row, cropLeft, cropTop,
                                            cropRight, cropBottom,
-                                           turns, mirrored, strokes)
+                                           turns, flipped, strokes)
         if (!result || !result.url) {
             errorText = result && result.error ? result.error
                                                : qsTr("The image edit failed.")
@@ -64,13 +64,13 @@ AppDialog {
         // frame changes keeps their coordinates unambiguous.
         strokes = []; activeStroke = []
         turns = (turns + rotation) % 4
-        if (flip) mirrored = !mirrored
+        if (flip) flipped = !flipped
         refresh()
     }
     function remember() {
         history = history.concat([{
             left: cropLeft, top: cropTop, right: cropRight,
-            bottom: cropBottom, turns: turns, mirrored: mirrored,
+            bottom: cropBottom, turns: turns, mirrored: flipped,
             strokes: strokes.slice()
         }])
     }
@@ -80,7 +80,7 @@ AppDialog {
         history = history.slice(0, -1)
         cropLeft = last.left; cropTop = last.top
         cropRight = last.right; cropBottom = last.bottom
-        turns = last.turns; mirrored = last.mirrored
+        turns = last.turns; flipped = last.mirrored
         strokes = last.strokes; activeStroke = []
         refresh()
     }
@@ -214,7 +214,7 @@ AppDialog {
                     root.remember()
                     root.cropLeft = 0; root.cropTop = 0
                     root.cropRight = 1; root.cropBottom = 1
-                    root.turns = 0; root.mirrored = false
+                    root.turns = 0; root.flipped = false
                     root.strokes = []; root.activeStroke = []
                     root.refresh()
                 }
