@@ -1108,6 +1108,7 @@ set(APP_QML_FILES
     # Themed replacements for the unstyled Qt Basic controls.
     qml/AppDialog.qml
     qml/ImageCropDialog.qml
+    qml/AttachmentImageEditDialog.qml
     qml/AppProgressBar.qml
     qml/AppBusyIndicator.qml
     qml/IdleCaret.qml

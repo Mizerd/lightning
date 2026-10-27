@@ -1,6 +1,7 @@
 #include "models/AttachmentQueueModel.h"
 
 #include "media/StagedImageStore.h"
+#include "media/AnimatedImageSniff.h"
 
 #include "matrix/MatrixClient.h"
 #include "matrix/PresentableName.h"
@@ -12,6 +13,12 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QImageReader>
+#include <QImageWriter>
+#include <QBuffer>
+#include <QPainter>
+#include <QPainterPath>
+#include <QSaveFile>
+#include <QTransform>
 #include <QMimeData>
 #include <QMimeDatabase>
 #include <QLoggingCategory>
@@ -29,6 +36,8 @@
 #endif
 
 #include <memory>
+#include <cmath>
+#include <utility>
 
 AttachmentQueueModel::AttachmentQueueModel(QObject *parent)
     : QAbstractListModel(parent)
@@ -663,13 +672,224 @@ QString AttachmentQueueModel::addImageData(const QByteArray &bytes,
     return {};
 }
 
+namespace {
+void removeOwnedRendition(const QString &path)
+{
+    if (path.isEmpty())
+        return;
+    QFile::remove(path);
+    const QDir parent = QFileInfo(path).dir();
+    if (parent.dirName().startsWith(QLatin1String("edit-")))
+        QDir().rmdir(parent.absolutePath());
+}
+}
+
 void AttachmentQueueModel::releaseStaged(const Entry &entry)
 {
     if (m_stagedImages && !entry.stagedToken.isEmpty())
         m_stagedImages->remove(entry.stagedToken);
     // A converted SVG's PNG is ours; a picked file never is.
-    if (entry.converted && !entry.localPath.isEmpty())
-        QFile::remove(entry.localPath);
+    if (entry.converted)
+        removeOwnedRendition(entry.localPath);
+    removeOwnedRendition(entry.editPreviewPath);
+}
+
+QVariantMap AttachmentQueueModel::renderImageEdit(
+    int row, qreal left, qreal top, qreal right, qreal bottom,
+    int quarterTurns, bool mirror, const QVariantList &strokes)
+{
+    const auto fail = [this](const QString &reason) {
+        return QVariantMap{{QStringLiteral("error"), reason}};
+    };
+    if (row < 0 || row >= m_entries.size())
+        return fail(tr("The attachment is no longer available."));
+    Entry &entry = m_entries[row];
+    if (!entry.isImage || entry.isSvg || entry.posterPending
+        || entry.state == QLatin1String("dispatching"))
+        return fail(tr("This image cannot be edited yet."));
+    if (!std::isfinite(left) || !std::isfinite(top) || !std::isfinite(right)
+        || !std::isfinite(bottom) || left < 0 || top < 0 || right > 1
+        || bottom > 1 || right - left < 0.01 || bottom - top < 0.01
+        || quarterTurns < 0 || quarterTurns > 3 || strokes.size() > 128)
+        return fail(tr("Invalid image edit."));
+
+    // Limit compressed input and decoded pixels. Qt may retain a full image
+    // while scaling, so refuse pathological dimensions before decoding.
+    constexpr qint64 maxInput = 64LL * 1024 * 1024;
+    constexpr int maxEdge = 4096;
+    if (entry.data.size() > maxInput
+        || (!entry.localPath.isEmpty()
+            && QFileInfo(entry.localPath).size() > maxInput))
+        return fail(tr("This image is too large to edit."));
+    QByteArray bytes = entry.data;
+    QBuffer buffer(&bytes);
+    QImageReader reader;
+    if (entry.localPath.isEmpty()) {
+        buffer.open(QIODevice::ReadOnly);
+        reader.setDevice(&buffer);
+    } else {
+        reader.setFileName(entry.localPath);
+    }
+    // A MIME guess alone does not permit SVG into Qt's image handlers.
+    const QByteArray format = reader.format().toLower();
+    if (format != "png" && format != "jpeg" && format != "jpg"
+        && format != "gif" && format != "webp" && format != "bmp"
+        && format != "jxl")
+        return fail(tr("This image format cannot be edited."));
+    reader.setAutoTransform(true);
+    bool wasAnimated = reader.imageCount() > 1;
+    if (!wasAnimated && (format == "gif" || format == "webp")) {
+        QByteArray animationBytes = bytes;
+        if (!entry.localPath.isEmpty()) {
+            QFile sourceFile(entry.localPath);
+            if (sourceFile.open(QIODevice::ReadOnly))
+                animationBytes = sourceFile.readAll();
+        }
+        wasAnimated = lightning::animsniff::isAnimation(animationBytes);
+    }
+    const QSize sourceSize = reader.size();
+    if (!sourceSize.isValid() || sourceSize.width() > 8192
+        || sourceSize.height() > 8192
+        || qint64(sourceSize.width()) * sourceSize.height()
+               > 32LL * 1024 * 1024)
+        return fail(tr("This image is too large to edit."));
+    if (qMax(sourceSize.width(), sourceSize.height()) > maxEdge)
+        reader.setScaledSize(sourceSize.scaled(maxEdge, maxEdge,
+                                              Qt::KeepAspectRatio));
+    QImage source = reader.read();
+    if (source.isNull() || source.width() > maxEdge
+        || source.height() > maxEdge || qint64(source.width()) * source.height()
+                                     > 16LL * 1024 * 1024)
+        return fail(tr("This image could not be decoded safely."));
+    const QRect bounds(QPoint(), source.size());
+    const QRect crop(qRound(left * source.width()), qRound(top * source.height()),
+                     qRound((right - left) * source.width()),
+                     qRound((bottom - top) * source.height()));
+    const QRect clipped = crop.intersected(bounds);
+    if (clipped.isEmpty())
+        return fail(tr("The crop is empty."));
+    QImage output = source.copy(clipped);
+    source = QImage();
+    QTransform transform;
+    if (mirror)
+        transform.scale(-1, 1);
+    transform.rotate(quarterTurns * 90);
+    output = output.transformed(transform, Qt::FastTransformation);
+    if (output.isNull())
+        return fail(tr("The image edit failed."));
+    // A fresh pixel-only surface prevents QImage text fields from being
+    // carried into the PNG by a format plugin. Alpha remains intact.
+    QImage clean(output.size(), QImage::Format_ARGB32_Premultiplied);
+    if (clean.isNull())
+        return fail(tr("The image edit failed."));
+    clean.fill(Qt::transparent);
+    {
+        QPainter flatten(&clean);
+        flatten.drawImage(QPoint(), output);
+    }
+    output = std::move(clean);
+    if (!strokes.isEmpty()) {
+        QPainter painter(&output);
+        painter.setRenderHint(QPainter::Antialiasing);
+        painter.setPen(QPen(QColor(255, 45, 45), qMax(2, output.width() / 180),
+                            Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        for (const QVariant &strokeValue : strokes) {
+            const QVariantList points = strokeValue.toList();
+            if (points.size() > 2048)
+                return fail(tr("Too many annotation points."));
+            QPainterPath path;
+            bool first = true;
+            for (const QVariant &pointValue : points) {
+                const QVariantMap point = pointValue.toMap();
+                const qreal x = point.value(QStringLiteral("x")).toDouble();
+                const qreal y = point.value(QStringLiteral("y")).toDouble();
+                if (!std::isfinite(x) || !std::isfinite(y) || x < 0 || x > 1
+                    || y < 0 || y > 1)
+                    return fail(tr("Invalid annotation point."));
+                const QPointF pixel(x * output.width(), y * output.height());
+                if (first) { path.moveTo(pixel); first = false; }
+                else path.lineTo(pixel);
+            }
+            if (points.size() == 1)
+                painter.drawPoint(path.currentPosition());
+            else
+                painter.drawPath(path);
+        }
+    }
+    const QString dir = convertedDirectory();
+    if (dir.isEmpty())
+        return fail(tr("The image edit could not be saved."));
+    const QString workDir = QDir(dir).filePath(
+        QStringLiteral("edit-%1").arg(m_nextPosterTag++));
+    if (!QDir().mkpath(workDir))
+        return fail(tr("The image edit could not be saved."));
+    QString base = QFileInfo(entry.fileName).completeBaseName();
+    if (base.isEmpty())
+        base = QStringLiteral("image");
+    const QString path = QDir(workDir).filePath(base + QStringLiteral(".png"));
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly))
+        return fail(tr("The image edit could not be saved."));
+    QImageWriter writer(&file, "png");
+    if (!writer.write(output) || !file.commit()) {
+        file.cancelWriting();
+        return fail(tr("The image edit could not be saved."));
+    }
+    if (exceedsUploadLimit(QFileInfo(path).size())) {
+        removeOwnedRendition(path);
+        return fail(uploadLimitMessage());
+    }
+    removeOwnedRendition(entry.editPreviewPath);
+    entry.editPreviewPath = path;
+    return {{QStringLiteral("url"), QUrl::fromLocalFile(path)},
+            {QStringLiteral("width"), output.width()},
+            {QStringLiteral("height"), output.height()},
+            {QStringLiteral("animated"), wasAnimated}};
+}
+
+bool AttachmentQueueModel::commitImageEdit(int row)
+{
+    if (row < 0 || row >= m_entries.size())
+        return false;
+    Entry &entry = m_entries[row];
+    if (entry.editPreviewPath.isEmpty() || !QFileInfo::exists(entry.editPreviewPath)
+        || entry.state == QLatin1String("dispatching"))
+        return false;
+    if (entry.converted)
+        removeOwnedRendition(entry.localPath);
+    if (!entry.stagedToken.isEmpty() && m_stagedImages)
+        m_stagedImages->remove(entry.stagedToken);
+    entry.stagedToken.clear();
+    entry.data.clear();
+    if (entry.sourcePath.isEmpty())
+        entry.sourcePath = entry.localPath;
+    entry.localPath = entry.editPreviewPath;
+    entry.editPreviewPath.clear();
+    entry.converted = true;
+    entry.animated = false;
+    entry.mime = QStringLiteral("image/png");
+    entry.fileName = QFileInfo(entry.fileName).completeBaseName()
+                     + QStringLiteral(".png");
+    entry.sizeBytes = QFileInfo(entry.localPath).size();
+    QImageReader reader(entry.localPath);
+    const QSize size = reader.size();
+    entry.width = size.width();
+    entry.height = size.height();
+    entry.state = QStringLiteral("queued");
+    entry.error.clear();
+    entry.retryable = true;
+    entry.sendRequested = false;
+    updateEntry(row);
+    return true;
+}
+
+void AttachmentQueueModel::cancelImageEdit(int row)
+{
+    if (row < 0 || row >= m_entries.size())
+        return;
+    Entry &entry = m_entries[row];
+    removeOwnedRendition(entry.editPreviewPath);
+    entry.editPreviewPath.clear();
 }
 
 void AttachmentQueueModel::removeAt(int row)

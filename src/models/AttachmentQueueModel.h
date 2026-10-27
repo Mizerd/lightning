@@ -7,6 +7,7 @@
 #include <QString>
 #include <QStringList>
 #include <QUrl>
+#include <QVariantList>
 
 #include <functional>
 #include <memory>
@@ -82,6 +83,8 @@ public:
         // Token into StagedImageStore for in-memory (clipboard) images.
         // Released when the entry leaves the queue, whichever way it leaves.
         QString stagedToken;
+        // Owned raster rendition used by the editor until confirmation.
+        QString editPreviewPath;
         QString state = QStringLiteral("queued");
         QString error;
         bool retryable = true;
@@ -186,6 +189,13 @@ public:
     Q_INVOKABLE void removeAt(int row);
     Q_INVOKABLE void clearAll();
     Q_INVOKABLE void retryAt(int row);
+    // Renders a bounded PNG working copy. Coordinates are fractions of the
+    // orientation-corrected source; strokes use final output coordinates.
+    Q_INVOKABLE QVariantMap renderImageEdit(int row, qreal left, qreal top,
+        qreal right, qreal bottom, int quarterTurns, bool mirror,
+        const QVariantList &strokes);
+    Q_INVOKABLE bool commitImageEdit(int row);
+    Q_INVOKABLE void cancelImageEdit(int row);
 
     bool isEmpty() const { return m_entries.isEmpty(); }
     QList<Entry> &entries() { return m_entries; }

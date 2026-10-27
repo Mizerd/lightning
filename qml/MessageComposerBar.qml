@@ -13,6 +13,7 @@ import "ComposerBehavior.js" as ComposerBehavior
 // (configurable).
 Item {
     id: root
+    AttachmentImageEditDialog { id: attachmentImageEditor }
     focus: false
     property bool composerExpanded: false
     function toggleComposerHeight() { composerExpanded = !composerExpanded }
@@ -1960,6 +1961,17 @@ Item {
                                 ToolTip.delay: 500
                                 ToolTip.text: model.error || ""
                             }
+                        }
+                        IconButton {
+                            visible: model.isImage && model.state !== "dispatching"
+                                     && model.previewSource
+                                     && (model.mime || "") !== "image/svg+xml"
+                            implicitWidth: 20; implicitHeight: 20
+                            radius: AppTheme.radiusSm
+                            iconName: "edit_square"
+                            iconSize: 14
+                            Accessible.name: qsTr("Edit image %1").arg(model.fileName)
+                            onClicked: attachmentImageEditor.openFor(app.composer.attachments, index)
                         }
                         IconButton {
                             // A failure Retry cannot fix (refused, too large)

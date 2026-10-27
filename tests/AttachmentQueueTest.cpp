@@ -99,6 +99,24 @@ public:
     // "" for a plain send. Proves the reply survives every send path.
     QString lastReplyTo;
     QString lastCaption;
+    int threadFileSends = 0;
+    QString lastThreadRoot;
+    quint64 sendThreadAttachment(const QString &, const QString &root,
+                                 const QString &path, const QString &mime,
+                                 const QString &caption, int width, int height,
+                                 bool, qint64, const QString &replyTo) override
+    {
+        ++threadFileSends;
+        lastThreadRoot = root;
+        lastFilePath = path;
+        lastMime = mime;
+        lastCaption = caption;
+        lastFileWidth = width;
+        lastFileHeight = height;
+        lastReplyTo = replyTo;
+        lastOpId = nextOp++;
+        return lastOpId;
+    }
     // Records what the video send path declared, so a test can prove the
     // poster and geometry reached the client.
     int videoSends = 0;
@@ -324,6 +342,126 @@ class AttachmentQueueTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
+    void editedImagePreviewIsExactlyTheSentPngAndOriginalSurvives()
+    {
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!room:example.org"));
+        QTemporaryDir dir;
+        const QByteArray original = jpegWithGps();
+        const QString path = writeFile(dir, QStringLiteral("holiday.jpg"), original);
+        composer.addAttachment(QUrl::fromLocalFile(path));
+        auto *queue = composer.attachments();
+        const QVariantList stroke{QVariantMap{{QStringLiteral("x"), 0.1},
+                                             {QStringLiteral("y"), 0.1}},
+                                  QVariantMap{{QStringLiteral("x"), 0.9},
+                                             {QStringLiteral("y"), 0.9}}};
+        const QVariantMap preview = queue->renderImageEdit(
+            0, 0.0, 0.0, 0.5, 1.0, 1, true, QVariantList{stroke});
+        QVERIFY(preview.contains(QStringLiteral("url")));
+        const QString previewPath = preview.value(QStringLiteral("url"))
+                                        .toUrl().toLocalFile();
+        const QByteArray previewBytes = readAll(previewPath);
+        QVERIFY(previewBytes.startsWith("\x89PNG\r\n\x1a\n"));
+        QVERIFY(!previewBytes.contains("Exif"));
+        QVERIFY(!previewBytes.contains(kGpsMarker));
+        QImage edited;
+        QVERIFY(edited.loadFromData(previewBytes));
+        QCOMPARE(edited.size(), QSize(16, 8));
+        QVERIFY(queue->commitImageEdit(0));
+        QCOMPARE(queue->entries().at(0).mime, QStringLiteral("image/png"));
+        QCOMPARE(queue->entries().at(0).fileName, QStringLiteral("holiday.png"));
+        composer.send();
+        QCOMPARE(client.fileSends, 1);
+        QCOMPARE(client.lastMime, QStringLiteral("image/png"));
+        QCOMPARE(client.lastFileWidth, 16);
+        QCOMPARE(client.lastFileHeight, 8);
+        QCOMPARE(readAll(client.lastFilePath), previewBytes);
+        QCOMPARE(readAll(path), original);
+    }
+
+    void cancellingImageEditKeepsTheOriginalQueued()
+    {
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!room:example.org"));
+        QTemporaryDir dir;
+        const QString path = writeFile(dir, QStringLiteral("photo.png"), tinyPng());
+        composer.addAttachment(QUrl::fromLocalFile(path));
+        auto *queue = composer.attachments();
+        const QVariantMap preview = queue->renderImageEdit(
+            0, 0, 0, 1, 1, 0, false, {});
+        const QString previewPath = preview.value(QStringLiteral("url"))
+                                        .toUrl().toLocalFile();
+        QVERIFY(QFileInfo::exists(previewPath));
+        queue->cancelImageEdit(0);
+        QVERIFY(!QFileInfo::exists(previewPath));
+        QCOMPARE(queue->entries().at(0).localPath, path);
+        QCOMPARE(readAll(path), tinyPng());
+    }
+
+    void editedPngDropsEmbeddedTextButKeepsTransparency()
+    {
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!room:example.org"));
+        QImage source(8, 8, QImage::Format_ARGB32);
+        source.fill(Qt::transparent);
+        source.setPixelColor(3, 3, Qt::red);
+        source.setText(QStringLiteral("Location"),
+                       QStringLiteral("private location marker"));
+        QByteArray encoded;
+        QBuffer buffer(&encoded);
+        QVERIFY(buffer.open(QIODevice::WriteOnly));
+        QVERIFY(source.save(&buffer, "PNG"));
+        buffer.close();
+        QVERIFY(encoded.contains("private location marker"));
+        QTemporaryDir dir;
+        composer.addAttachment(QUrl::fromLocalFile(
+            writeFile(dir, QStringLiteral("photo.png"), encoded)));
+        auto *queue = composer.attachments();
+        const QVariantMap preview = queue->renderImageEdit(
+            0, 0, 0, 1, 1, 0, false, {});
+        const QByteArray sent = readAll(preview.value(QStringLiteral("url"))
+                                            .toUrl().toLocalFile());
+        QVERIFY(!sent.contains("private location marker"));
+        QImage decoded;
+        QVERIFY(decoded.loadFromData(sent));
+        QCOMPARE(decoded.pixelColor(0, 0).alpha(), 0);
+        QCOMPARE(decoded.pixelColor(3, 3), QColor(Qt::red));
+    }
+
+    void editedImageKeepsThreadCaptionAndReplyRouting()
+    {
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!room:example.org"));
+        composer.setThreadTargetRootId(QStringLiteral("$root:example.org"));
+        composer.setSendTextAsCaption(true);
+        QTemporaryDir dir;
+        composer.addAttachment(QUrl::fromLocalFile(
+            writeFile(dir, QStringLiteral("photo.png"), tinyPng())));
+        auto *queue = composer.attachments();
+        QVERIFY(queue->renderImageEdit(0, 0, 0, 1, 1, 1, false, {})
+                    .contains(QStringLiteral("url")));
+        QVERIFY(queue->commitImageEdit(0));
+        composer.beginReply(QStringLiteral("$reply:example.org"),
+                            QStringLiteral("Alice"), QStringLiteral("hello"),
+                            QString(), QStringLiteral("$root:example.org"));
+        composer.setText(QStringLiteral("edited"));
+        composer.send();
+        QCOMPARE(client.threadFileSends, 1);
+        QCOMPARE(client.fileSends, 0);
+        QCOMPARE(client.lastThreadRoot, QStringLiteral("$root:example.org"));
+        QCOMPARE(client.lastReplyTo, QStringLiteral("$reply:example.org"));
+        QCOMPARE(client.lastCaption, QStringLiteral("edited"));
+        QCOMPARE(client.lastMime, QStringLiteral("image/png"));
+    }
+
     void rejectsDirectoriesEmptyAndMissing()
     {
         FakeClient client;

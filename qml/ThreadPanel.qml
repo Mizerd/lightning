@@ -11,6 +11,7 @@ import "ComposerBehavior.js" as ComposerBehavior
 // and the composer sends only through the SDK thread path.
 Rectangle {
     id: panel
+    AttachmentImageEditDialog { id: threadImageEditor }
     property bool composerExpanded: false
     function toggleComposerHeight() { composerExpanded = !composerExpanded }
     function returnShouldSend(modifiers) {
@@ -1898,6 +1899,17 @@ Rectangle {
                                                          && threadChipErrorHover.hovered
                                         ToolTip.delay: 300
                                     }
+                                }
+                                IconButton {
+                                    visible: model.isImage && model.state !== "dispatching"
+                                             && model.previewSource
+                                             && (model.mime || "") !== "image/svg+xml"
+                                    implicitWidth: 20; implicitHeight: 20
+                                    radius: AppTheme.radiusSm
+                                    iconName: "edit_square"
+                                    iconSize: 14
+                                    Accessible.name: qsTr("Edit image %1").arg(model.fileName)
+                                    onClicked: threadImageEditor.openFor(app.thread.attachments, index)
                                 }
                                 IconButton {
                                     // `retryable` is false for a refusal that
