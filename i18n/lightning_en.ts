@@ -2041,7 +2041,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message numerus="yes">
         <location line="+4"/>
         <source>%n message(s) selected</source>
-        <translation type="unfinished">
+        <translation>
             <numerusform>%n message selected</numerusform>
             <numerusform>%n messages selected</numerusform>
         </translation>
@@ -18107,7 +18107,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+2"/>
         <source>%1, %n mention(s)</source>
         <comment>compact room row</comment>
-        <translation type="unfinished">
+        <translation>
             <numerusform>%1, %n mention</numerusform>
             <numerusform>%1, %n mentions</numerusform>
         </translation>
