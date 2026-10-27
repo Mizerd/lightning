@@ -3174,14 +3174,21 @@ private Q_SLOTS:
         QVERIFY(activityRow >= 0);
         const int underlyingCount = controller.timeline()->rowCount();
 
-        QVariantMap fixture;
-        const auto roles = controller.timeline()->roleNames();
-        for (auto it = roles.cbegin(); it != roles.cend(); ++it) {
-            fixture.insert(QString::fromUtf8(it.value()),
-                           controller.timeline()->data(
-                               controller.timeline()->index(activityRow),
-                               it.key()));
-        }
+        // A snapshot of the row's roles, re-taken after each setting change
+        // the way the live model re-emits them: the group's filtered entries
+        // are what decides whether the row draws.
+        const auto snapshot = [&controller, activityRow] {
+            QVariantMap fixture;
+            const auto roles = controller.timeline()->roleNames();
+            for (auto it = roles.cbegin(); it != roles.cend(); ++it) {
+                fixture.insert(QString::fromUtf8(it.value()),
+                               controller.timeline()->data(
+                                   controller.timeline()->index(activityRow),
+                                   it.key()));
+            }
+            return fixture;
+        };
+        const QVariantMap fixture = snapshot();
 
         QQmlApplicationEngine engine;
         QStringList warnings;
@@ -3212,11 +3219,13 @@ private Q_SLOTS:
                                  kSignalTimeoutMs);
 
         controller.settings()->setShowRoomActivity(false);
+        engine.rootContext()->setContextProperty("model", snapshot());
         QTRY_VERIFY_WITH_TIMEOUT(!activity->isVisible(), kSignalTimeoutMs);
         QCOMPARE(activity->implicitHeight(), 0.0);
         QCOMPARE(controller.timeline()->rowCount(), underlyingCount);
 
         controller.settings()->setShowRoomActivity(true);
+        engine.rootContext()->setContextProperty("model", snapshot());
         QTRY_VERIFY_WITH_TIMEOUT(activity->isVisible(), kSignalTimeoutMs);
         QVERIFY(activity->implicitHeight() > 0.0);
         QCOMPARE(controller.timeline()->rowCount(), underlyingCount);
