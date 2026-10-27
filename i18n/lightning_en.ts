@@ -18862,7 +18862,7 @@ Signing out and signing in again is the only fix.</source>
     <message numerus="yes">
         <location line="+182"/>
         <source>%n selected</source>
-        <translation type="unfinished">
+        <translation>
             <numerusform>%n selected</numerusform>
             <numerusform>%n selected</numerusform>
         </translation>
@@ -18955,9 +18955,9 @@ Signing out and signing in again is the only fix.</source>
     <message numerus="yes">
         <location line="+9"/>
         <source>Leave %n room(s)?</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Leave %n room?</numerusform>
+            <numerusform>Leave %n rooms?</numerusform>
         </translation>
     </message>
     <message>
