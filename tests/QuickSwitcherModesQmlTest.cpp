@@ -221,6 +221,12 @@ private slots:
         // the first action is visible.
         QTRY_VERIFY(commandTitles().contains(QStringLiteral("Open Settings")));
         const QStringList titles = commandTitles();
+        QVERIFY(titles.contains(QStringLiteral("Saved messages")));
+        QVERIFY(titles.contains(QStringLiteral("Threads activity")));
+        QVERIFY(titles.contains(QStringLiteral("Use compact layout"))
+                || titles.contains(QStringLiteral("Use Lightning layout")));
+        QVERIFY(titles.contains(QStringLiteral("Return to room")));
+        QVERIFY(titles.contains(QStringLiteral("Open thread root in room")));
         int themeActions = 0;
         for (const QString &title : titles) {
             if (title.startsWith(QStringLiteral("Theme:")))

@@ -10,6 +10,12 @@ Rectangle {
     id: root
     color: AppTheme.roomList
     readonly property bool compact: width < app.settings.roomListExpandedMinWidth
+    function focusNavigation() {
+        if (compact)
+            compactRoomSearch.forceActiveFocus()
+        else
+            roomSearch.forceActiveFocus()
+    }
     onCompactChanged: if (compact && app.roomBatch) app.roomBatch.exitSelection()
     function knownLastAdminCount() {
         // Only the open room has an authoritative, complete roster here.
@@ -1015,6 +1021,7 @@ Rectangle {
             onClicked: root.expand()
         }
         IconButton {
+            id: compactRoomSearch
             objectName: "compactRoomListSearch"
             Layout.alignment: Qt.AlignHCenter
             iconName: "search"

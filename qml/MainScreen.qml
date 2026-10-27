@@ -320,6 +320,16 @@ Item {
             app.activity.filter = "threads"
             roomsPanel.openActivityCenter()
         }
+        onReturnToRoomRequested: {
+            app.thread.close()
+            app.requestComposerFocus(app.currentRoomId)
+        }
+        onFocusFallbackRequested: {
+            if (app.currentRoomId !== "")
+                app.requestComposerFocus(app.currentRoomId)
+            else
+                roomsPanel.focusNavigation()
+        }
     }
     SavedMessagesPanel {
         id: savedMessagesPanel
@@ -331,6 +341,42 @@ Item {
         }
         enabled: app.loggedIn && !!app.savedMessages
         onActivated: savedMessagesPanel.openPanel()
+    }
+    Shortcut {
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("nav.threadsActivity")]
+        }
+        enabled: app.loggedIn && !!app.activity && !quickSwitcher.visible
+        onActivated: {
+            app.activity.filter = "threads"
+            roomsPanel.openActivityCenter()
+        }
+    }
+    Shortcut {
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("view.toggleLayoutPreset")]
+        }
+        enabled: app.loggedIn && !quickSwitcher.visible
+        onActivated: app.settings.layoutPreset = app.settings.layoutPreset === 1 ? 0 : 1
+    }
+    Shortcut {
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("thread.togglePlacement")]
+        }
+        enabled: app.loggedIn && app.thread.active && !quickSwitcher.visible
+        onActivated: app.settings.threadPlacement = app.settings.threadPlacement === 1 ? 0 : 1
+    }
+    Shortcut {
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("thread.openRootInRoom")]
+        }
+        enabled: app.loggedIn && app.thread.active
+                 && app.thread.rootEventId !== "" && !quickSwitcher.visible
+        onActivated: app.pagination.jumpToEvent(app.thread.rootEventId)
     }
 
     Shortcut {

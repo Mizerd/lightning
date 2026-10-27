@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
+import "ComposerBehavior.js" as ComposerBehavior
 
 // Thread side panel: a 340px right-side surface replacing the member panel,
 // never the room timeline. Header, the root event in a raised card, an "N
@@ -10,6 +11,13 @@ import MatrixClient
 // and the composer sends only through the SDK thread path.
 Rectangle {
     id: panel
+    property bool composerExpanded: false
+    function toggleComposerHeight() { composerExpanded = !composerExpanded }
+    function returnShouldSend(modifiers) {
+        return ComposerBehavior.returnShouldSend(
+            modifiers, app.settings.enterInsertsNewline,
+            Qt.ControlModifier, Qt.ShiftModifier)
+    }
     color: AppTheme.sidePanel
     // The side panel's own gradient, when a custom theme gives it one; draws
     // nothing otherwise. First among the children, so everything is above.
@@ -1955,6 +1963,22 @@ Rectangle {
                             ToolTip.delay: 500
                             onClicked: threadAttachDialog.open()
                         }
+                        IconButton {
+                            objectName: "threadComposerHeightButton"
+                            implicitWidth: 24; implicitHeight: 24
+                            radius: AppTheme.radiusControl
+                            iconName: panel.composerExpanded ? "unfold_less" : "unfold_more"
+                            iconSize: 18
+                            Accessible.name: panel.composerExpanded
+                                             ? qsTr("Collapse message box")
+                                             : qsTr("Expand message box")
+                            ToolTip.text: Accessible.name
+                            ToolTip.visible: hovered
+                            onClicked: {
+                                panel.toggleComposerHeight()
+                                Qt.callLater(function() { panel.focusComposer() })
+                            }
+                        }
                         // Rich composer for the thread panel; same growth rules
                         // as threadInputFlick, visibility-exclusive with it.
                         Flickable {
@@ -1963,8 +1987,13 @@ Rectangle {
                             objectName: "threadRichInputFlick"
                             visible: panel.richMode
                             Layout.fillWidth: true
-                            Layout.maximumHeight: AppTheme.scaled(110)
-                            implicitHeight: threadRichInput.implicitHeight
+                            Layout.maximumHeight: ComposerBehavior.editorHeight(
+                                panel.composerExpanded, AppTheme.scaled(140),
+                                AppTheme.scaled(300))
+                            implicitHeight: panel.composerExpanded
+                                ? Math.max(threadRichInput.implicitHeight,
+                                           AppTheme.scaled(220))
+                                : threadRichInput.implicitHeight
                             clip: true
                             boundsBehavior: Flickable.StopAtBounds
                             flickableDirection: Flickable.VerticalFlick
@@ -2117,14 +2146,17 @@ Rectangle {
                                             event.key, event.modifiers)
                                     if (richFormatAction !== "") {
                                         event.accepted = true
-                                        panel.applyThreadFormat(
-                                            richFormatAction.substring(
-                                                "composer.".length))
+                                        if (richFormatAction === "composer.toggleHeight")
+                                            panel.toggleComposerHeight()
+                                        else
+                                            panel.applyThreadFormat(
+                                                richFormatAction.substring(
+                                                    "composer.".length))
                                         return
                                     }
                                     if ((event.key === Qt.Key_Return
                                          || event.key === Qt.Key_Enter)
-                                        && !(event.modifiers & Qt.ShiftModifier)) {
+                                        && panel.returnShouldSend(event.modifiers)) {
                                         panel.sendComposerText()
                                         event.accepted = true
                                     } else if (event.key === Qt.Key_Escape) {
@@ -2154,8 +2186,13 @@ Rectangle {
                                           + qsTr("Press Enter again to send it as a message.")
                             // Grows to ~6 lines, then scrolls with the caret
                             // kept in view (as the room composer).
-                            Layout.maximumHeight: AppTheme.scaled(110)
-                            implicitHeight: threadComposerInput.implicitHeight
+                            Layout.maximumHeight: ComposerBehavior.editorHeight(
+                                panel.composerExpanded, AppTheme.scaled(140),
+                                AppTheme.scaled(300))
+                            implicitHeight: panel.composerExpanded
+                                ? Math.max(threadComposerInput.implicitHeight,
+                                           AppTheme.scaled(220))
+                                : threadComposerInput.implicitHeight
                             clip: true
                             boundsBehavior: Flickable.StopAtBounds
                             flickableDirection: Flickable.VerticalFlick
@@ -2394,14 +2431,17 @@ Rectangle {
                                         event.key, event.modifiers)
                                 if (threadFormatAction !== "") {
                                     event.accepted = true
-                                    panel.applyThreadFormat(
-                                        threadFormatAction.substring(
-                                            "composer.".length))
+                                    if (threadFormatAction === "composer.toggleHeight")
+                                        panel.toggleComposerHeight()
+                                    else
+                                        panel.applyThreadFormat(
+                                            threadFormatAction.substring(
+                                                "composer.".length))
                                     return
                                 }
                                 if ((event.key === Qt.Key_Return
                                      || event.key === Qt.Key_Enter)
-                                    && !(event.modifiers & Qt.ShiftModifier)) {
+                                    && panel.returnShouldSend(event.modifiers)) {
                                     panel.sendComposerText()
                                     event.accepted = true
                                 } else if (event.key === Qt.Key_Escape) {

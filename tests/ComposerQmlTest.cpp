@@ -452,7 +452,8 @@ private slots:
     void inputRowHasExactControlOrder()
     {
         const char *order[] = {
-            "composerAttachButton", "composerFormatToggleButton",
+            "composerAttachButton", "composerHeightButton",
+            "composerFormatToggleButton",
             "composerInput", "composerEmojiButton",
             // One button for GIFs and stickers; "send later" is a chevron
             // right of Send.
@@ -818,6 +819,26 @@ private slots:
         QVERIFY2(twoLines > oneLine + 4, "two lines must be taller than one");
         QVERIFY2(fourLines > twoLines + 4,
                  "the composer stopped growing after the second line");
+        input->setProperty("text", QString());
+    }
+
+    void tallModeKeepsTheSameEditorAndSelection()
+    {
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        auto *bar = item("composerBar");
+        auto *input = item("composerInput");
+        auto *flick = item("composerInputFlick");
+        QVERIFY(bar && input && flick);
+        input->setProperty("text", QStringLiteral("one two three"));
+        QMetaObject::invokeMethod(input, "select", Q_ARG(int, 4), Q_ARG(int, 7));
+        const qreal compact = flick->height();
+        QVERIFY(QMetaObject::invokeMethod(bar, "toggleComposerHeight"));
+        QTRY_VERIFY(flick->height() > compact + 80);
+        QCOMPARE(input->property("selectedText").toString(), QStringLiteral("two"));
+        QCOMPARE(input->property("text").toString(), QStringLiteral("one two three"));
+        QVERIFY(QMetaObject::invokeMethod(bar, "toggleComposerHeight"));
+        QTRY_VERIFY(flick->height() < compact + 10);
+        QCOMPARE(input->property("selectedText").toString(), QStringLiteral("two"));
         input->setProperty("text", QString());
     }
 

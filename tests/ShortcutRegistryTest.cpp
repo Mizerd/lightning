@@ -52,6 +52,32 @@ class ShortcutRegistryTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
+    void newNavigationActionsRefuseConflictsAndReservedKeys()
+    {
+        SettingsManager settings;
+        ShortcutRegistry registry(&settings);
+        const QStringList ids = {
+            QStringLiteral("nav.threadsActivity"),
+            QStringLiteral("view.toggleLayoutPreset"),
+            QStringLiteral("thread.togglePlacement"),
+            QStringLiteral("thread.openRootInRoom"),
+            QStringLiteral("composer.toggleHeight")
+        };
+        for (const QString &id : ids) {
+            QVERIFY2(roleFor(registry, id, ShortcutRegistry::DescriptionRole)
+                         != QStringLiteral("<no such action>"), qPrintable(id));
+            QVERIFY(!registry.validationError(id, QStringLiteral("Esc")).isEmpty());
+        }
+        QCOMPARE(registry.setBinding(QStringLiteral("nav.threadsActivity"),
+                                     QStringLiteral("Ctrl+Shift+F8")), QString());
+        QVERIFY(!registry.validationError(QStringLiteral("view.toggleLayoutPreset"),
+                                           QStringLiteral("Ctrl+Shift+F8")).isEmpty());
+        QVERIFY(!registry.validationError(QStringLiteral("composer.toggleHeight"),
+                                           QStringLiteral("Ctrl+Shift+D")).isEmpty());
+        QCOMPARE(registry.sequenceFor(QStringLiteral("view.toggleLayoutPreset")),
+                 QString());
+    }
+
     void dialogBindingsAreScopedAndHaveNoFalseCopyConflict()
     {
         SettingsManager settings;

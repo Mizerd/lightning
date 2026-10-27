@@ -21,6 +21,8 @@ Popup {
     signal globalSearchRequested(string query)
     signal savedMessagesRequested()
     signal threadsRequested()
+    signal returnToRoomRequested()
+    signal focusFallbackRequested()
     parent: Overlay.overlay
     modal: true
     dim: true
@@ -65,6 +67,16 @@ Popup {
         commandScope = "actions"
         if (switcher._labsRowsHeld)
             switcher.refreshLabsAccountRows()
+        // A filtered-away opener may no longer be focusable. Wait until Qt
+        // finishes dismissing the popup, then request a visible conversation
+        // fallback only if it left no focused item behind.
+        Qt.callLater(function() {
+            var window = switcher.parent ? switcher.parent.Window.window : null
+            if (app.currentScreen === 1 && window
+                    && (!window.activeFocusItem
+                           || window.activeFocusItem === queryField))
+                switcher.focusFallbackRequested()
+        })
     }
 
     function activate(row) {
@@ -107,28 +119,68 @@ Popup {
             iconName: "settings", keywords: "settings preferences",
             enabled: true, run: function() { app.showSettings() }
         })
-        if (app.savedMessages) {
-            actions.push({
+        actions.push({
                 kind: "action", id: "saved-messages",
                 label: qsTr("Saved messages"),
-                subtitle: qsTr("Open your saved message hub"),
+                subtitle: app.savedMessages ? qsTr("Open your saved message hub")
+                                            : qsTr("Available after signing in"),
                 iconName: "bookmark",
                 keywords: "saved bookmark messages",
-                enabled: true,
+                enabled: !!app.savedMessages,
                 run: function() { switcher.savedMessagesRequested() }
             })
-        }
-        if (app.activity) {
-            actions.push({
+        actions.push({
                 kind: "action", id: "threads-activity",
                 label: qsTr("Threads activity"),
-                subtitle: qsTr("Review threads across rooms"),
+                subtitle: app.activity ? qsTr("Review threads across rooms")
+                                       : qsTr("Available after signing in"),
                 iconName: "forum",
                 keywords: "threads activity unread following",
-                enabled: true,
+                enabled: !!app.activity,
                 run: function() { switcher.threadsRequested() }
             })
-        }
+        actions.push({
+            kind: "action", id: "toggle-layout-preset",
+            label: app.settings.layoutPreset === 1
+                   ? qsTr("Use Lightning layout") : qsTr("Use compact layout"),
+            subtitle: qsTr("Layout"), iconName: "grid_view",
+            keywords: "layout preset compact nheko lightning density",
+            enabled: true,
+            run: function() {
+                app.settings.layoutPreset = app.settings.layoutPreset === 1 ? 0 : 1
+            }
+        })
+        actions.push({
+            kind: "action", id: "move-thread-view",
+            label: app.settings.threadPlacement === 1
+                   ? qsTr("Move thread to side view")
+                   : qsTr("Move thread to main view"),
+            subtitle: app.thread.active ? qsTr("Current thread")
+                                        : qsTr("Open a thread first"),
+            iconName: "view_sidebar", keywords: "thread move main side view",
+            enabled: app.thread.active,
+            run: function() {
+                app.settings.threadPlacement = app.settings.threadPlacement === 1 ? 0 : 1
+            }
+        })
+        actions.push({
+            kind: "action", id: "return-to-room",
+            label: qsTr("Return to room"),
+            subtitle: app.thread.active ? qsTr("Close the current thread")
+                                        : qsTr("Open a thread first"),
+            iconName: "arrow_back", keywords: "return room close thread",
+            enabled: app.thread.active,
+            run: function() { switcher.returnToRoomRequested() }
+        })
+        actions.push({
+            kind: "action", id: "open-thread-root",
+            label: qsTr("Open thread root in room"),
+            subtitle: app.thread.active ? qsTr("Jump to the original message")
+                                        : qsTr("Open a thread first"),
+            iconName: "open_in_new", keywords: "thread root context room original",
+            enabled: app.thread.active && app.thread.rootEventId !== "",
+            run: function() { app.pagination.jumpToEvent(app.thread.rootEventId) }
+        })
         if (app.discovery && app.discovery.supported) {
             actions.push({
                 kind: "action", id: "discover-rooms",

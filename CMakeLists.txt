@@ -1181,6 +1181,7 @@ set(APP_QML_FILES
     qml/RoomActivityDelegate.qml
     qml/ShortcutRow.qml
     qml/MessageComposerBar.qml
+    qml/ComposerBehavior.js
     qml/SpellAutocorrect.qml
     qml/MentionPopup.qml
     qml/SlashCommandPopup.qml

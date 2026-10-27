@@ -51,6 +51,16 @@ class ThreadPanelKeyboardContractTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void threadEditorsShareHeightAndSendPolicy()
+    {
+        const QString s = panelSource();
+        QVERIFY(s.contains(QStringLiteral("import \"ComposerBehavior.js\" as ComposerBehavior")));
+        QVERIFY(s.contains(QStringLiteral("function returnShouldSend(modifiers)")));
+        QCOMPARE(s.count(QStringLiteral("panel.returnShouldSend(event.modifiers)")), 2);
+        QCOMPARE(s.count(QStringLiteral("panel.composerExpanded, AppTheme.scaled(140)")), 2);
+        QVERIFY(s.contains(QStringLiteral("objectName: \"threadComposerHeightButton\"")));
+    }
+
     void bothComposersClaimEscapeFromTheWindowShortcut()
     {
         const QString s = panelSource();

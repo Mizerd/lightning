@@ -225,6 +225,15 @@ void ShortcutRegistry::buildTables()
         { QStringLiteral("nav.savedMessages"), navCat,
           tr("Open saved messages"), QStringLiteral("Ctrl+Alt+S"),
           GlobalContext },
+        { QStringLiteral("nav.threadsActivity"), navCat,
+          tr("Open Threads activity"), {}, GlobalContext },
+        { QStringLiteral("view.toggleLayoutPreset"), viewCat,
+          tr("Switch between Lightning and compact layouts"), {}, GlobalContext },
+        { QStringLiteral("thread.togglePlacement"), viewCat,
+          tr("Move the current thread between main and side views"),
+          {}, GlobalContext },
+        { QStringLiteral("thread.openRootInRoom"), navCat,
+          tr("Open the current thread root in its room"), {}, GlobalContext },
 
         // ── View / shell ────────────────────────────────────────────────
         { QStringLiteral("dialog.previousItem"), dialogCat,
@@ -449,6 +458,8 @@ void ShortcutRegistry::buildTables()
         // strikethrough default because it means Save everywhere else.
         { QStringLiteral("composer.focus"), composerCat,
           tr("Focus the message box"), QStringLiteral("Ctrl+L"), GlobalContext },
+        { QStringLiteral("composer.toggleHeight"), composerCat,
+          tr("Expand or collapse the message box"), {}, EditorContext },
 
         { QStringLiteral("composer.bold"), composeCat,
           tr("Bold"), QStringLiteral("Ctrl+B"), EditorContext },

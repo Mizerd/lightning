@@ -4,6 +4,7 @@ import QtQuick.Effects
 import QtQuick.Layouts
 import QtMultimedia
 import MatrixClient
+import "ComposerBehavior.js" as ComposerBehavior
 
 // The main message composer: one card at the bottom of the timeline with an
 // optional formatting toolbar above the input row. The toolbar edits real
@@ -13,6 +14,8 @@ import MatrixClient
 Item {
     id: root
     focus: false
+    property bool composerExpanded: false
+    function toggleComposerHeight() { composerExpanded = !composerExpanded }
     implicitHeight: (root.postBlocked ? blockedBar.implicitHeight
                                       : composerCol.implicitHeight)
                     + AppTheme.composerInsetBottom + AppTheme.spacing4
@@ -111,9 +114,9 @@ Item {
     // inserts a newline; inverted, Ctrl+Enter sends. One predicate for every
     // Return/Enter path in this file.
     function _returnShouldSend(modifiers) {
-        if (app.settings.enterInsertsNewline)
-            return (modifiers & Qt.ControlModifier) !== 0
-        return (modifiers & Qt.ShiftModifier) === 0
+        return ComposerBehavior.returnShouldSend(
+            modifiers, app.settings.enterInsertsNewline,
+            Qt.ControlModifier, Qt.ShiftModifier)
     }
     // The Menu key (and Shift+F10) open the same themed menu as a right-click,
     // at the caret, instead of Qt's built-in unthemed one whose Paste is
@@ -2449,6 +2452,24 @@ Item {
                         ToolTip.delay: 500
                     }
 
+                    IconButton {
+                        objectName: "composerHeightButton"
+                        Layout.alignment: Qt.AlignVCenter
+                        implicitWidth: 28; implicitHeight: 28
+                        radius: AppTheme.radiusControl
+                        iconName: root.composerExpanded ? "unfold_less" : "unfold_more"
+                        iconSize: 18
+                        Accessible.name: root.composerExpanded
+                                         ? qsTr("Collapse message box")
+                                         : qsTr("Expand message box")
+                        ToolTip.text: Accessible.name
+                        ToolTip.visible: hovered
+                        onClicked: {
+                            root.toggleComposerHeight()
+                            Qt.callLater(function() { root.focusEditor() })
+                        }
+                    }
+
                     // Format toggle: opens/closes the formatting toolbar.
                     IconButton {
                         objectName: "composerFormatToggleButton"
@@ -2514,8 +2535,12 @@ Item {
                         Layout.fillWidth: true
                         Layout.minimumWidth: 120
                         Layout.alignment: Qt.AlignVCenter
-                        Layout.maximumHeight: AppTheme.scaled(140)
-                        implicitHeight: richInput.implicitHeight
+                        Layout.maximumHeight: ComposerBehavior.editorHeight(
+                            root.composerExpanded, AppTheme.scaled(140),
+                            AppTheme.scaled(300))
+                        implicitHeight: root.composerExpanded
+                            ? Math.max(richInput.implicitHeight, AppTheme.scaled(220))
+                            : richInput.implicitHeight
                         clip: true
                         boundsBehavior: Flickable.StopAtBounds
                         flickableDirection: Flickable.VerticalFlick
@@ -2741,8 +2766,11 @@ Item {
                                                             event.modifiers)
                                 if (formatAction !== "") {
                                     event.accepted = true
-                                    root.applyFormat(
-                                        formatAction.substring("composer.".length))
+                                    if (formatAction === "composer.toggleHeight")
+                                        root.toggleComposerHeight()
+                                    else
+                                        root.applyFormat(
+                                            formatAction.substring("composer.".length))
                                 }
                             }
                         }
@@ -2761,8 +2789,12 @@ Item {
                         // bare TextArea cannot scroll itself;
                         // TextArea.flickable provides scrolling and keeps the
                         // caret visible.
-                        Layout.maximumHeight: AppTheme.scaled(140)
-                        implicitHeight: input.implicitHeight
+                        Layout.maximumHeight: ComposerBehavior.editorHeight(
+                            root.composerExpanded, AppTheme.scaled(140),
+                            AppTheme.scaled(300))
+                        implicitHeight: root.composerExpanded
+                            ? Math.max(input.implicitHeight, AppTheme.scaled(220))
+                            : input.implicitHeight
                         clip: true
                         boundsBehavior: Flickable.StopAtBounds
                         flickableDirection: Flickable.VerticalFlick
@@ -3118,8 +3150,11 @@ Item {
                                                         event.modifiers)
                             if (formatAction !== "") {
                                 event.accepted = true
-                                root.applyFormat(
-                                    formatAction.substring("composer.".length))
+                                if (formatAction === "composer.toggleHeight")
+                                    root.toggleComposerHeight()
+                                else
+                                    root.applyFormat(
+                                        formatAction.substring("composer.".length))
                             }
                         }
                         // The card is the visual container; the field is
