@@ -15,6 +15,7 @@ AppMenu {
     property string canonicalAlias: ""
     property bool isDirect: false
     property bool isFavourite: false
+    property bool isLowPriority: false
     /// A pending invitation: the menu offers Accept and Reject in place of
     /// Leave (the Channels row has no other invite actions; GitHub #28).
     property bool isInvite: false
@@ -25,6 +26,7 @@ AppMenu {
     signal markUnread()
     // Carries the value to write, not a toggle.
     signal setFavourite(bool on)
+    signal setLowPriority(bool on)
     signal setNotificationMode(int mode)
     signal copyRoomLink()
     signal leaveRoomRequested()
@@ -77,6 +79,15 @@ AppMenu {
         text: root.isFavourite ? qsTr("Remove from favourites")
                                : qsTr("Add to favourites")
         onTriggered: root.setFavourite(!root.isFavourite)
+    }
+    AppMenuItem {
+        objectName: "roomLowPriorityItem"
+        visible: app.roomList.roomFavouritesSupported && !root.isInvite
+        enabled: visible
+        iconName: "tag"
+        text: root.isLowPriority ? qsTr("Remove from low priority")
+                                 : qsTr("Move to low priority")
+        onTriggered: root.setLowPriority(!root.isLowPriority)
     }
     AppMenuSeparator {
         visible: app.roomList.roomFavouritesSupported && !root.isInvite

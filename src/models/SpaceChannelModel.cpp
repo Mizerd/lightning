@@ -55,6 +55,7 @@ bool SpaceChannelModel::Row::operator==(const Row &other) const
            && highlight == other.highlight && hasUnread == other.hasUnread
            && threadUnreadKind == other.threadUnreadKind
            && favourite == other.favourite
+           && lowPriority == other.lowPriority
            && hiddenUnread == other.hiddenUnread
            && hiddenHighlight == other.hiddenHighlight
            && iconName == other.iconName
@@ -662,6 +663,7 @@ QHash<int, QByteArray> SpaceChannelModel::roleNames() const
         { HiddenUnreadRole, "hiddenUnread" },
         { HiddenHighlightRole, "hiddenHighlight" },
         { IsFavouriteRole, "isFavourite" },
+        { IsLowPriorityRole, "isLowPriority" },
         { IconNameRole, "iconName" },
     };
 }
@@ -720,6 +722,8 @@ QVariant SpaceChannelModel::data(const QModelIndex &index, int role) const
         return row.hiddenHighlight;
     case IsFavouriteRole:
         return row.favourite;
+    case IsLowPriorityRole:
+        return row.lowPriority;
     case IconNameRole:
         return row.iconName;
     default:
@@ -856,6 +860,7 @@ SpaceChannelModel::Row SpaceChannelModel::roomRow(const RoomInfo &info) const
     row.threadUnreadKind =
         row.isInvite ? 0 : roomunread::threadUnreadKind(info, mode);
     row.favourite = info.isFavourite;
+    row.lowPriority = info.lowPriority;
     // The stamp the row is ordered by, which is not always the live one.
     row.lastActivity = m_hold.keyFor(info.id, info.lastActivity);
     row.targetActivity = m_hold.target(info.id, info.lastActivity);

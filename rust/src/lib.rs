@@ -3198,6 +3198,38 @@ pub unsafe extern "C" fn mx_rust_set_room_favourite(
     })
 }
 
+/// Set the SDK's `m.lowpriority` tag. Enabling it removes `m.favourite`.
+/// The room list is re-emitted only after the SDK confirms the write.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_set_room_low_priority(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    low_priority: c_int,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let client = bridge.client.lock().ok().and_then(|guard| guard.clone())
+            .ok_or_else(|| "no active Matrix session".to_owned())?;
+        let room = RoomId::parse(&room_id).ok().and_then(|id| client.get_room(&id))
+            .ok_or_else(|| "unknown room".to_owned())?;
+        let events = Arc::clone(&bridge.events);
+        bridge.spawn_room_action(async move {
+            let (result, attempts) = roomaction::set_low_priority(
+                &room, low_priority != 0, &roomaction::ROOM_ACTION_RETRY_DELAYS).await;
+            match result {
+                Ok(()) => enqueue_rooms(&events, &client).await,
+                Err(error) => {
+                    let mut event = roomaction::failure_event("low_priority", &error, attempts);
+                    event["room_id"] = json!(room_id);
+                    enqueue(&events, event);
+                }
+            }
+        });
+        Ok(String::new())
+    })
+}
+
 /// Send attachment bytes to a room whose timeline is not open (forwarding).
 /// The timeline-scoped send refuses any room but the open one. Uses
 /// `Room::send_attachment`, which encrypts for encrypted rooms.

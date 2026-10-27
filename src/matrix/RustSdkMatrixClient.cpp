@@ -4427,6 +4427,15 @@ void RustSdkMatrixClient::setRoomFavourite(const QString &roomId, bool favourite
     if (!result.isEmpty()) qCWarning(lcRust) << "favourite command rejected";
 }
 
+void RustSdkMatrixClient::setRoomLowPriority(const QString &roomId, bool lowPriority)
+{
+    if (!m_rustHandle || roomId.isEmpty()) return;
+    const QByteArray room = roomId.toUtf8();
+    const QString result = takeRustString(mx_rust_set_room_low_priority(
+        m_rustHandle, room.constData(), lowPriority ? 1 : 0));
+    if (!result.isEmpty()) qCWarning(lcRust) << "low-priority command rejected";
+}
+
 void RustSdkMatrixClient::markRoomRead(const QString &roomId)
 {
     if (!m_rustHandle || roomId.isEmpty()) return;

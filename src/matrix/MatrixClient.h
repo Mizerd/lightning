@@ -485,6 +485,11 @@ public:
         Q_UNUSED(roomId);
         Q_UNUSED(favourite);
     }
+    virtual void setRoomLowPriority(const QString &roomId, bool lowPriority)
+    {
+        Q_UNUSED(roomId);
+        Q_UNUSED(lowPriority);
+    }
     // Mark a room read without opening it. sendReadReceipt can only target an
     // event in the loaded timeline, so it cannot do this for a closed room.
     // Backends that cannot resolve a closed room's latest event leave this

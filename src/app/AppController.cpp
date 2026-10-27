@@ -567,6 +567,13 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_roomExport = std::make_unique<RoomExportController>(this);
     m_moderation = std::make_unique<ModerationController>(this);
     m_pushRules = std::make_unique<PushRulesController>(this);
+    connect(m_pushRules.get(), &PushRulesController::stateChanged,
+            this, [this] {
+        // An unavailable rule cannot hide activity. An explicit Off applies
+        // to both All and Reactions, including existing rows and the badge.
+        m_activity->setReactionsVisible(!m_pushRules->loaded()
+                                        || m_pushRules->eventReactions() != 0);
+    });
     // An account-wide default alert level changed. Rooms that follow it now
     // behave differently, so re-read the per-room modes at once (every room
     // with a rule of its own, plus the open room, which may have none) instead

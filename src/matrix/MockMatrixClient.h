@@ -86,6 +86,7 @@ public:
     // state), which makes the Favourites section reachable in QML/demo runs.
     bool supportsRoomFavourites() const override { return true; }
     void setRoomFavourite(const QString &roomId, bool favourite) override;
+    void setRoomLowPriority(const QString &roomId, bool lowPriority) override;
     bool isLoggedIn() const override { return m_loggedIn; }
     QString currentUserId() const override { return m_userId; }
     QString homeserverUrl() const override { return m_homeserver; }

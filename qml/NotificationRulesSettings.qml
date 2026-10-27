@@ -101,7 +101,9 @@ ColumnLayout {
             storm: true
             objectName: levelRow.pickerName
             Layout.preferredWidth: levelRow.comboWidth
-            enabled: !root.rules.masterMute
+            // Master mute suppresses delivery, but individual rules remain
+            // editable so they can be prepared before unmuting.
+            enabled: root.ready
             model: levelRow.options
             Accessible.name: levelRow.title
             currentIndex: Math.min(Math.max(levelRow.level, 0),
@@ -412,7 +414,9 @@ ColumnLayout {
             Hint {
                 objectName: "pushReactionsNote"
                 visible: root.rules.eventReactions >= 0
-                text: qsTr("This is saved to your account for your other "
+                text: qsTr("Off also hides reactions from Lightning's Activity "
+                           + "feed, including the Reactions tab and its badge. "
+                           + "This rule is saved to your account for other "
                            + "devices and clients. Lightning does not show "
                            + "desktop notifications for reactions.")
             }

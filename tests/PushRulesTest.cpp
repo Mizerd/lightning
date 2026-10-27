@@ -275,6 +275,7 @@ private Q_SLOTS:
         ctl.setMasterMute(true);
         // Optimistic: visible before the event loop turns.
         QVERIFY(ctl.masterMute());
+
         QVERIFY(ctl.busy());
         QCOMPARE(client.writes.size(), 1);
         QCOMPARE(client.writes.at(0).kind, QStringLiteral("master_mute"));
@@ -906,6 +907,11 @@ Item {
         QCOMPARE(client.writes.last().value, QStringLiteral("on"));
         QTRY_VERIFY_WITH_TIMEOUT(!ctl.busy(), kWaitMs);
         QVERIFY(ctl.masterMute());
+        // Master mute stops delivery, but each rule remains editable.
+        for (const char *name : {"pushEventReactionsCombo",
+                                 "pushEventInvitesCombo",
+                                 "pushEventNoticesCombo"})
+            QVERIFY2(find(name)->property("enabled").toBool(), name);
 
         // A keyword is typed, added and appears.
         auto *field = find("pushKeywordField");

@@ -243,6 +243,7 @@ private Q_SLOTS:
     void aSpacesRoomsAreNewestFirstNotInChildOrder();
     void aRoomMovesWhenSomebodySpeaksInIt();
     void aFavouriteRisesToTheTopOfItsGroup();
+    void lowPriorityTagReachesTheChannelMenu();
     // The DM tab survives a space-list rebuild: SpaceManager drops a scope
     // that is not a joined Space, but the rail's tab sentinels ("@people",
     // "@orphans") are never rooms and must be kept.
@@ -1915,6 +1916,25 @@ void SpaceChannelsTest::aFavouriteRisesToTheTopOfItsGroup()
     names = namesOf(f.model);
     QVERIFY(names.indexOf(QStringLiteral("Old friend"))
             < names.indexOf(QStringLiteral("New friend")));
+}
+
+void SpaceChannelsTest::lowPriorityTagReachesTheChannelMenu()
+{
+    Fixture f;
+    auto tagged = room(QStringLiteral("!tagged:x"), QStringLiteral("Tagged"));
+    tagged.lowPriority = true;
+    f.build({tagged});
+    f.selectHome();
+    int row = f.model.rowForRoom(tagged.id);
+    QVERIFY(row >= 0);
+    QVERIFY(f.model.data(f.model.index(row, 0),
+                         SpaceChannelModel::IsLowPriorityRole).toBool());
+    f.client.roomList[0].lowPriority = false;
+    f.client.announce();
+    row = f.model.rowForRoom(tagged.id);
+    QVERIFY(row >= 0);
+    QVERIFY(!f.model.data(f.model.index(row, 0),
+                          SpaceChannelModel::IsLowPriorityRole).toBool());
 }
 
 void SpaceChannelsTest::aSpacesRoomsAreNewestFirstNotInChildOrder()

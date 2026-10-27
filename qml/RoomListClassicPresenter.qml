@@ -249,6 +249,7 @@ Item {
             onMarkRead: app.roomList.markRoomRead(model.roomId)
             onMarkUnread: app.roomList.markRoomUnread(model.roomId)
             onSetFavourite: on => app.roomList.setRoomFavourite(model.roomId, on)
+            onSetLowPriority: on => app.roomList.setRoomLowPriority(model.roomId, on)
             onSetNotificationMode: mode => app.setRoomNotificationMode(model.roomId, mode)
             // By signal: the clipboard proxy and confirm dialog belong to the
             // host.

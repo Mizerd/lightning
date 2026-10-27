@@ -25,14 +25,21 @@ void RoomBatchController::configure(MatrixClient *client, RoomListModel *rooms,
     connect(client, &MatrixClient::markRoomReadFailed, this, [this](const QString &id) {
         if (m_action == QLatin1String("read")) finish(id, false);
     });
-    connect(client, &MatrixClient::roomUpdated, this, [this](const QString &id) {
-        if (id != m_active || m_action != QLatin1String("favourite")) return;
+    const auto checkTag = [this] {
+        if (m_active.isEmpty() || (m_action != QLatin1String("favourite")
+                                   && m_action != QLatin1String("low_priority"))) return;
         for (const auto &room : m_client->rooms())
-            if (room.id == id && room.isFavourite == (m_mode == 1)) {
+            if (room.id == m_active
+                && (m_action == QLatin1String("favourite")
+                    ? room.isFavourite : room.lowPriority) == (m_mode == 1)) {
+                const QString id = m_active;
                 finish(id, true);
                 return;
             }
-    });
+    };
+    connect(client, &MatrixClient::roomUpdated, this,
+            [checkTag](const QString &) { checkTag(); });
+    connect(client, &MatrixClient::roomsChanged, this, checkTag);
     connect(client, &MatrixClient::roomNotificationModeChanged, this,
             [this](const QString &id, int mode, bool defined) {
         if (m_action == QLatin1String("notification") && m_mode != 3
@@ -125,8 +132,10 @@ void RoomBatchController::run(const QString &action, int mode)
 {
     if (busy() || m_confirmLeave || m_account.isEmpty() || m_order.isEmpty()) return;
     if (action != QLatin1String("read") && action != QLatin1String("favourite")
+        && action != QLatin1String("low_priority")
         && action != QLatin1String("notification")) return;
-    if ((action == QLatin1String("favourite") && (!m_client->supportsRoomFavourites() || (mode != 0 && mode != 1)))
+    if (((action == QLatin1String("favourite") || action == QLatin1String("low_priority"))
+         && (!m_client->supportsRoomFavourites() || (mode != 0 && mode != 1)))
         || (action == QLatin1String("read") && !m_client->supportsMarkRoomRead())
         || (action == QLatin1String("notification") && (mode < 0 || mode > 3))) return;
     ++m_generation;
@@ -168,15 +177,18 @@ void RoomBatchController::advance()
     m_active = m_queue.takeFirst();
     const auto id = m_active;
     if (!validRoom(id)) { finish(id, false); return; }
-    if (m_action == QLatin1String("favourite")) {
+    if (m_action == QLatin1String("favourite") || m_action == QLatin1String("low_priority")) {
         for (const auto &room : m_client->rooms())
-            if (room.id == id && room.isFavourite == (m_mode == 1)) {
+            if (room.id == id
+                && (m_action == QLatin1String("favourite")
+                    ? room.isFavourite : room.lowPriority) == (m_mode == 1)) {
                 finish(id, true);
                 return;
             }
     }
     if (m_action == QLatin1String("read")) m_rooms->markRoomRead(id);
     else if (m_action == QLatin1String("favourite")) m_rooms->setRoomFavourite(id, m_mode == 1);
+    else if (m_action == QLatin1String("low_priority")) m_rooms->setRoomLowPriority(id, m_mode == 1);
     else if (m_action == QLatin1String("notification")) {
         m_notificationWrite(id, m_mode);
         if (!m_client->supportsServerNotificationModes() && m_notificationRead

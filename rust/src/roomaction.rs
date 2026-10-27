@@ -107,6 +107,19 @@ pub(crate) async fn set_favourite(
     .await
 }
 
+/// The SDK also removes a conflicting favourite when enabling low priority.
+pub(crate) async fn set_low_priority(
+    room: &matrix_sdk::Room,
+    low_priority: bool,
+    delays: &[Duration],
+) -> (matrix_sdk::Result<()>, u32) {
+    with_transport_retry(delays, || {
+        let room = room.clone();
+        async move { room.set_is_low_priority(low_priority, None).await }
+    })
+    .await
+}
+
 /// The Mark as unread control (`m.marked_unread` room account data), retried
 /// over transport failures.
 pub(crate) async fn set_unread_flag(

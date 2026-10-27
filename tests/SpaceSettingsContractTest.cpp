@@ -901,6 +901,18 @@ private Q_SLOTS:
         QVERIFY(dialog.contains(QStringLiteral("acceptedButtons: Qt.RightButton")));
     }
 
+    void spaceHomeMemberChipOffersConfirmedModeration()
+    {
+        const QString chip = readQml(QStringLiteral("SpaceMemberChip.qml"));
+        const QString home = readQml(QStringLiteral("TimelinePane.qml"));
+        QVERIFY(chip.contains(QStringLiteral("app.roomInfo.roomId !== spaceId")));
+        QVERIFY(chip.contains(QStringLiteral("canModerate(modelData.userId, \"kick\")")));
+        QVERIFY(chip.contains(QStringLiteral("canModerate(modelData.userId, \"ban\")")));
+        QVERIFY(chip.contains(QStringLiteral("acceptedButtons: Qt.RightButton")));
+        QVERIFY(home.contains(QStringLiteral("onModerationRequested: (member, action)")));
+        QVERIFY(home.contains(QStringLiteral("spaceChipMemberAction.openFor(")));
+    }
+
     // The confirmation renders the controller's own text and outcome, so the
     // strings the controller test pins are the ones on screen.
     void theActionDialogRendersTheControllersText()

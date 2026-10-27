@@ -227,6 +227,7 @@ QVariant RoomListModel::data(const QModelIndex &index, int role) const
     case MembershipRole:         return membershipName(r.membership);
     case IsDirectRole:           return r.isDirect;
     case IsFavouriteRole:        return r.isFavourite;
+    case IsLowPriorityRole:      return r.lowPriority;
     case DirectUserIdRole:       return r.directUserId;
     case InviterRole:            return r.inviterDisplayName.isEmpty()
                                      ? r.inviterUserId : r.inviterDisplayName;
@@ -267,6 +268,7 @@ QHash<int, QByteArray> RoomListModel::roleNames() const
         { MembershipRole,         "membership" },
         { IsDirectRole,           "isDirect" },
         { IsFavouriteRole,        "isFavourite" },
+        { IsLowPriorityRole,      "isLowPriority" },
         { DirectUserIdRole,       "directUserId" },
         { InviterRole,            "inviter" },
         { InviterUserIdRole,      "inviterUserId" },
@@ -1203,6 +1205,12 @@ void RoomListModel::setRoomFavourite(const QString &roomId, bool favourite)
     // account holds until the backend confirms, so a refused write leaves it
     // put.
     if (m_client) m_client->setRoomFavourite(roomId, favourite);
+}
+
+void RoomListModel::setRoomLowPriority(const QString &roomId, bool lowPriority)
+{
+    // The SDK is authoritative; a failed tag write does not move the row.
+    if (m_client) m_client->setRoomLowPriority(roomId, lowPriority);
 }
 
 QString RoomListModel::roomPermalink(const QString &roomId,

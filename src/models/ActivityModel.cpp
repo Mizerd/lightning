@@ -531,11 +531,21 @@ void ActivityModel::notificationModesChanged()
     Q_EMIT unseenCountChanged();
 }
 
+void ActivityModel::setReactionsVisible(bool visible)
+{
+    if (m_reactionsVisible == visible)
+        return;
+    m_reactionsVisible = visible;
+    rebuildVisible();
+    Q_EMIT unseenCountChanged();
+}
+
 int ActivityModel::unseenCount() const
 {
     int n = 0;
     for (const Entry &e : m_entries)
-        if (!isSeen(e) && !isMutedRoom(e))
+        if (!isSeen(e) && !isMutedRoom(e)
+            && (m_reactionsVisible || e.kind != QLatin1String("reaction")))
             ++n;
     return n;
 }
@@ -886,7 +896,8 @@ void ActivityModel::setFilter(const QString &filter)
 
 bool ActivityModel::passesFilter(const Entry &e) const
 {
-    if (isMutedRoom(e))
+    if (isMutedRoom(e)
+        || (!m_reactionsVisible && e.kind == QLatin1String("reaction")))
         return false;
     if (m_filter == QLatin1String("all"))
         return true;

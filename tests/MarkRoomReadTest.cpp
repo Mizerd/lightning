@@ -181,6 +181,14 @@ private Q_SLOTS:
         QCOMPARE(categoryAt(1), QStringLiteral("conversation"));
         QCOMPARE(idAt(2), QStringLiteral("!low:x"));
         QCOMPARE(categoryAt(2), QStringLiteral("lowpriority"));
+        QVERIFY(model.data(model.index(2), RoomListModel::IsLowPriorityRole).toBool());
+        // A confirmed tag change moves the room out of the low-priority
+        // section; the menu reads the same role after this update.
+        client.roomSet[0].lowPriority = false;
+        Q_EMIT client.roomsChanged();
+        QCOMPARE(idAt(1), QStringLiteral("!low:x"));
+        QCOMPARE(categoryAt(1), QStringLiteral("conversation"));
+        QVERIFY(!model.data(model.index(1), RoomListModel::IsLowPriorityRole).toBool());
     }
 
     // With an empty loaded timeline (every room that is not open), the call

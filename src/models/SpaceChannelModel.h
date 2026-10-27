@@ -155,6 +155,7 @@ public:
         HiddenUnreadRole,
         HiddenHighlightRole,
         IsFavouriteRole,
+        IsLowPriorityRole,
         /// The Material Symbols glyph a navigation or action row draws. Named
         /// by the model because the rows are a closed set it owns; the bundled
         /// font is a subset, so every name is pinned by `IconChromeTest`.
@@ -290,6 +291,7 @@ private:
         bool hasUnread = false;
         int threadUnreadKind = 0;
         bool favourite = false;
+        bool lowPriority = false;
         int hiddenUnread = 0;
         int hiddenHighlight = 0;
         QString iconName;

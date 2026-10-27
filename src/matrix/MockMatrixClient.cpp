@@ -2875,12 +2875,25 @@ void MockMatrixClient::setRoomFavourite(const QString &roomId, bool favourite)
     for (RoomInfo &r : m_rooms) {
         if (r.id != roomId)
             continue;
-        if (r.isFavourite == favourite)
+        if (r.isFavourite == favourite && (!favourite || !r.lowPriority))
             return;
         r.isFavourite = favourite;
+        if (favourite) r.lowPriority = false;
         // roomsChanged, not roomUpdated: favouriting moves the row to another
         // section, and roomUpdated only starts RoomListModel's coalescing
         // timer. A click response should land on the same frame.
+        Q_EMIT roomsChanged();
+        return;
+    }
+}
+
+void MockMatrixClient::setRoomLowPriority(const QString &roomId, bool lowPriority)
+{
+    for (RoomInfo &r : m_rooms) {
+        if (r.id != roomId) continue;
+        if (r.lowPriority == lowPriority && (!lowPriority || !r.isFavourite)) return;
+        r.lowPriority = lowPriority;
+        if (lowPriority) r.isFavourite = false;
         Q_EMIT roomsChanged();
         return;
     }

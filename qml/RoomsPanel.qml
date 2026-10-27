@@ -837,6 +837,8 @@ Rectangle {
             AppButton { text: qsTr("Read"); enabled: app.roomBatch.markReadSupported && app.roomBatch.selectionCount > 0 && !app.roomBatch.busy; onClicked: app.roomBatch.run("read") }
             AppButton { text: qsTr("Favourite"); enabled: app.roomList.roomFavouritesSupported && app.roomBatch.selectionCount > 0 && !app.roomBatch.busy; onClicked: app.roomBatch.run("favourite", 1) }
             AppButton { text: qsTr("Unfavourite"); enabled: app.roomList.roomFavouritesSupported && app.roomBatch.selectionCount > 0 && !app.roomBatch.busy; onClicked: app.roomBatch.run("favourite", 0) }
+            AppButton { text: qsTr("Low priority"); enabled: app.roomList.roomFavouritesSupported && app.roomBatch.selectionCount > 0 && !app.roomBatch.busy; onClicked: app.roomBatch.run("low_priority", 1) }
+            AppButton { text: qsTr("Remove low priority"); enabled: app.roomList.roomFavouritesSupported && app.roomBatch.selectionCount > 0 && !app.roomBatch.busy; onClicked: app.roomBatch.run("low_priority", 0) }
             AppButton { text: qsTr("Notify all"); enabled: app.roomBatch.selectionCount > 0 && !app.roomBatch.busy; onClicked: app.roomBatch.run("notification", 0) }
             AppButton { text: qsTr("Mentions"); enabled: app.roomBatch.selectionCount > 0 && !app.roomBatch.busy; onClicked: app.roomBatch.run("notification", 1) }
             AppButton { text: qsTr("Mute"); enabled: app.roomBatch.selectionCount > 0 && !app.roomBatch.busy; onClicked: app.roomBatch.run("notification", 2) }

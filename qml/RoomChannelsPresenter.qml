@@ -223,6 +223,7 @@ Item {
                     hasUnread: rowLoader.model.hasUnread
                     threadUnreadKind: rowLoader.model.threadUnreadKind || 0
                     isFavourite: rowLoader.model.isFavourite
+                    isLowPriority: rowLoader.model.isLowPriority
                     depth: rowLoader.model.depth
                     active: rowLoader.model.roomId === root.currentRoomId
                     batchSelected: app.roomBatch.selectionCount >= 0
@@ -250,6 +251,7 @@ Item {
                     onMarkRead: app.roomList.markRoomRead(rowLoader.model.roomId)
                     onMarkUnread: app.roomList.markRoomUnread(rowLoader.model.roomId)
                     onSetFavourite: on => app.roomList.setRoomFavourite(rowLoader.model.roomId, on)
+                    onSetLowPriority: on => app.roomList.setRoomLowPriority(rowLoader.model.roomId, on)
                     onSetNotificationMode: mode => app.setRoomNotificationMode(rowLoader.model.roomId, mode)
                     onCopyRoomLink: root.roomLinkCopyRequested(rowLoader.model.roomId)
                     onLeaveRoomRequested: root.leaveRoomRequested(rowLoader.model.roomId, rowLoader.model.name)

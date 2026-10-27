@@ -45,12 +45,14 @@ public:
     QList<RoomInfo> rows;
     QStringList readRequests;
     QStringList favouriteRequests;
+    QStringList lowPriorityRequests;
     QStringList leaveRequests;
     bool supportsMarkRoomRead() const override { return true; }
     bool supportsRoomFavourites() const override { return true; }
     QList<RoomInfo> rooms() const override { return rows; }
     void markRoomRead(const QString &id) override { readRequests.append(id); }
     void setRoomFavourite(const QString &id, bool) override { favouriteRequests.append(id); }
+    void setRoomLowPriority(const QString &id, bool) override { lowPriorityRequests.append(id); }
     quint64 leaveRoom(const QString &id) override { leaveRequests.append(id); return leaveRequests.size(); }
 };
 
@@ -128,6 +130,25 @@ private Q_SLOTS:
         QCOMPARE(client.leaveRequests, QStringList{QStringLiteral("!a:x")});
         emit client.roomLeaveFinished(1, QStringLiteral("!a:x"), false, QStringLiteral("forbidden"));
         QCOMPARE(batch.failed(), 1);
+    }
+
+    void lowPriorityWaitsForTheRoomTag()
+    {
+        BatchClient client; client.rows = {room(QStringLiteral("!a:x"))};
+        RoomListModel rooms; rooms.setClient(&client);
+        RoomInfoController info; info.setClient(&client);
+        RoomBatchController batch;
+        batch.configure(&client, &rooms, &info, [](const QString &, int) {});
+        batch.setAccount(QStringLiteral("@alice:x"));
+        batch.select(QStringLiteral("!a:x"));
+        batch.run(QStringLiteral("low_priority"), 1);
+        QCOMPARE(client.lowPriorityRequests, QStringList{QStringLiteral("!a:x")});
+        QCOMPARE(batch.pending(), 1);
+        emit client.roomsChanged();
+        QCOMPARE(batch.pending(), 1);
+        client.rows[0].lowPriority = true;
+        emit client.roomsChanged();
+        QCOMPARE(batch.succeeded(), 1);
     }
 };
 QTEST_MAIN(RoomBatchControllerTest)

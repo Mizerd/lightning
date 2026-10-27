@@ -362,6 +362,7 @@ public:
     void setRoomMarkedUnread(const QString &roomId, bool unread) override;
     bool supportsRoomFavourites() const override { return true; }
     void setRoomFavourite(const QString &roomId, bool favourite) override;
+    void setRoomLowPriority(const QString &roomId, bool lowPriority) override;
     bool supportsMarkRoomRead() const override { return true; }
     void markRoomRead(const QString &roomId) override;
     // Server-synchronized per-room notification modes through the SDK's

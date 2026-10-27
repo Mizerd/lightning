@@ -687,6 +687,27 @@ private Q_SLOTS:
         QCOMPARE(h.model.count(), 1);
     }
 
+    void reactionRuleHidesAllAndReactionsIncludingBadge()
+    {
+        Harness h;
+        h.model.ingest(text(QStringLiteral("$mine"), h.client.self,
+                            QStringLiteral("hello"), 1000), QStringLiteral("Lounge"));
+        QVERIFY(h.model.noteReaction(kRoom, QStringLiteral("Lounge"),
+                                     QStringLiteral("$react"), QStringLiteral("$mine"),
+                                     QStringLiteral("@bob:mock.local"), QStringLiteral("Bob"),
+                                     QStringLiteral("👍"), 2000));
+        QCOMPARE(h.model.count(), 1);
+        QCOMPARE(h.model.unseenCount(), 1);
+        h.model.setReactionsVisible(false);
+        QCOMPARE(h.model.count(), 0);
+        QCOMPARE(h.model.unseenCount(), 0);
+        h.model.setFilter(QStringLiteral("reactions"));
+        QCOMPARE(h.model.count(), 0);
+        h.model.setReactionsVisible(true);
+        QCOMPARE(h.model.count(), 1);
+        QCOMPARE(h.model.unseenCount(), 1);
+    }
+
     // Break-it rerun, section 10: a server without GET /notifications
     // (Continuwuity: 404 M_UNRECOGNIZED) was asked again at 5..160 s and on
     // every Syncing edge, and the panel said "Nothing here yet".

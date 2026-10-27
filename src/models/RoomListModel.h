@@ -77,6 +77,7 @@ public:
         // Matrix `m.favourite` room tag: account state shared with other
         // clients.
         IsFavouriteRole,
+        IsLowPriorityRole,
         DirectUserIdRole,
         InviterRole,
         // The inviter's MXID only (never inferred from the display text), so
@@ -170,6 +171,7 @@ public:
     // works for rooms the Space filter hides.
     Q_INVOKABLE bool isRoomFavourite(const QString &roomId) const;
     Q_INVOKABLE void setRoomFavourite(const QString &roomId, bool favourite);
+    Q_INVOKABLE void setRoomLowPriority(const QString &roomId, bool lowPriority);
     // "Copy room link": prefers the canonical alias over the room id, with
     // TimelineModel::messagePermalink's percent-encoding (! $ : @ excluded).
     // Static for unit testing.

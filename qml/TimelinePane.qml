@@ -7428,6 +7428,9 @@ Rectangle {
                 id: spaceInviteDialog
                 parent: Overlay.overlay
             }
+            SpaceMemberActionDialog {
+                id: spaceChipMemberAction
+            }
 
             Connections {
                 target: app.discovery
@@ -8466,8 +8469,16 @@ Rectangle {
                                     // Bounded: the Flow is not virtualized.
                                     model: spaceHome.spacePeople.slice(0, 60)
                                     delegate: SpaceMemberChip {
+                                        spaceId: spaceHome.spaceId
                                         onProfileRequested: (member) =>
                                             senderProfilePopover.openFor(member, parent)
+                                        onModerationRequested: (member, action) =>
+                                            spaceChipMemberAction.openFor(
+                                                spaceHome.spaceId,
+                                                spaceHome.info.name || spaceHome.spaceId,
+                                                member.userId,
+                                                member.displayName || member.userId,
+                                                action)
                                     }
                                 }
                             }

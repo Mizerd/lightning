@@ -52,12 +52,14 @@ ItemDelegate {
     property int depth: 0
     /// Favourite flag, for the context menu toggle and the star.
     property bool isFavourite: false
+    property bool isLowPriority: false
 
     // The same actions as the Classic row. Signal-only: the presenter performs
     // every mutation, as with RoomDelegate.
     signal markRead()
     signal markUnread()
     signal setFavourite(bool on)
+    signal setLowPriority(bool on)
     signal setNotificationMode(int mode)
     signal copyRoomLink()
     signal leaveRoomRequested()
@@ -449,12 +451,14 @@ ItemDelegate {
             roomName: root.channelName
             isDirect: root.isDirect
             isFavourite: root.isFavourite
+            isLowPriority: root.isLowPriority
             isInvite: root.isInvite
             onAcceptInviteRequested: root.acceptInvite()
             onRejectInviteRequested: root.rejectInvite()
             onMarkRead: root.markRead()
             onMarkUnread: root.markUnread()
             onSetFavourite: on => root.setFavourite(on)
+            onSetLowPriority: on => root.setLowPriority(on)
             onSetNotificationMode: mode => root.setNotificationMode(mode)
             onCopyRoomLink: root.copyRoomLink()
             onLeaveRoomRequested: root.leaveRoomRequested()

@@ -8,7 +8,19 @@ import MatrixClient
 Rectangle {
     id: spaceMemberChip
     required property var modelData
+    // Empty for isolated previews; real Space Home supplies its room id.
+    property string spaceId: ""
     signal profileRequested(var member)
+    signal moderationRequested(var member, string action)
+
+    function openActions(x, y) {
+        if (!app.roomInfo || app.roomInfo.roomId !== spaceId)
+            return
+        actions.canKick = app.roomInfo.canModerate(modelData.userId, "kick")
+        actions.canBan = app.roomInfo.canModerate(modelData.userId, "ban")
+        if (actions.canKick || actions.canBan)
+            actions.popup(spaceMemberChip, x, y)
+    }
 
     radius: AppTheme.radiusPill
     color: chipHover.hovered ? AppTheme.hover : AppTheme.surface
@@ -29,6 +41,13 @@ Rectangle {
                              spaceMemberChip.modelData)
     Keys.onSpacePressed: spaceMemberChip.profileRequested(
                              spaceMemberChip.modelData)
+    Keys.onMenuPressed: spaceMemberChip.openActions(0, height)
+    Keys.onPressed: (event) => {
+        if (event.key === Qt.Key_F10 && (event.modifiers & Qt.ShiftModifier)) {
+            spaceMemberChip.openActions(0, height)
+            event.accepted = true
+        }
+    }
     // The row's own side margins, so the name gets all of its width; a
     // fractional text width is rounded up, never down into an elision.
     implicitWidth: Math.min(Math.ceil(chipRow.implicitWidth)
@@ -40,7 +59,42 @@ Rectangle {
         cursorShape: Qt.PointingHandCursor
     }
     TapHandler {
+        acceptedButtons: Qt.LeftButton
         onTapped: spaceMemberChip.profileRequested(spaceMemberChip.modelData)
+    }
+    TapHandler {
+        acceptedButtons: Qt.RightButton
+        acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+        onTapped: (point) => spaceMemberChip.openActions(point.position.x,
+                                                         point.position.y)
+    }
+    AppMenu {
+        id: actions
+        objectName: "spaceMemberChipMenu"
+        property bool canKick: false
+        property bool canBan: false
+        contextLabel: spaceMemberChip.modelData.displayName
+                      || spaceMemberChip.modelData.userId
+        AppMenuItem {
+            objectName: "spaceMemberChipKick"
+            visible: actions.canKick
+            enabled: visible
+            danger: true
+            iconName: "person_remove"
+            text: qsTr("Kick from space…")
+            onTriggered: spaceMemberChip.moderationRequested(
+                             spaceMemberChip.modelData, "kick")
+        }
+        AppMenuItem {
+            objectName: "spaceMemberChipBan"
+            visible: actions.canBan
+            enabled: visible
+            danger: true
+            iconName: "block"
+            text: qsTr("Ban from space…")
+            onTriggered: spaceMemberChip.moderationRequested(
+                             spaceMemberChip.modelData, "ban")
+        }
     }
     RowLayout {
         id: chipRow

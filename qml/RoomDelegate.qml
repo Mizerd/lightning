@@ -49,6 +49,7 @@ Item {
     // Carries the value to write, not a toggle; the row never flips it locally,
     // so a refused write cannot desynchronize it.
     signal setFavourite(bool on)
+    signal setLowPriority(bool on)
     // Signal-only: the host (RoomsPanel) performs the mutations.
     signal setNotificationMode(int mode)
     signal copyRoomLink()
@@ -620,9 +621,11 @@ Item {
         canonicalAlias: model.canonicalAlias || ""
         isDirect: model.isDirect === true
         isFavourite: model.isFavourite === true
+        isLowPriority: model.isLowPriority === true
         onMarkRead: root.markRead()
         onMarkUnread: root.markUnread()
         onSetFavourite: on => root.setFavourite(on)
+        onSetLowPriority: on => root.setLowPriority(on)
         onSetNotificationMode: mode => root.setNotificationMode(mode)
         onCopyRoomLink: root.copyRoomLink()
         onLeaveRoomRequested: root.leaveRoomRequested()

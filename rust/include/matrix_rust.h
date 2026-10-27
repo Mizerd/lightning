@@ -218,6 +218,10 @@ char *mx_rust_mark_room_read(void *client, const char *room_id);
  * answers room_action_error with action="favourite" and changes nothing. */
 char *mx_rust_set_room_favourite(void *client, const char *room_id,
                                  int favourite);
+/* Add or remove m.lowpriority through the SDK. Setting it removes
+ * m.favourite; success re-emits rooms and failure reports room_action_error. */
+char *mx_rust_set_room_low_priority(void *client, const char *room_id,
+                                    int low_priority);
 /* Send attachment bytes to a room whose live timeline is NOT open — the
  * forwarding path. Routes through Room::send_attachment; the SDK still
  * encrypts for the target room when that room is encrypted. Answers on

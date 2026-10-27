@@ -116,6 +116,9 @@ public:
     void setNotificationModeSource(std::function<int(const QString &)> modeOf);
     /// A room's notification mode changed: re-evaluate what is hidden.
     void notificationModesChanged();
+    // The account's reaction push rule controls visibility in All, Reactions
+    // and the badge. Keep rows in memory so turning it back on restores them.
+    void setReactionsVisible(bool visible);
 
     int rowCount(const QModelIndex &parent = QModelIndex()) const override;
     QVariant data(const QModelIndex &index, int role) const override;
@@ -355,6 +358,7 @@ private:
     // Cleared by notificationModesChanged() and by clear().
     mutable QHash<QString, bool> m_muteCache;
     QString m_filter = QStringLiteral("all");
+    bool m_reactionsVisible = true;
     QStringList m_keywords;
     // The marker as persisted: the newest origin_server_ts "Mark all seen" has
     // covered, in any session. Saved; never compared in-session.
