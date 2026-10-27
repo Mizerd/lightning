@@ -11028,6 +11028,9 @@ private Q_SLOTS:
                              QStringLiteral("applyRowWindow()"));
         apply.evaluate();
         QCoreApplication::processEvents();
+        // The trim moves a few rows per frame; let it finish first.
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("pendingWindowSkip").toInt() < 0, 10000);
         QQuickItem *pane = timeline;
         while (pane->parentItem() && !pane->findChild<QQuickItem *>(
                    QStringLiteral("timelineScrollBar")))
@@ -11268,6 +11271,9 @@ private Q_SLOTS:
                              QStringLiteral("applyRowWindow()"));
         apply.evaluate();
         QCoreApplication::processEvents();
+        // The trim moves a few rows per frame; let it finish first.
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("pendingWindowSkip").toInt() < 0, 10000);
 
         QQmlExpression arm(
             qmlContext(timeline), timeline,
@@ -11837,9 +11843,15 @@ private Q_SLOTS:
             QStringLiteral("(function(){ updateVisibleRowRange();"
                            " applyRowWindow(); updateVisibleRowRange();"
                            " return rowWindowSkip; })()"));
-        const int skip = apply.evaluate().toInt();
+        apply.evaluate();
         QVERIFY2(!apply.hasError(),
                  apply.error().toString().toUtf8().constData());
+        // The trim moves a few rows per frame; read the skip it settles on.
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("pendingWindowSkip").toInt() < 0, 10000);
+        QQmlExpression settled(qmlContext(timeline), timeline, QStringLiteral(
+            "(function(){ updateVisibleRowRange(); return rowWindowSkip; })()"));
+        const int skip = settled.evaluate().toInt();
         QQmlExpression diag(qmlContext(timeline), timeline, QStringLiteral(
             "'ready=' + presentationReady + ' motion=' + viewportMotionActive"
             " + ' busy=' + (app.pagination ? app.pagination.busy : 'n')"
