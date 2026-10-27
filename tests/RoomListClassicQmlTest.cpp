@@ -24,6 +24,7 @@
 #include <QSignalSpy>
 #include <QTemporaryDir>
 
+#include <QScopeGuard>
 #include <memory>
 
 #include "app/AppController.h"
@@ -545,7 +546,12 @@ RoomListCompactPresenter { width: 64; height: 320 }
         QVERIFY(classic->isVisible());
         QVERIFY(!channels->isVisible());
         QTRY_VERIFY_WITH_TIMEOUT(classic->property("count").toInt() >= 3, kTimeoutMs);
-        f.controller->settings()->setRoomNavigationLayout(1);
+        // The layout is a persisted setting the next case reads: put it back.
+        auto *settings = f.controller->settings();
+        const int savedLayout = settings->roomNavigationLayout();
+        const auto restoreLayout = qScopeGuard(
+            [settings, savedLayout] { settings->setRoomNavigationLayout(savedLayout); });
+        settings->setRoomNavigationLayout(1);
         QTRY_VERIFY_WITH_TIMEOUT(channels->isVisible(), kTimeoutMs);
         QVERIFY(!classic->isVisible());
         QTRY_VERIFY_WITH_TIMEOUT(channels->property("count").toInt() > 0, kTimeoutMs);

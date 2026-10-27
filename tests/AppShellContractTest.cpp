@@ -83,8 +83,15 @@ private slots:
         const QString s = readQml("MainScreen.qml");
         const int at = s.indexOf(QStringLiteral("objectName: \"roomsPanel\""));
         QVERIFY(at > 0);
-        QRegularExpression re(QStringLiteral("SplitView.minimumWidth:\\s*(\\d+)"));
-        const auto m = re.match(s.mid(at, 800));
+        // The split's floor is the compact column; the EXPANDED floor, which
+        // every non-compact width is clamped to, is what must fit an invite.
+        QVERIFY(s.mid(at, 800).contains(
+            QStringLiteral("SplitView.minimumWidth:   app.settings.roomListMinWidth")));
+        QFile header(QStringLiteral(LIGHTNING_SOURCE_DIR "/src/app/SettingsManager.h"));
+        QVERIFY(header.open(QIODevice::ReadOnly));
+        QRegularExpression re(QStringLiteral(
+            "kRoomListExpandedMinWidth\\s*=\\s*(\\d+)"));
+        const auto m = re.match(QString::fromUtf8(header.readAll()));
         QVERIFY(m.hasMatch());
         QVERIFY2(m.captured(1).toInt() >= 208, qPrintable(m.captured(1)));
     }
