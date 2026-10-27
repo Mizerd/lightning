@@ -215,6 +215,7 @@ private Q_SLOTS:
     // newest-first order, live Set-diff/member-hydration updates, and
     // ReadMarker-row neutrality.
     void readReceiptsRoleResolvesExcludesSelfAndSortsNewestFirst();
+    void receiptPositionGroupsKeepMainEventsAndThreadsSeparate();
     void reactorsUseSeenNamesAndResolveProfilesWithRepaint();
     void aReaderMissingFromTheMemberCacheKeepsTheNameTheTimelineShows();
     // break-it s03: a display name with an RLO reversed its own tail.
@@ -1364,6 +1365,35 @@ void TimelineModelDiffTest::memberHydrationRerendersOnlyRowsWhoseMentionsChanged
         QVERIFY(!roles.contains(TimelineModel::FormattedBodyRole));
         QVERIFY(!roles.contains(TimelineModel::MessageSegmentsRole));
     }
+}
+
+void TimelineModelDiffTest::receiptPositionGroupsKeepMainEventsAndThreadsSeparate()
+{
+    TimelineEvent older = m_client->mirror.at(0);
+    older.readBy = { { QStringLiteral("@bob:example.org"), 1000 } };
+    TimelineEvent newer = m_client->mirror.at(1);
+    newer.readBy = { { QStringLiteral("@carol:example.org"), 2000 },
+                     { QStringLiteral("@me:example.org"), 2000 } };
+    TimelineEvent threaded = makeEvent(QStringLiteral("$reply"), QStringLiteral("thread"));
+    threaded.threadRootId = QStringLiteral("$e0");
+    threaded.readBy = { { QStringLiteral("@dave:example.org"), 3000 } };
+    m_client->mirror = { older, newer, threaded };
+    Q_EMIT m_client->timelineReset(kRoom);
+
+    const QVariantList groups = m_model->receiptPositionGroups();
+    QCOMPARE(groups.size(), 2);
+    QCOMPARE(groups.at(0).toMap().value(QStringLiteral("eventId")).toString(),
+             QStringLiteral("$e1"));
+    QCOMPARE(groups.at(0).toMap().value(QStringLiteral("total")).toInt(), 1);
+    QCOMPARE(groups.at(1).toMap().value(QStringLiteral("eventId")).toString(),
+             QStringLiteral("$e0"));
+    QCOMPARE(groups.at(1).toMap().value(QStringLiteral("readers")).toList()
+                 .at(0).toMap().value(QStringLiteral("userId")).toString(),
+             QStringLiteral("@bob:example.org"));
+    // An SDK thread timeline's room receipts would be ambiguous even if a
+    // fake backend populated them. The compact main-room list must stay empty.
+    openThreadModel();
+    QVERIFY(m_model->receiptPositionGroups().isEmpty());
 }
 
 void TimelineModelDiffTest::readReceiptsUpdateViaSetDiffAndMemberHydration()

@@ -4607,6 +4607,27 @@ Item {
                                         }
                                     }
                                 }
+                                LayoutPresetPreview {
+                                    Layout.fillWidth: true
+                                    objectName: "layoutPresetPreview"
+                                    messageLayout: app.settings.messageLayout
+                                    messageSpacing: app.settings.messageSpacing
+                                    threadPlacement: app.settings.threadPlacement
+                                    roomListWidth: app.settings.roomListWidth
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: qsTr("Preview uses your current font and colours. "
+                                               + "The preset changes message layout, spacing "
+                                               + "and where threads open; reset restores only "
+                                               + "those three choices.")
+                                    textFormat: Text.PlainText
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.settingsHintSize
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                }
                                 SettingsChoiceRow {
                                     label: qsTr("Message layout")
                                     SegmentedControl {

@@ -1204,6 +1204,52 @@ QVariantMap TimelineModel::cumulativeReadersForEvent(const QString &eventId) con
     return result;
 }
 
+QVariantList TimelineModel::receiptPositionGroups() const
+{
+    QVariantList groups;
+    if (MatrixClient::isThreadTimelineId(m_roomId) || !m_threadFilterRootId.isEmpty())
+        return groups;
+
+    const auto &latest = latestReceiptRows();
+    QHash<int, QVariantList> atRow;
+    for (auto it = latest.constBegin(); it != latest.constEnd(); ++it) {
+        const int row = it.value();
+        if (it.key() == m_selfUserId || row < 0 || row >= m_events.size())
+            continue;
+        const auto &event = m_events.at(row);
+        // The main builder may carry thread replies in its interleaved mode.
+        // A receipt there is not proof of a main-thread reading position.
+        if (event.eventId.isEmpty() || !event.threadRootId.isEmpty())
+            continue;
+        QVariantMap reader;
+        reader.insert(QStringLiteral("userId"), it.key());
+        reader.insert(QStringLiteral("displayName"),
+                      readerDisplayName(memberLookupRoomId(event.roomId), it.key()));
+        for (const auto &receipt : event.readBy) {
+            if (receipt.userId == it.key()) {
+                reader.insert(QStringLiteral("tsMs"), receipt.tsMs);
+                break;
+            }
+        }
+        atRow[row].append(reader);
+    }
+    for (int row = m_events.size() - 1; row >= 0; --row) {
+        auto readers = atRow.value(row);
+        if (readers.isEmpty())
+            continue;
+        std::sort(readers.begin(), readers.end(), [](const QVariant &a, const QVariant &b) {
+            return a.toMap().value(QStringLiteral("userId")).toString()
+                < b.toMap().value(QStringLiteral("userId")).toString();
+        });
+        QVariantMap group;
+        group.insert(QStringLiteral("eventId"), m_events.at(row).eventId);
+        group.insert(QStringLiteral("readers"), readers);
+        group.insert(QStringLiteral("total"), readers.size());
+        groups.append(group);
+    }
+    return groups;
+}
+
 QHash<QString, QString> TimelineModel::receiptPositionsByEvent() const
 {
     QHash<QString, QString> out;

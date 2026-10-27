@@ -1170,6 +1170,7 @@ set(APP_QML_FILES
     # Display picker for platforms without an xdg portal.
     qml/ScreenSharePicker.qml
     qml/NavigationLayoutCard.qml
+    qml/LayoutPresetPreview.qml
     qml/MessageDelegate.qml
     # Element-style local image hiding: keeps the media box's exact geometry.
     qml/MediaHiddenPlaceholder.qml

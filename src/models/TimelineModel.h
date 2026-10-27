@@ -473,6 +473,11 @@ public:
     /// is capped (names resolve through the member lookup) and `total` is the
     /// truthful count, undelivered readers included. Empty on an unknown id.
     Q_INVOKABLE QVariantMap cumulativeReadersForEvent(const QString &eventId) const;
+    /// Known incoming reader positions in the main timeline, grouped by the
+    /// exact loaded event. Thread timelines and interleaved thread replies do
+    /// not contribute: their receipt domains cannot be inferred here.
+    /// Each group has {eventId, readers, total}; newest loaded row first.
+    Q_INVOKABLE QVariantList receiptPositionGroups() const;
     // Edit history and event source for this timeline's room, answered on the
     // signals below. Display data held by the open dialog; never cached.
     Q_INVOKABLE void requestEditHistory(const QString &eventId);

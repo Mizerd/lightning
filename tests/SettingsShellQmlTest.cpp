@@ -2118,6 +2118,32 @@ private slots:
         openSection(QStringLiteral("appearance"));
     }
 
+    void layoutPreviewUsesEffectiveChoicesAndReset()
+    {
+        openSection(QStringLiteral("layout"));
+        auto *preview = item("layoutPresetPreview");
+        QVERIFY2(preview, "the combined layout preview is missing");
+        auto *settings = m_controller->settings();
+        const int previousPreset = settings->layoutPreset();
+        settings->setLayoutPreset(SettingsManager::kLayoutPresetNhekoCompact);
+        QCoreApplication::processEvents();
+        QCOMPARE(preview->property("messageLayout").toInt(),
+                 settings->messageLayout());
+        QCOMPARE(preview->property("messageSpacing").toInt(),
+                 settings->messageSpacing());
+        QCOMPARE(preview->property("threadPlacement").toInt(),
+                 settings->threadPlacement());
+        QCOMPARE(preview->property("compact").toBool(), true);
+        settings->setMessageSpacing(SettingsManager::kSpacingRoomy);
+        QCoreApplication::processEvents();
+        QCOMPARE(preview->property("rowGap").toInt(), 10);
+        settings->resetLayoutPresetOverrides();
+        QCoreApplication::processEvents();
+        QCOMPARE(preview->property("rowGap").toInt(), 3);
+        settings->setLayoutPreset(previousPreset);
+        openSection(QStringLiteral("appearance"));
+    }
+
     // Part 6, 3.3: the sub-section labels are navigation, one step larger than
     // the hint text they used to share, and their rows grow with the text.
     void subSectionLabelsUseTheirOwnLargerToken()

@@ -2680,6 +2680,12 @@ Rectangle {
             // rows take zero height. See docs/timeline-scrolling.md.
             Flickable {
                 id: timeline
+                // Local visual choice only. It does not change receipt sending
+                // or persist a per-room exception in account settings.
+                // 0: compact footer; 1: message facepiles; 2: hidden.
+                property int receiptPresentation: 0
+                readonly property bool receiptsInFooter:
+                    receiptPresentation !== 1
                 enabled: !root.invitePreview
                 // Media band: the row index range allowed to fetch pictures now
                 // (MessageDelegate.mediaInBand). Not bound to contentY, which
@@ -6967,6 +6973,133 @@ Rectangle {
                 }
                 saveMedia: function(mediaKey, filename, mime, ask) {
                     root.startDownload(mediaKey, filename, mime, ask, "context")
+                }
+            }
+        }
+
+        // A fixed-height slot keeps the timeline viewport stable as SDK
+        // receipts arrive. Positions are grouped by exact loaded main event;
+        // a reader on an older event is never described as at the latest one.
+        Rectangle {
+            id: receiptFooter
+            objectName: "receiptPositionFooter"
+            Layout.fillWidth: true
+            Layout.preferredHeight: visible ? 28 : 0
+            visible: app.currentRoomId !== "" && !root.invitePreview
+                     && !app.eventContext.active
+                     && app.timeline.threadFilterRootId === ""
+            color: AppTheme.timelineBackground
+            property var groups: []
+            function refresh() {
+                groups = app.timeline.receiptPositionGroups()
+            }
+            Component.onCompleted: refresh()
+            Connections {
+                target: app.timeline
+                function onDataChanged() { receiptFooter.refresh() }
+                function onModelReset() { receiptFooter.refresh() }
+                function onRowsInserted() { receiptFooter.refresh() }
+                function onRowsRemoved() { receiptFooter.refresh() }
+                function onRoomIdChanged() {
+                    receiptPositionsPopup.close()
+                    receiptFooter.refresh()
+                }
+                function onThreadPresentationChanged() { receiptFooter.refresh() }
+            }
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: AppTheme.spacingM
+                anchors.rightMargin: AppTheme.spacingM
+                spacing: AppTheme.spacing8
+                Label {
+                    Layout.fillWidth: true
+                    visible: timeline.receiptPresentation !== 2
+                    textFormat: Text.PlainText
+                    text: receiptFooter.groups.length === 0
+                          ? qsTr("No known reader positions")
+                          : receiptFooter.groups.length === 1
+                            ? qsTr("%n reader(s) at one loaded message", "",
+                                   receiptFooter.groups[0].total)
+                            : qsTr("Readers at %n different loaded messages", "",
+                                   receiptFooter.groups.length)
+                    color: AppTheme.textMuted
+                    font.family: AppTheme.uiFont
+                    font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                    elide: Text.ElideRight
+                }
+                AppButton {
+                    objectName: "receiptPositionDetailsButton"
+                    text: qsTr("Positions")
+                    kind: "ghost"
+                    size: "sm"
+                    visible: timeline.receiptPresentation === 0
+                             && receiptFooter.groups.length > 0
+                    onClicked: receiptPositionsPopup.open()
+                }
+                AppButton {
+                    objectName: "receiptPlacementButton"
+                    text: timeline.receiptsInFooter
+                          ? (timeline.receiptPresentation === 2
+                             ? qsTr("At bottom") : qsTr("On messages"))
+                          : qsTr("Hide receipts")
+                    kind: "ghost"
+                    size: "sm"
+                    onClicked: timeline.receiptPresentation =
+                                   (timeline.receiptPresentation + 1) % 3
+                }
+            }
+        }
+
+        Popup {
+            id: receiptPositionsPopup
+            objectName: "receiptPositionsPopup"
+            parent: root
+            modal: false
+            focus: true
+            closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+            width: Math.min(340, root.width - 24)
+            height: Math.min(360, positionList.contentHeight + 24)
+            x: Math.max(0, root.width - width - AppTheme.spacingM)
+            y: Math.max(0, receiptFooter.mapToItem(root, 0, 0).y - height)
+            padding: AppTheme.spacing12
+            background: Rectangle {
+                color: AppTheme.stormPanel
+                border.color: AppTheme.stormBorder
+                border.width: 2
+                radius: AppTheme.menuRadius
+            }
+            ListView {
+                id: positionList
+                anchors.fill: parent
+                clip: true
+                model: receiptFooter.groups
+                spacing: AppTheme.spacing8
+                delegate: RowLayout {
+                    required property var modelData
+                    width: positionList.width
+                    Label {
+                        Layout.fillWidth: true
+                        textFormat: Text.PlainText
+                        text: {
+                            var names = []
+                            for (var i = 0; i < modelData.readers.length; ++i)
+                                names.push(modelData.readers[i].displayName)
+                            return names.join(", ")
+                        }
+                        color: AppTheme.stormText
+                        font.family: AppTheme.uiFont
+                        font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                        elide: Text.ElideRight
+                    }
+                    AppButton {
+                        text: qsTr("Go to message")
+                        kind: "ghost"
+                        size: "sm"
+                        onClicked: {
+                            receiptPositionsPopup.close()
+                            timeline.navigateToEvent(modelData.eventId)
+                        }
+                    }
                 }
             }
         }
