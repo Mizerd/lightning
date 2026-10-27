@@ -617,6 +617,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_forward      = std::make_unique<ForwardController>(this);
     m_bulkRedaction = std::make_unique<BulkRedactionController>(this);
     m_roomInfo     = std::make_unique<RoomInfoController>(this);
+    m_roomBatch    = std::make_unique<RoomBatchController>(this);
     m_spaceModeration = std::make_unique<SpaceModerationController>(this);
     m_spaceModeration->setScopeResolver([this](const QString &spaceId) {
         return m_spaces ? m_spaces->moderationScopeRoomIds(spaceId)
@@ -2646,6 +2647,16 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_bulkRedaction->setClient(m_client.get());
     m_forward->setMediaBridge(m_mediaBridge.get());
     m_roomInfo->setClient(m_client.get());
+    m_roomBatch->configure(m_client.get(), m_roomList.get(), m_roomInfo.get(),
+                           [this](const QString &id, int mode) {
+        setRoomNotificationMode(id, mode);
+    }, [this](const QString &id) {
+        return m_settings->roomNotificationMode(id);
+    });
+    connect(m_client.get(), &MatrixClient::loginSucceeded, m_roomBatch.get(),
+            [this](const QString &id) { m_roomBatch->setAccount(id); });
+    connect(this, &AppController::accountSwitchingChanged, m_roomBatch.get(),
+            [this] { if (m_accountSwitching) m_roomBatch->setAccount({}); });
     m_spaceModeration->setClient(m_client.get());
     m_roomClosure->setClient(m_client.get());
     m_mediaBridge->setClient(m_client.get());
@@ -4571,6 +4582,7 @@ void AppController::applyDemoLaunchOptions(const QString &scenario,
 
 AccountManager *AppController::accounts() const { return m_accounts.get(); }
 RoomListModel *AppController::roomList() const { return m_roomList.get(); }
+int AppController::currentKeyboardModifiers() const { return int(QGuiApplication::keyboardModifiers()); }
 RoomListModel *AppController::allRooms() const { return m_allRooms.get(); }
 SpaceChannelModel *AppController::spaceChannels() const
 { return m_spaceChannels.get(); }

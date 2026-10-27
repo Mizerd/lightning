@@ -160,6 +160,28 @@ RoomListClassicPresenter { objectName: "presenter"; width: 320; height: 400 }
 )QML";
 
 private Q_SLOTS:
+    void selectionCanEnterByKeyboardAndExitWithEscape()
+    {
+        Fixture f;
+        QVERIFY(load(f, R"QML(
+import QtQuick
+import MatrixClient
+RoomsPanel { width: 380; height: 700 }
+)QML", 380, 700));
+        const auto rows = rowsOf(f.item.get());
+        QVERIFY(!rows.isEmpty());
+        rows.first()->forceActiveFocus(Qt::TabFocusReason);
+        QTest::keyClick(&f.window, Qt::Key_Space, Qt::ControlModifier);
+        QTRY_VERIFY(f.controller->roomBatch()->selecting());
+        QCOMPARE(f.controller->roomBatch()->selectionCount(), 1);
+        auto *bar = byName(f.item.get(), QStringLiteral("roomBatchActionBar"));
+        QVERIFY(bar && bar->isVisible());
+        QTest::keyClick(&f.window, Qt::Key_Escape);
+        QTRY_VERIFY(!f.controller->roomBatch()->selecting());
+        QCOMPARE(f.controller->roomBatch()->selectionCount(), 0);
+        QVERIFY(!bar->isVisible());
+    }
+
     void initTestCase()
     {
         QVERIFY(m_configHome.isValid());

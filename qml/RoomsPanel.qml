@@ -10,6 +10,19 @@ Rectangle {
     id: root
     color: AppTheme.roomList
     readonly property bool compact: width < app.settings.roomListExpandedMinWidth
+    onCompactChanged: if (compact && app.roomBatch) app.roomBatch.exitSelection()
+    function knownLastAdminCount() {
+        // Only the open room has an authoritative, complete roster here.
+        if (!app.roomInfo || app.roomInfo.truncated || app.roomInfo.loading
+            || app.roomInfo.ownPowerLevel < 100 || app.roomInfo.roomId.length === 0
+            || !app.roomBatch.isSelected(app.roomInfo.roomId)) return 0
+        var admins = 0
+        const members = app.roomInfo.joinedMembers
+        for (var i = 0; i < members.length; ++i)
+            if (members[i].powerLevel !== undefined && members[i].powerLevel >= 100)
+                ++admins
+        return admins === 1 ? 1 : 0
+    }
     function collapse() {
         if (!compact)
             app.settings.setRoomListExpandedWidth(Math.round(width))
@@ -803,6 +816,83 @@ Rectangle {
             Layout.fillWidth: true
             implicitHeight: 1
             color: AppTheme.stormBorderStrong
+        }
+
+        Flow {
+            objectName: "roomBatchActionBar"
+            Layout.fillWidth: true
+            visible: !root.compact && app.roomBatch.selecting
+            spacing: AppTheme.spacingXS
+            Layout.leftMargin: AppTheme.spacing8
+            Layout.rightMargin: AppTheme.spacing8
+            Layout.topMargin: AppTheme.spacing8
+            Layout.bottomMargin: AppTheme.spacing8
+            AppButton { text: qsTr("%n selected", "", app.roomBatch.selectionCount); enabled: false }
+            AppButton { text: qsTr("Read"); enabled: app.roomBatch.markReadSupported && app.roomBatch.selectionCount > 0 && !app.roomBatch.busy; onClicked: app.roomBatch.run("read") }
+            AppButton { text: qsTr("Favourite"); enabled: app.roomList.roomFavouritesSupported && app.roomBatch.selectionCount > 0 && !app.roomBatch.busy; onClicked: app.roomBatch.run("favourite", 1) }
+            AppButton { text: qsTr("Unfavourite"); enabled: app.roomList.roomFavouritesSupported && app.roomBatch.selectionCount > 0 && !app.roomBatch.busy; onClicked: app.roomBatch.run("favourite", 0) }
+            AppButton { text: qsTr("Notify all"); enabled: app.roomBatch.selectionCount > 0 && !app.roomBatch.busy; onClicked: app.roomBatch.run("notification", 0) }
+            AppButton { text: qsTr("Mentions"); enabled: app.roomBatch.selectionCount > 0 && !app.roomBatch.busy; onClicked: app.roomBatch.run("notification", 1) }
+            AppButton { text: qsTr("Mute"); enabled: app.roomBatch.selectionCount > 0 && !app.roomBatch.busy; onClicked: app.roomBatch.run("notification", 2) }
+            AppButton { text: qsTr("Default"); enabled: app.roomBatch.selectionCount > 0 && !app.roomBatch.busy; onClicked: app.roomBatch.run("notification", 3) }
+            AppButton { text: qsTr("Leave…"); enabled: app.roomBatch.selectionCount > 0 && !app.roomBatch.busy; onClicked: app.roomBatch.requestLeave() }
+            AppButton { text: qsTr("Retry failed"); visible: app.roomBatch.canRetry; enabled: !app.roomBatch.busy; onClicked: app.roomBatch.retryFailed() }
+            AppButton { text: qsTr("Done"); onClicked: app.roomBatch.exitSelection() }
+            Label {
+                visible: app.roomBatch.outcomes.length > 0
+                text: qsTr("%1 succeeded · %2 failed · %3 pending")
+                      .arg(app.roomBatch.succeeded).arg(app.roomBatch.failed).arg(app.roomBatch.pending)
+                color: AppTheme.textMuted
+            }
+        }
+
+        ListView {
+            objectName: "roomBatchOutcomes"
+            Layout.fillWidth: true
+            Layout.preferredHeight: Math.min(contentHeight, 96)
+            visible: !root.compact && app.roomBatch.selecting && app.roomBatch.outcomes.length > 0
+            clip: true
+            model: app.roomBatch.outcomes
+            delegate: Label {
+                required property var modelData
+                width: ListView.view.width
+                leftPadding: AppTheme.spacing8
+                color: modelData.status === "failed" ? AppTheme.error : AppTheme.textMuted
+                text: qsTr("%1: %2").arg(modelData.name || modelData.roomId)
+                      .arg(modelData.status === "succeeded" ? qsTr("Succeeded")
+                           : modelData.status === "failed" ? qsTr("Failed")
+                           : qsTr("Pending"))
+                elide: Text.ElideRight
+            }
+        }
+
+        Dialog {
+            id: batchLeaveDialog
+            objectName: "batchLeaveConfirmDialog"
+            modal: true
+            title: qsTr("Leave %n room(s)?", "", app.roomBatch.selectionCount)
+            visible: app.roomBatch.awaitingLeaveConfirmation
+            anchors.centerIn: Overlay.overlay
+            width: Math.min(400, root.width - 20)
+            onRejected: app.roomBatch.cancelLeave()
+            contentItem: ColumnLayout {
+                Label {
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    text: qsTr("You will leave all selected rooms. You may need an invitation to rejoin private rooms.")
+                }
+                Label {
+                    Layout.fillWidth: true
+                    visible: root.knownLastAdminCount() > 0
+                    wrapMode: Text.WordWrap
+                    text: qsTr("You are the last known admin in one selected room. Assign another admin before leaving if the room needs one.")
+                }
+                RowLayout {
+                    Item { Layout.fillWidth: true }
+                    AppButton { text: qsTr("Cancel"); onClicked: app.roomBatch.cancelLeave() }
+                    AppButton { text: qsTr("Leave rooms"); onClicked: app.roomBatch.confirmLeave() }
+                }
+            }
         }
 
         // List body: the chosen navigation layout. The header, search, dialogs

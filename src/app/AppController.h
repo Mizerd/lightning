@@ -16,6 +16,7 @@
 #include "models/RoomExportController.h"
 #include "models/WidgetController.h"
 #include "app/RoomInfoController.h"
+#include "app/RoomBatchController.h"
 #include "app/SettingsManager.h"
 #include "app/CustomThemeStore.h"
 #include "app/NetworkRouteController.h"
@@ -372,6 +373,7 @@ class AppController : public QObject
     Q_PROPERTY(int maxLiveAccounts READ maxLiveAccounts CONSTANT)
     Q_PROPERTY(int maxPinnedAccounts READ maxPinnedAccounts CONSTANT)
     Q_PROPERTY(RoomListModel* roomList READ roomList CONSTANT)
+    Q_PROPERTY(RoomBatchController* roomBatch READ roomBatch CONSTANT)
     /// Every joined room with no Space filter, for room pickers such as
     /// forwarding. `roomList` shows only the active Space's rooms.
     Q_PROPERTY(RoomListModel* allRooms READ allRooms CONSTANT)
@@ -723,6 +725,8 @@ public:
     // on success, else a translated refusal for the card to show inline.
     Q_INVOKABLE QString setAccountKeepRunning(const QString &userId, bool on);
     RoomListModel *roomList() const;
+    RoomBatchController *roomBatch() const { return m_roomBatch.get(); }
+    Q_INVOKABLE int currentKeyboardModifiers() const;
     RoomListModel *allRooms() const;
     SpaceChannelModel *spaceChannels() const;
     WidgetController *widgets() const { return m_widgets.get(); }
@@ -1892,6 +1896,7 @@ private:
     // BEFORE the models that use it: they are destroyed first.
     std::unique_ptr<DirectAvatarResolver> m_directAvatars;
     std::unique_ptr<RoomListModel> m_roomList;
+    std::unique_ptr<RoomBatchController> m_roomBatch;
     // Same rows, no Space filter. See the allRooms property.
     std::unique_ptr<RoomListModel> m_allRooms;
     std::unique_ptr<SpaceChannelModel> m_spaceChannels;

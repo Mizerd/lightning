@@ -562,6 +562,8 @@ set(APP_SOURCES
     src/app/StormBandPainter.cpp
     src/app/RoomInfoController.h
     src/app/RoomInfoController.cpp
+    src/app/RoomBatchController.h
+    src/app/RoomBatchController.cpp
     src/app/PinnedMessagesController.h
     src/app/PinnedMessagesController.cpp
     src/app/RoomUpgradeController.h
@@ -3786,6 +3788,20 @@ if(BUILD_TESTING)
     target_include_directories(mark-room-read-test PRIVATE src)
     target_link_libraries(mark-room-read-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME mark-room-read COMMAND mark-room-read-test)
+
+    qt_add_executable(room-batch-controller-test
+        tests/RoomBatchControllerTest.cpp
+        src/app/RoomBatchController.h src/app/RoomBatchController.cpp
+        src/app/RoomInfoController.h src/app/RoomInfoController.cpp
+        src/models/RoomListModel.h src/models/RoomListModel.cpp
+        src/models/DirectAvatarResolver.h src/models/DirectAvatarResolver.cpp
+        src/matrix/BridgeNetwork.h src/matrix/BridgeNetwork.cpp
+        src/spaces/SpaceManager.h src/spaces/SpaceManager.cpp
+        src/matrix/MatrixClient.h src/matrix/MatrixClient.cpp
+    )
+    target_include_directories(room-batch-controller-test PRIVATE src)
+    target_link_libraries(room-batch-controller-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME room-batch-controller COMMAND room-batch-controller-test)
 
     # Export a room. The renderers are pure (events in, string out). The key
     # case is the encrypted one: a decrypted body reaches a file only when the

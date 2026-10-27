@@ -623,6 +623,18 @@ void SpaceChannelModel::toggleCollapsed(const QString &headerId)
     rebuild();
 }
 
+QStringList SpaceChannelModel::roomIdsBetween(int first, int last) const
+{
+    QStringList ids;
+    if (first < 0 || last < 0) return ids;
+    for (int row = qMin(first, last); row <= qMin(qMax(first, last), rowCount() - 1); ++row) {
+        if (data(index(row), KindRole).toString() != QLatin1String("room")) continue;
+        const auto id = data(index(row), RoomIdRole).toString();
+        if (!id.isEmpty()) ids.append(id);
+    }
+    return ids;
+}
+
 int SpaceChannelModel::rowCount(const QModelIndex &parent) const
 {
     if (parent.isValid())

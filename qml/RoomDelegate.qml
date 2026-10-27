@@ -55,6 +55,7 @@ Item {
     signal leaveRoomRequested()
     signal chatBackgroundRequested()
     signal inviteRequested()
+    signal selectRoomRequested()
 
     // Meta ink for this row: textMuted is tuned for the list surface, not the
     // selected chip, where it fails contrast.
@@ -627,6 +628,7 @@ Item {
         onLeaveRoomRequested: root.leaveRoomRequested()
         onChatBackgroundRequested: root.chatBackgroundRequested()
         onInviteRequested: root.inviteRequested()
+        onSelectRoomRequested: root.selectRoomRequested()
     }
 
     // No per-row hairline: rows separate through spacing and tints.

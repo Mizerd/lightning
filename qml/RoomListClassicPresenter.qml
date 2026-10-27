@@ -18,6 +18,15 @@ Item {
 
     /// The room the timeline is showing.
     property string currentRoomId: ""
+    property int selectionAnchor: -1
+    function selectAt(row, roomId, modifiers) {
+        if ((modifiers & Qt.ShiftModifier) && selectionAnchor >= 0)
+            app.roomBatch.selectRange(app.roomList.roomIdsBetween(selectionAnchor, row))
+        else
+            app.roomBatch.toggle(roomId)
+        selectionAnchor = row
+    }
+    Keys.onEscapePressed: app.roomBatch.exitSelection()
 
     /// The list is scrolled to its first row and nothing is moving it. The
     /// host reads this to decide when a held order may be applied.
@@ -89,6 +98,7 @@ Item {
         Keys.onPressed: (event) => {
             const page = Math.max(1, Math.floor(height / 56) - 1)
             const here = currentIndex < 0 ? 0 : currentIndex
+            const prior = currentIndex
             switch (event.key) {
             case Qt.Key_Down:     focusRow(currentIndex < 0 ? 0 : here + 1); break
             case Qt.Key_Up:       focusRow(here - 1); break
@@ -97,6 +107,11 @@ Item {
             case Qt.Key_Home:     focusRow(0); break
             case Qt.Key_End:      focusRow(count - 1); break
             default: return
+            }
+            if ((event.modifiers & Qt.ShiftModifier) && app.roomBatch.selecting
+                && roomList.currentIndex >= 0 && prior >= 0) {
+                if (root.selectionAnchor < 0) root.selectionAnchor = prior
+                app.roomBatch.selectRange(app.roomList.roomIdsBetween(root.selectionAnchor, roomList.currentIndex))
             }
             event.accepted = true
         }
@@ -180,6 +195,7 @@ Item {
             id: rowDelegate
             width: ListView.view.width
             selected: model.roomId === app.currentRoomId
+                      || (app.roomBatch.selectionCount >= 0 && app.roomBatch.isSelected(model.roomId))
             // Roving tab stop: only the current row (the first while none is)
             // takes Tab, so Tab enters the list once and leaves it again.
             activeFocusOnTab: ListView.view.currentIndex < 0
@@ -194,9 +210,14 @@ Item {
             Keys.onSpacePressed: (event) => {
                 if (event.isAutoRepeat)
                     event.accepted = true
+                else if (app.roomBatch.selecting || (event.modifiers & Qt.ControlModifier)) {
+                    root.selectAt(index, model.roomId, event.modifiers)
+                    event.accepted = true
+                }
                 else
                     rowDelegate.openFromKeyboard(event)
             }
+            Keys.onEscapePressed: app.roomBatch.exitSelection()
             function openFromKeyboard(event) {
                 if (model.membership === "joined") {
                     root.roomActivated(model.roomId)
@@ -213,6 +234,11 @@ Item {
             onClicked: {
                 // Tab then continues from the row that was clicked.
                 ListView.view.currentIndex = index
+                const modifiers = app.currentKeyboardModifiers()
+                if (app.roomBatch.selecting || (modifiers & (Qt.ControlModifier | Qt.ShiftModifier))) {
+                    root.selectAt(index, model.roomId, modifiers)
+                    return
+                }
                 if (model.membership === "joined") {
                     root.roomActivated(model.roomId)
                     root.roomOpenedByPointer(model.roomId)
@@ -230,6 +256,7 @@ Item {
             onLeaveRoomRequested: root.leaveRoomRequested(model.roomId, model.name)
             onChatBackgroundRequested: root.chatBackgroundRequested(model.roomId, model.name)
             onInviteRequested: root.inviteRequested(model.roomId)
+            onSelectRoomRequested: root.selectAt(index, model.roomId, 0)
         }
     }
 

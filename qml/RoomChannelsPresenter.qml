@@ -13,6 +13,15 @@ Item {
 
     /// The room the timeline is showing, so its row can be marked.
     property string currentRoomId: ""
+    property int selectionAnchor: -1
+    function selectAt(row, roomId, modifiers) {
+        if ((modifiers & Qt.ShiftModifier) && selectionAnchor >= 0)
+            app.roomBatch.selectRange(app.spaceChannels.roomIdsBetween(selectionAnchor, row))
+        else
+            app.roomBatch.toggle(roomId)
+        selectionAnchor = row
+    }
+    Keys.onEscapePressed: app.roomBatch.exitSelection()
     /// The column is scrolled to its first row and nothing is moving it. The
     /// host reads this to decide when a held order may be applied.
     readonly property bool atRest: !channelList.moving && channelList.atYBeginning
@@ -102,6 +111,23 @@ Item {
         clip: true
         model: app.spaceChannels
         currentIndex: -1
+        Keys.onPressed: event => {
+            if (event.key === Qt.Key_Escape && app.roomBatch.selecting) {
+                app.roomBatch.exitSelection()
+                event.accepted = true
+                return
+            }
+            if (!app.roomBatch.selecting || !(event.modifiers & Qt.ShiftModifier)
+                || (event.key !== Qt.Key_Up && event.key !== Qt.Key_Down)) return
+            const previous = currentIndex < 0 ? 0 : currentIndex
+            const next = Math.max(0, Math.min(count - 1,
+                              previous + (event.key === Qt.Key_Down ? 1 : -1)))
+            currentIndex = next
+            positionViewAtIndex(next, ListView.Contain)
+            if (root.selectionAnchor < 0) root.selectionAnchor = previous
+            app.roomBatch.selectRange(app.spaceChannels.roomIdsBetween(root.selectionAnchor, next))
+            event.accepted = true
+        }
         spacing: 0
         // 32px rows: one extra screen is few delegates.
         cacheBuffer: 400
@@ -199,6 +225,8 @@ Item {
                     isFavourite: rowLoader.model.isFavourite
                     depth: rowLoader.model.depth
                     active: rowLoader.model.roomId === root.currentRoomId
+                    batchSelected: app.roomBatch.selectionCount >= 0
+                                   && app.roomBatch.isSelected(rowLoader.model.roomId)
                     onHoveredChanged: app.spaceChannels.setRoomHovered(
                         rowLoader.model.roomId, hovered)
                     onClicked: {
@@ -207,6 +235,11 @@ Item {
                         // A touch long press opened the menu instead.
                         if (heldForMenu) {
                             heldForMenu = false
+                            return
+                        }
+                        const modifiers = app.currentKeyboardModifiers()
+                        if (app.roomBatch.selecting || (modifiers & (Qt.ControlModifier | Qt.ShiftModifier))) {
+                            root.selectAt(rowLoader.index, rowLoader.model.roomId, modifiers)
                             return
                         }
                         root.roomActivated(rowLoader.model.roomId)
@@ -227,6 +260,7 @@ Item {
                     onRejectInvite: app.roomInfo.leaveRoom(rowLoader.model.roomId)
                     onChatBackgroundRequested: root.chatBackgroundRequested(rowLoader.model.roomId, rowLoader.model.name)
                     onInviteRequested: root.inviteRequested(rowLoader.model.roomId)
+                    onSelectRoomRequested: root.selectAt(rowLoader.index, rowLoader.model.roomId, 0)
                 }
             }
 

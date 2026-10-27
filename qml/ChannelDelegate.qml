@@ -47,6 +47,7 @@ ItemDelegate {
     readonly property bool threadOnly: threadUnreadKind > 0 && !isInvite && !muted
     property bool hasUnread: false
     property bool active: false
+    property bool batchSelected: false
     /// Indentation level: 0 at the top of the column, 1 inside a folder.
     property int depth: 0
     /// Favourite flag, for the context menu toggle and the star.
@@ -62,6 +63,7 @@ ItemDelegate {
     signal leaveRoomRequested()
     signal chatBackgroundRequested()
     signal inviteRequested()
+    signal selectRoomRequested()
     // Invitation rows only (GitHub #28): the menu replaces Leave with these.
     signal acceptInvite()
     signal rejectInvite()
@@ -141,7 +143,7 @@ ItemDelegate {
         anchors.rightMargin: 8
         anchors.topMargin: 1
         anchors.bottomMargin: 1
-        color: root.active ? AppTheme.channelSelected : (root.hovered || root.activeFocus ? AppTheme.channelHover : "transparent")
+        color: root.active ? AppTheme.channelSelected : root.batchSelected ? AppTheme.chipAccentFill : (root.hovered || root.activeFocus ? AppTheme.channelHover : "transparent")
         border.width: root.activeFocus ? 2 : 0
         border.color: AppTheme.focusRing
         Behavior on color {
@@ -418,6 +420,17 @@ ItemDelegate {
     }
     Keys.onPressed: event => {
         root.pointerActivation = false;
+        if (event.key === Qt.Key_Space
+            && (app.roomBatch.selecting || (event.modifiers & Qt.ControlModifier))) {
+            root.clicked()
+            event.accepted = true
+            return
+        }
+        if (event.key === Qt.Key_Escape && app.roomBatch.selecting) {
+            app.roomBatch.exitSelection()
+            event.accepted = true
+            return
+        }
         if (root.roomId.length > 0
             && (event.key === Qt.Key_Menu
                 || (event.key === Qt.Key_F10
@@ -447,6 +460,7 @@ ItemDelegate {
             onLeaveRoomRequested: root.leaveRoomRequested()
             onChatBackgroundRequested: root.chatBackgroundRequested()
             onInviteRequested: root.inviteRequested()
+            onSelectRoomRequested: root.selectRoomRequested()
         }
     }
 }

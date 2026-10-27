@@ -32,6 +32,14 @@ AppMenu {
     signal chatBackgroundRequested()
     // The host opens the invite dialog for this room.
     signal inviteRequested()
+    signal selectRoomRequested()
+
+    AppMenuItem {
+        objectName: "roomSelectItem"
+        visible: !root.isInvite
+        text: qsTr("Select room")
+        onTriggered: root.selectRoomRequested()
+    }
 
     // The Notifications flyout is a nested Menu, so its row is the delegate
     // AppMenu builds for it and has no `visible` of its own to bind; hide

@@ -282,6 +282,17 @@ QHash<int, QByteArray> RoomListModel::roleNames() const
     };
 }
 
+QStringList RoomListModel::roomIdsBetween(int first, int last) const
+{
+    QStringList ids;
+    if (first < 0 || last < 0) return ids;
+    for (int row = qMin(first, last); row <= qMin(qMax(first, last), rowCount() - 1); ++row) {
+        const auto id = data(index(row), RoomIdRole).toString();
+        if (!id.isEmpty()) ids.append(id);
+    }
+    return ids;
+}
+
 QVariantMap RoomListModel::findRoom(const QString &roomId) const
 {
     // Search the client's full room set so lookups ignore the active Space

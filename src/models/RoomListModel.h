@@ -128,6 +128,7 @@ public:
     // Look up a room by id and return the small map of fields the UI needs, or
     // an empty map.
     Q_INVOKABLE QVariantMap findRoom(const QString &roomId) const;
+    Q_INVOKABLE QStringList roomIdsBetween(int first, int last) const;
 
     /// Record what a room's bridge advertises (MSC2346), as resolved by
     /// matrix::bridge::labelForAdvertisedBridge. data() must stay synchronous
