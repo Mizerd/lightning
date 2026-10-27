@@ -5177,7 +5177,7 @@ Item {
                     // otherwise every media completion re-evaluates every
                     // loaded link card in the unvirtualized timeline.
                     if (directMedia.sourceText.indexOf("mxc://") === 0
-                        && cacheKey.endsWith(":" + directMedia.sourceText)) {
+                        && cacheKey === "mxcimg:512:" + directMedia.sourceText) {
                         directMedia.previewTick += 1
                         if (root.timelineView && root.timelineView.notePreviewRefresh)
                             root.timelineView.notePreviewRefresh()
@@ -5356,9 +5356,9 @@ Item {
             Connections {
                 target: app.mediaBridge
                 function onMediaCached(cacheKey) {
-                    var source = card.p.imageSource || ""
-                    if (source.indexOf("mxc://") === 0
-                        && cacheKey.endsWith(":" + source)) {
+                    var imageMxc = card.p.imageSource || ""
+                    if (imageMxc.indexOf("mxc://") === 0
+                        && cacheKey === "mxcimg:512:" + imageMxc) {
                         card.previewTick += 1
                         if (root.timelineView && root.timelineView.notePreviewRefresh)
                             root.timelineView.notePreviewRefresh()

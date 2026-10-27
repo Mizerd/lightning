@@ -431,6 +431,10 @@ private Q_SLOTS:
             QQuickItem *directCard = find(direct, QStringLiteral("directMediaPreview"));
             QVERIFY(directCard);
             Q_EMIT controller.mediaBridge()->mediaCached(
+                QStringLiteral("mxcimg:480:mxc://fixture.invalid/preview"));
+            QCoreApplication::processEvents();
+            QCOMPARE(directCard->property("previewTick").toInt(), 0);
+            Q_EMIT controller.mediaBridge()->mediaCached(
                 QStringLiteral("mxcimg:512:mxc://fixture.invalid/preview"));
             QCoreApplication::processEvents();
             QCOMPARE(directCard->property("previewTick").toInt(), 1);
@@ -444,6 +448,10 @@ private Q_SLOTS:
 
         Q_EMIT controller.mediaBridge()->mediaCached(
             QStringLiteral("thumb:unrelated-synthetic-media"));
+        QCoreApplication::processEvents();
+        QCOMPARE(articleCard->property("previewTick").toInt(), 0);
+        Q_EMIT controller.mediaBridge()->mediaCached(
+            QStringLiteral("mxcimg:480:mxc://fixture.invalid/preview"));
         QCoreApplication::processEvents();
         QCOMPARE(articleCard->property("previewTick").toInt(), 0);
         Q_EMIT controller.mediaBridge()->mediaCached(
