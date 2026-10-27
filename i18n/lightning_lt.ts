@@ -2047,12 +2047,12 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     <message>
         <location filename="../qml/BulkRedactionBar.qml" line="+32"/>
         <source>Deleting %1 of %2 messages…</source>
-        <translation type="unfinished"></translation>
+        <translation>Trinama %1 iš %2 žinučių…</translation>
     </message>
     <message numerus="yes">
         <location line="+4"/>
         <source>%n message(s) selected</source>
-        <translation type="unfinished">
+        <translation>
             <numerusform>Pasirinkta %n žinutė</numerusform>
             <numerusform>Pasirinktos %n žinutės</numerusform>
             <numerusform>Pasirinkta %n žinučių</numerusform>
@@ -2061,64 +2061,64 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     <message>
         <location line="+3"/>
         <source>Stopped after %1 of %2 messages; %3 failed.</source>
-        <translation type="unfinished"></translation>
+        <translation>Sustabdyta po %1 iš %2 žinučių; nepavyko: %3.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Deleted %1 of %2 messages; %3 failed.</source>
-        <translation type="unfinished"></translation>
+        <translation>Ištrinta %1 iš %2 žinučių; nepavyko: %3.</translation>
     </message>
     <message>
         <location line="+10"/>
         <location line="+61"/>
         <source>Cancel</source>
-        <translation type="unfinished">Atšaukti</translation>
+        <translation>Atšaukti</translation>
     </message>
     <message>
         <location line="-61"/>
         <source>Dismiss</source>
-        <translation type="unfinished"></translation>
+        <translation>Paslėpti</translation>
     </message>
     <message numerus="yes">
         <location line="+9"/>
         <source>Delete %n messages…</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Ištrinti %n žinutę…</numerusform>
+            <numerusform>Ištrinti %n žinutes…</numerusform>
+            <numerusform>Ištrinti %n žinučių…</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+31"/>
         <source>Delete %n messages?</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Ištrinti %n žinutę?</numerusform>
+            <numerusform>Ištrinti %n žinutes?</numerusform>
+            <numerusform>Ištrinti %n žinučių?</numerusform>
         </translation>
     </message>
     <message>
         <location line="+8"/>
         <source>These messages will be removed for everyone in this room. This cannot be undone.</source>
-        <translation type="unfinished"></translation>
+        <translation>Šios žinutės bus pašalintos visiems šio kambario nariams. To atšaukti negalima.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Reason (optional)</source>
-        <translation type="unfinished">Priežastis (neprivaloma)</translation>
+        <translation>Priežastis (neprivaloma)</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Reason for deleting messages</source>
-        <translation type="unfinished"></translation>
+        <translation>Žinučių trynimo priežastis</translation>
     </message>
     <message numerus="yes">
         <location line="+12"/>
         <source>Delete %n messages</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Ištrinti %n žinutę</numerusform>
+            <numerusform>Ištrinti %n žinutes</numerusform>
+            <numerusform>Ištrinti %n žinučių</numerusform>
         </translation>
     </message>
 </context>
@@ -2127,37 +2127,37 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     <message>
         <location filename="../src/app/BulkRedactionController.cpp" line="+78"/>
         <source>A previous deletion of this message is still in progress.</source>
-        <translation type="unfinished"></translation>
+        <translation>Ankstesnis šios žinutės trynimas dar vyksta.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>That message cannot be deleted with your current permissions.</source>
-        <translation type="unfinished"></translation>
+        <translation>Su dabartiniais leidimais šios žinutės ištrinti negalima.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Select up to 50 messages at once.</source>
-        <translation type="unfinished"></translation>
+        <translation>Vienu metu pasirinkite ne daugiau kaip 50 žinučių.</translation>
     </message>
     <message numerus="yes">
         <location line="+67"/>
         <source>%n message(s) in the range cannot be deleted.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n žinutės intervale ištrinti negalima.</numerusform>
+            <numerusform>%n žinučių intervale ištrinti negalima.</numerusform>
+            <numerusform>%n žinučių intervale ištrinti negalima.</numerusform>
         </translation>
     </message>
     <message>
         <location line="+52"/>
         <location line="+14"/>
         <source>The server refused a redaction.</source>
-        <translation type="unfinished"></translation>
+        <translation>Serveris atmetė trynimą.</translation>
     </message>
     <message>
         <location line="+36"/>
         <source>One redaction was already in progress; its result is unknown.</source>
-        <translation type="unfinished"></translation>
+        <translation>Vienas trynimas jau vyko; jo rezultatas nežinomas.</translation>
     </message>
 </context>
 <context>
@@ -10832,7 +10832,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location filename="../qml/MainScreen.qml" line="+562"/>
         <source>Resize room list</source>
-        <translation type="unfinished"></translation>
+        <translation>Keisti kambarių sąrašo dydį</translation>
     </message>
     <message>
         <location line="+219"/>
@@ -12787,7 +12787,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+261"/>
         <source>Select messages to delete</source>
-        <translation type="unfinished"></translation>
+        <translation>Pasirinkti žinutes trynimui</translation>
     </message>
     <message>
         <location line="+99"/>
@@ -13285,7 +13285,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+25"/>
         <source>Message not found.</source>
-        <translation type="unfinished"></translation>
+        <translation>Žinutė nerasta.</translation>
     </message>
     <message>
         <location line="+83"/>
@@ -15594,12 +15594,12 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="-59"/>
         <source>Layout</source>
-        <translation type="unfinished">Išdėstymas</translation>
+        <translation>Išdėstymas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Chat</source>
-        <translation type="unfinished"></translation>
+        <translation>Pokalbiai</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -17254,7 +17254,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+82"/>
         <source>Room permissions</source>
-        <translation type="unfinished"></translation>
+        <translation>Kambario leidimai</translation>
     </message>
     <message>
         <location line="+211"/>
@@ -18168,19 +18168,19 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location filename="../qml/RoomListCompactRow.qml" line="+34"/>
         <source>%1, muted</source>
-        <translation type="unfinished">%1, nutildytas</translation>
+        <translation>%1, nutildytas</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1, mention in a thread</source>
         <comment>compact room row</comment>
-        <translation type="unfinished">%1, paminėjimas gijoje</translation>
+        <translation>%1, paminėjimas gijoje</translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%1, %n mention(s)</source>
         <comment>compact room row</comment>
-        <translation type="unfinished">
+        <translation>
             <numerusform>%1, %n paminėjimas</numerusform>
             <numerusform>%1, %n paminėjimai</numerusform>
             <numerusform>%1, %n paminėjimų</numerusform>
@@ -18190,17 +18190,17 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <location line="+2"/>
         <source>%1, unread</source>
         <comment>compact room row</comment>
-        <translation type="unfinished">%1, neskaityta</translation>
+        <translation>%1, neskaityta</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Activate to expand</source>
-        <translation type="unfinished">Norėdami išplėsti, suaktyvinkite</translation>
+        <translation>Norėdami išplėsti, suaktyvinkite</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Activate to collapse</source>
-        <translation type="unfinished">Suaktyvinkite, kad sutrauktumėte</translation>
+        <translation>Suaktyvinkite, kad sutrauktumėte</translation>
     </message>
 </context>
 <context>
@@ -18529,17 +18529,17 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+140"/>
         <source>Expand %1 room list</source>
-        <translation type="unfinished"></translation>
+        <translation>Išskleisti %1 kambarių sąrašą</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Show all rooms</source>
-        <translation type="unfinished"></translation>
+        <translation>Rodyti visus kambarius</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Show unread rooms</source>
-        <translation type="unfinished"></translation>
+        <translation>Rodyti neskaitytus kambarius</translation>
     </message>
 </context>
 <context>
@@ -23897,7 +23897,7 @@ Escape ir atskiros raidės, kurias naudoja žinučių meniu, kai jis atidarytas,
         <location line="+5"/>
         <location line="+4"/>
         <source>Layout · Messages and threads</source>
-        <translation type="unfinished"></translation>
+        <translation>Išdėstymas · Žinutės ir gijos</translation>
     </message>
     <message>
         <location line="+33"/>
@@ -23911,7 +23911,7 @@ Escape ir atskiros raidės, kurias naudoja žinučių meniu, kai jis atidarytas,
         <location line="+4"/>
         <location line="+4"/>
         <source>Layout · Room list and panels</source>
-        <translation type="unfinished"></translation>
+        <translation>Išdėstymas · Kambarių sąrašas ir skydeliai</translation>
     </message>
     <message>
         <location line="-527"/>
@@ -23922,13 +23922,13 @@ Escape ir atskiros raidės, kurias naudoja žinučių meniu, kai jis atidarytas,
         <location line="+5"/>
         <location line="+8"/>
         <source>Chat · Timeline</source>
-        <translation type="unfinished"></translation>
+        <translation>Pokalbiai · Laiko juosta</translation>
     </message>
     <message>
         <location line="+74"/>
         <location line="+5"/>
         <source>Layout · System tray</source>
-        <translation type="unfinished"></translation>
+        <translation>Išdėstymas · Sistemos dėklas</translation>
     </message>
     <message>
         <location line="+8"/>
@@ -23941,61 +23941,61 @@ Escape ir atskiros raidės, kurias naudoja žinučių meniu, kai jis atidarytas,
         <location line="+4"/>
         <location line="+4"/>
         <source>Chat · Message box</source>
-        <translation type="unfinished"></translation>
+        <translation>Pokalbiai · Žinutės laukas</translation>
     </message>
     <message>
         <location line="-32"/>
         <source>Chat · Emoji and sticker packs</source>
-        <translation type="unfinished"></translation>
+        <translation>Pokalbiai · Jaustukų ir lipdukų rinkiniai</translation>
     </message>
     <message>
         <location line="+388"/>
         <source>conversation list classic channels folders room list layout</source>
-        <translation type="unfinished"></translation>
+        <translation>conversation list classic channels folders room list layout pokalbių sąrašas kanalai aplankai kambarių sąrašas išdėstymas</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>spaces rail sidebar show hide</source>
-        <translation type="unfinished"></translation>
+        <translation>spaces rail sidebar show hide erdvių juosta šoninė juosta rodyti slėpti</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Show the room list</source>
-        <translation type="unfinished"></translation>
+        <translation>Rodyti kambarių sąrašą</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>room list sidebar show hide</source>
-        <translation type="unfinished"></translation>
+        <translation>room list sidebar show hide kambarių sąrašas šoninė juosta rodyti slėpti</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>application icon app icon window icon taskbar</source>
-        <translation type="unfinished"></translation>
+        <translation>application icon app icon window icon taskbar programos piktograma lango piktograma užduočių juosta</translation>
     </message>
     <message>
         <location line="+186"/>
         <location line="+3630"/>
         <source>Messages and threads</source>
-        <translation type="unfinished"></translation>
+        <translation>Žinutės ir gijos</translation>
     </message>
     <message>
         <location line="-3628"/>
         <location line="+3812"/>
         <source>Room list and panels</source>
-        <translation type="unfinished"></translation>
+        <translation>Kambarių sąrašas ir skydeliai</translation>
     </message>
     <message>
         <location line="-3100"/>
         <location line="+975"/>
         <location line="+2461"/>
         <source>Chat</source>
-        <translation type="unfinished"></translation>
+        <translation>Pokalbiai</translation>
     </message>
     <message>
         <location line="-2215"/>
         <source>Theme, colours and gradients, chat background, text and fonts — per account. How the window is arranged is under Layout; the timeline and the message box are under Chat.</source>
-        <translation type="unfinished"></translation>
+        <translation>Tema, spalvos ir gradientai, pokalbio fonas, tekstas ir šriftai — kiekvienai paskyrai. Lango išdėstymas yra skiltyje „Išdėstymas“, laiko juosta ir žinutės laukas — skiltyje „Pokalbiai“.</translation>
     </message>
     <message>
         <location line="+1578"/>
@@ -24020,12 +24020,12 @@ Escape ir atskiros raidės, kurias naudoja žinučių meniu, kai jis atidarytas,
     <message>
         <location line="+67"/>
         <source>How the window is arranged: messages and threads, the room list, the Spaces rail and the panels — per account.</source>
-        <translation type="unfinished"></translation>
+        <translation>Kaip išdėstytas langas: žinutės ir gijos, kambarių sąrašas, erdvių juosta ir skydeliai — kiekvienai paskyrai.</translation>
     </message>
     <message>
         <location line="+66"/>
         <source>Lightning&apos;s own layout. Nheko compact is a denser layout you can switch back from at any time. A preset sets the three choices just below it; a choice it set says so.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning išdėstymas. Nheko compact — tankesnis išdėstymas, nuo kurio bet kada galite grįžti. Rinkinys nustato tris pasirinkimus iškart po juo; jo nustatytas pasirinkimas tai nurodo.</translation>
     </message>
     <message>
         <location line="+301"/>
@@ -24045,12 +24045,12 @@ Escape ir atskiros raidės, kurias naudoja žinučių meniu, kai jis atidarytas,
     <message>
         <location line="+24"/>
         <source>Conversation list: compact</source>
-        <translation type="unfinished"></translation>
+        <translation>Pokalbių sąrašas: kompaktiškas</translation>
     </message>
     <message>
         <location line="+148"/>
         <source>What a room shows, and how you write in it — per account.</source>
-        <translation type="unfinished"></translation>
+        <translation>Ką rodo kambarys ir kaip jame rašote — kiekvienai paskyrai.</translation>
     </message>
     <message>
         <location line="+320"/>
@@ -26634,72 +26634,72 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="-322"/>
         <source>The level every member starts at.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lygis, nuo kurio pradeda kiekvienas narys.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Messages and notifications</source>
-        <translation type="unfinished"></translation>
+        <translation>Žinutės ir pranešimai</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Send messages</source>
-        <translation type="unfinished"></translation>
+        <translation>Siųsti žinutes</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Notify everyone (@room)</source>
-        <translation type="unfinished"></translation>
+        <translation>Pranešti visiems (@room)</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Room profile</source>
-        <translation type="unfinished"></translation>
+        <translation>Kambario profilis</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Room name</source>
-        <translation type="unfinished">Kambario pavadinimas</translation>
+        <translation>Kambario pavadinimas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Room avatar</source>
-        <translation type="unfinished"></translation>
+        <translation>Kambario avataras</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Room topic</source>
-        <translation type="unfinished"></translation>
+        <translation>Kambario tema</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Change room access</source>
-        <translation type="unfinished"></translation>
+        <translation>Keisti prieigą prie kambario</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>History visibility</source>
-        <translation type="unfinished"></translation>
+        <translation>Istorijos matomumas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Guest access</source>
-        <translation type="unfinished"></translation>
+        <translation>Svečių prieiga</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Upgrade room</source>
-        <translation type="unfinished"></translation>
+        <translation>Atnaujinti kambarį</translation>
     </message>
     <message>
         <location line="+79"/>
         <source>Room</source>
-        <translation type="unfinished">Kambarys</translation>
+        <translation>Kambarys</translation>
     </message>
     <message>
         <location line="+195"/>
         <source>Loading this room&apos;s members. Controls remain disabled until the roster arrives.</source>
-        <translation type="unfinished"></translation>
+        <translation>Įkeliami šio kambario nariai. Valdikliai liks išjungti, kol bus gautas narių sąrašas.</translation>
     </message>
     <message>
         <location line="+39"/>
@@ -26957,7 +26957,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+42"/>
         <source>You can only require a level at or below your own, and only set a member&apos;s role below your own — never for someone at or above it. A room using a custom level shows that number.</source>
-        <translation type="unfinished"></translation>
+        <translation>Galite reikalauti tik lygio, kuris ne aukštesnis už jūsų, ir nustatyti nario vaidmenį tik žemesnį už savo — niekada tam, kurio lygis toks pat ar aukštesnis. Kambarys su savitu lygiu rodo tą skaičių.</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -26967,7 +26967,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+11"/>
         <source>You don&apos;t have permission to change roles or permissions in this room.</source>
-        <translation type="unfinished"></translation>
+        <translation>Neturite leidimo keisti vaidmenų ar leidimų šiame kambaryje.</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -26977,7 +26977,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+14"/>
         <source>This room&apos;s permission levels haven&apos;t loaded on this backend, so they are not shown.</source>
-        <translation type="unfinished"></translation>
+        <translation>Šio kambario leidimų lygiai šioje sistemoje neįkelti, todėl jie nerodomi.</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -27050,7 +27050,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+40"/>
         <source>Set custom level for %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Nustatyti savitą lygį: %1</translation>
     </message>
     <message>
         <location line="+29"/>
@@ -27115,7 +27115,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+105"/>
         <source>Role in this room</source>
-        <translation type="unfinished"></translation>
+        <translation>Vaidmuo šiame kambaryje</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -27155,7 +27155,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+44"/>
         <source>Set %1 to %2 in this room?</source>
-        <translation type="unfinished">Nustatyti %1 vaidmenį „%2“ šiame kambaryje?</translation>
+        <translation>Nustatyti %1 vaidmenį „%2“ šiame kambaryje?</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -27175,7 +27175,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+15"/>
         <source>You will also no longer be able to change roles or permissions in this room.</source>
-        <translation type="unfinished">Taip pat nebegalėsite keisti vaidmenų ar leidimų šiame kambaryje.</translation>
+        <translation>Taip pat nebegalėsite keisti vaidmenų ar leidimų šiame kambaryje.</translation>
     </message>
     <message>
         <location line="+1"/>

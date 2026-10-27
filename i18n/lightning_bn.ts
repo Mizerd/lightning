@@ -2036,12 +2036,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../qml/BulkRedactionBar.qml" line="+32"/>
         <source>Deleting %1 of %2 messages…</source>
-        <translation type="unfinished"></translation>
+        <translation>%2টির মধ্যে %1টি বার্তা মোছা হচ্ছে…</translation>
     </message>
     <message numerus="yes">
         <location line="+4"/>
         <source>%n message(s) selected</source>
-        <translation type="unfinished">
+        <translation>
             <numerusform>%nটি বার্তা নির্বাচিত</numerusform>
             <numerusform>%nটি বার্তা নির্বাচিত</numerusform>
         </translation>
@@ -2049,61 +2049,61 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+3"/>
         <source>Stopped after %1 of %2 messages; %3 failed.</source>
-        <translation type="unfinished"></translation>
+        <translation>%2টির মধ্যে %1টি বার্তার পরে থেমেছে; %3টি ব্যর্থ।</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Deleted %1 of %2 messages; %3 failed.</source>
-        <translation type="unfinished"></translation>
+        <translation>%2টির মধ্যে %1টি বার্তা মোছা হয়েছে; %3টি ব্যর্থ।</translation>
     </message>
     <message>
         <location line="+10"/>
         <location line="+61"/>
         <source>Cancel</source>
-        <translation type="unfinished">বাতিল</translation>
+        <translation>বাতিল</translation>
     </message>
     <message>
         <location line="-61"/>
         <source>Dismiss</source>
-        <translation type="unfinished"></translation>
+        <translation>বন্ধ করুন</translation>
     </message>
     <message numerus="yes">
         <location line="+9"/>
         <source>Delete %n messages…</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%nটি বার্তা মুছুন…</numerusform>
+            <numerusform>%nটি বার্তা মুছুন…</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+31"/>
         <source>Delete %n messages?</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%nটি বার্তা মুছবেন?</numerusform>
+            <numerusform>%nটি বার্তা মুছবেন?</numerusform>
         </translation>
     </message>
     <message>
         <location line="+8"/>
         <source>These messages will be removed for everyone in this room. This cannot be undone.</source>
-        <translation type="unfinished"></translation>
+        <translation>এই বার্তাগুলো এই রুমের সবার জন্য সরিয়ে ফেলা হবে। এটি পূর্বাবস্থায় ফেরানো যাবে না।</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Reason (optional)</source>
-        <translation type="unfinished">কারণ (ঐচ্ছিক)</translation>
+        <translation>কারণ (ঐচ্ছিক)</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Reason for deleting messages</source>
-        <translation type="unfinished"></translation>
+        <translation>বার্তা মোছার কারণ</translation>
     </message>
     <message numerus="yes">
         <location line="+12"/>
         <source>Delete %n messages</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%nটি বার্তা মুছুন</numerusform>
+            <numerusform>%nটি বার্তা মুছুন</numerusform>
         </translation>
     </message>
 </context>
@@ -2112,36 +2112,36 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../src/app/BulkRedactionController.cpp" line="+78"/>
         <source>A previous deletion of this message is still in progress.</source>
-        <translation type="unfinished"></translation>
+        <translation>এই বার্তার আগের একটি মোছা এখনও চলছে।</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>That message cannot be deleted with your current permissions.</source>
-        <translation type="unfinished"></translation>
+        <translation>আপনার বর্তমান অনুমতি দিয়ে ওই বার্তাটি মোছা যাবে না।</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Select up to 50 messages at once.</source>
-        <translation type="unfinished"></translation>
+        <translation>একবারে সর্বোচ্চ 50টি বার্তা নির্বাচন করুন।</translation>
     </message>
     <message numerus="yes">
         <location line="+67"/>
         <source>%n message(s) in the range cannot be deleted.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>পরিসরের %nটি বার্তা মোছা যাবে না।</numerusform>
+            <numerusform>পরিসরের %nটি বার্তা মোছা যাবে না।</numerusform>
         </translation>
     </message>
     <message>
         <location line="+52"/>
         <location line="+14"/>
         <source>The server refused a redaction.</source>
-        <translation type="unfinished"></translation>
+        <translation>সার্ভার একটি মোছা প্রত্যাখ্যান করেছে।</translation>
     </message>
     <message>
         <location line="+36"/>
         <source>One redaction was already in progress; its result is unknown.</source>
-        <translation type="unfinished"></translation>
+        <translation>একটি মোছা আগে থেকেই চলছিল; এর ফলাফল অজানা।</translation>
     </message>
 </context>
 <context>
@@ -10787,7 +10787,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/MainScreen.qml" line="+562"/>
         <source>Resize room list</source>
-        <translation type="unfinished"></translation>
+        <translation>রুমের তালিকার আকার বদলান</translation>
     </message>
     <message>
         <location line="+219"/>
@@ -12517,7 +12517,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+86"/>
         <source>Select messages to delete</source>
-        <translation type="unfinished"></translation>
+        <translation>মোছার জন্য বার্তা নির্বাচন করুন</translation>
     </message>
     <message>
         <location line="+574"/>
@@ -13229,7 +13229,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+25"/>
         <source>Message not found.</source>
-        <translation type="unfinished"></translation>
+        <translation>বার্তা পাওয়া যায়নি।</translation>
     </message>
     <message>
         <location line="+83"/>
@@ -15533,12 +15533,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-59"/>
         <source>Layout</source>
-        <translation type="unfinished">লেআউট</translation>
+        <translation>লেআউট</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Chat</source>
-        <translation type="unfinished"></translation>
+        <translation>চ্যাট</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -17188,7 +17188,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+82"/>
         <source>Room permissions</source>
-        <translation type="unfinished"></translation>
+        <translation>রুমের অনুমতি</translation>
     </message>
     <message>
         <location line="+211"/>
@@ -18097,19 +18097,19 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/RoomListCompactRow.qml" line="+34"/>
         <source>%1, muted</source>
-        <translation type="unfinished">%1, নিঃশব্দ</translation>
+        <translation>%1, নিঃশব্দ</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1, mention in a thread</source>
         <comment>compact room row</comment>
-        <translation type="unfinished">%1, থ্রেডে উল্লেখ</translation>
+        <translation>%1, থ্রেডে উল্লেখ</translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%1, %n mention(s)</source>
         <comment>compact room row</comment>
-        <translation type="unfinished">
+        <translation>
             <numerusform>%1, %n টি উল্লেখ</numerusform>
             <numerusform>%1, %n টি উল্লেখ</numerusform>
         </translation>
@@ -18118,17 +18118,17 @@ Signing out and signing in again is the only fix.</source>
         <location line="+2"/>
         <source>%1, unread</source>
         <comment>compact room row</comment>
-        <translation type="unfinished">%1, অপঠিত</translation>
+        <translation>%1, অপঠিত</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Activate to expand</source>
-        <translation type="unfinished">প্রসারিত করতে সক্রিয় করুন</translation>
+        <translation>প্রসারিত করতে সক্রিয় করুন</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Activate to collapse</source>
-        <translation type="unfinished">পতনের জন্য সক্রিয় করুন</translation>
+        <translation>পতনের জন্য সক্রিয় করুন</translation>
     </message>
 </context>
 <context>
@@ -18399,17 +18399,17 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+287"/>
         <source>Expand %1 room list</source>
-        <translation type="unfinished"></translation>
+        <translation>%1-এর রুমের তালিকা প্রসারিত করুন</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Show all rooms</source>
-        <translation type="unfinished"></translation>
+        <translation>সব রুম দেখান</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Show unread rooms</source>
-        <translation type="unfinished"></translation>
+        <translation>অপঠিত রুম দেখান</translation>
     </message>
     <message>
         <location line="-314"/>
@@ -23973,7 +23973,7 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
         <location line="+5"/>
         <location line="+4"/>
         <source>Layout · Messages and threads</source>
-        <translation type="unfinished"></translation>
+        <translation>লেআউট · বার্তা ও থ্রেড</translation>
     </message>
     <message>
         <location line="+33"/>
@@ -23987,7 +23987,7 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
         <location line="+4"/>
         <location line="+4"/>
         <source>Layout · Room list and panels</source>
-        <translation type="unfinished"></translation>
+        <translation>লেআউট · রুমের তালিকা ও প্যানেল</translation>
     </message>
     <message>
         <location line="-527"/>
@@ -23998,13 +23998,13 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
         <location line="+5"/>
         <location line="+8"/>
         <source>Chat · Timeline</source>
-        <translation type="unfinished"></translation>
+        <translation>চ্যাট · টাইমলাইন</translation>
     </message>
     <message>
         <location line="+74"/>
         <location line="+5"/>
         <source>Layout · System tray</source>
-        <translation type="unfinished"></translation>
+        <translation>লেআউট · সিস্টেম ট্রে</translation>
     </message>
     <message>
         <location line="+8"/>
@@ -24017,71 +24017,71 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
         <location line="+4"/>
         <location line="+4"/>
         <source>Chat · Message box</source>
-        <translation type="unfinished"></translation>
+        <translation>চ্যাট · বার্তার বক্স</translation>
     </message>
     <message>
         <location line="-32"/>
         <source>Chat · Emoji and sticker packs</source>
-        <translation type="unfinished"></translation>
+        <translation>চ্যাট · ইমোজি ও স্টিকার প্যাক</translation>
     </message>
     <message>
         <location line="+388"/>
         <source>conversation list classic channels folders room list layout</source>
-        <translation type="unfinished"></translation>
+        <translation>conversation list classic channels folders room list layout কথোপকথনের তালিকা চ্যানেল ফোল্ডার রুমের তালিকা লেআউট</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>spaces rail sidebar show hide</source>
-        <translation type="unfinished"></translation>
+        <translation>spaces rail sidebar show hide স্পেস রেল সাইডবার দেখান লুকান</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Show the room list</source>
-        <translation type="unfinished"></translation>
+        <translation>রুমের তালিকা দেখান</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>room list sidebar show hide</source>
-        <translation type="unfinished"></translation>
+        <translation>room list sidebar show hide রুমের তালিকা সাইডবার দেখান লুকান</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>application icon app icon window icon taskbar</source>
-        <translation type="unfinished"></translation>
+        <translation>application icon app icon window icon taskbar অ্যাপ আইকন উইন্ডো আইকন টাস্কবার</translation>
     </message>
     <message>
         <location line="+186"/>
         <location line="+3630"/>
         <source>Messages and threads</source>
-        <translation type="unfinished"></translation>
+        <translation>বার্তা ও থ্রেড</translation>
     </message>
     <message>
         <location line="-3628"/>
         <location line="+3812"/>
         <source>Room list and panels</source>
-        <translation type="unfinished"></translation>
+        <translation>রুমের তালিকা ও প্যানেল</translation>
     </message>
     <message>
         <location line="-3100"/>
         <location line="+975"/>
         <location line="+2461"/>
         <source>Chat</source>
-        <translation type="unfinished"></translation>
+        <translation>চ্যাট</translation>
     </message>
     <message>
         <location line="-2215"/>
         <source>Theme, colours and gradients, chat background, text and fonts — per account. How the window is arranged is under Layout; the timeline and the message box are under Chat.</source>
-        <translation type="unfinished"></translation>
+        <translation>থিম, রং ও গ্রেডিয়েন্ট, চ্যাট ব্যাকগ্রাউন্ড, লেখা ও ফন্ট — প্রতিটি অ্যাকাউন্টের জন্য। উইন্ডো কীভাবে সাজানো তা লেআউটে; টাইমলাইন ও বার্তার বক্স চ্যাটে।</translation>
     </message>
     <message>
         <location line="+1675"/>
         <source>How the window is arranged: messages and threads, the room list, the Spaces rail and the panels — per account.</source>
-        <translation type="unfinished"></translation>
+        <translation>উইন্ডো কীভাবে সাজানো: বার্তা ও থ্রেড, রুমের তালিকা, স্পেস রেল এবং প্যানেল — প্রতিটি অ্যাকাউন্টের জন্য।</translation>
     </message>
     <message>
         <location line="+66"/>
         <source>Lightning&apos;s own layout. Nheko compact is a denser layout you can switch back from at any time. A preset sets the three choices just below it; a choice it set says so.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning-এর নিজস্ব লেআউট। Nheko compact একটি ঘন লেআউট, যেখান থেকে যেকোনো সময় ফিরে আসতে পারবেন। প্রিসেট ঠিক নিচের তিনটি পছন্দ নির্ধারণ করে; যে পছন্দ এটি নির্ধারণ করেছে সেটি তা জানায়।</translation>
     </message>
     <message>
         <location line="+82"/>
@@ -24096,12 +24096,12 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
     <message>
         <location line="+234"/>
         <source>Conversation list: compact</source>
-        <translation type="unfinished"></translation>
+        <translation>কথোপকথনের তালিকা: কম্প্যাক্ট</translation>
     </message>
     <message>
         <location line="+148"/>
         <source>What a room shows, and how you write in it — per account.</source>
-        <translation type="unfinished"></translation>
+        <translation>একটি রুম কী দেখায় এবং আপনি সেখানে কীভাবে লেখেন — প্রতিটি অ্যাকাউন্টের জন্য।</translation>
     </message>
     <message>
         <location line="+754"/>
@@ -26543,72 +26543,72 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="-322"/>
         <source>The level every member starts at.</source>
-        <translation type="unfinished"></translation>
+        <translation>প্রত্যেক সদস্য যে স্তর থেকে শুরু করেন।</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Messages and notifications</source>
-        <translation type="unfinished"></translation>
+        <translation>বার্তা ও বিজ্ঞপ্তি</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Send messages</source>
-        <translation type="unfinished"></translation>
+        <translation>বার্তা পাঠান</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Notify everyone (@room)</source>
-        <translation type="unfinished"></translation>
+        <translation>সবাইকে জানান (@room)</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Room profile</source>
-        <translation type="unfinished"></translation>
+        <translation>রুমের প্রোফাইল</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Room name</source>
-        <translation type="unfinished">রুমের নাম</translation>
+        <translation>রুমের নাম</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Room avatar</source>
-        <translation type="unfinished"></translation>
+        <translation>রুমের অবতার</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Room topic</source>
-        <translation type="unfinished"></translation>
+        <translation>রুমের বিষয়</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Change room access</source>
-        <translation type="unfinished"></translation>
+        <translation>রুমে প্রবেশাধিকার বদলান</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>History visibility</source>
-        <translation type="unfinished"></translation>
+        <translation>ইতিহাসের দৃশ্যমানতা</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Guest access</source>
-        <translation type="unfinished"></translation>
+        <translation>অতিথির প্রবেশাধিকার</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Upgrade room</source>
-        <translation type="unfinished"></translation>
+        <translation>রুম আপগ্রেড করুন</translation>
     </message>
     <message>
         <location line="+79"/>
         <source>Room</source>
-        <translation type="unfinished">রুম</translation>
+        <translation>রুম</translation>
     </message>
     <message>
         <location line="+195"/>
         <source>Loading this room&apos;s members. Controls remain disabled until the roster arrives.</source>
-        <translation type="unfinished"></translation>
+        <translation>এই রুমের সদস্যদের লোড করা হচ্ছে। তালিকা না আসা পর্যন্ত নিয়ন্ত্রণগুলো নিষ্ক্রিয় থাকবে।</translation>
     </message>
     <message>
         <location line="+39"/>
@@ -26865,7 +26865,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+42"/>
         <source>You can only require a level at or below your own, and only set a member&apos;s role below your own — never for someone at or above it. A room using a custom level shows that number.</source>
-        <translation type="unfinished"></translation>
+        <translation>আপনি কেবল নিজের সমান বা নিচের স্তর চাইতে পারেন, এবং কোনো সদস্যের ভূমিকা কেবল নিজের নিচে নির্ধারণ করতে পারেন — আপনার সমান বা উপরের কারও জন্য কখনো নয়। কাস্টম স্তর ব্যবহার করা রুম সেই সংখ্যাটি দেখায়।</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -26875,7 +26875,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+11"/>
         <source>You don&apos;t have permission to change roles or permissions in this room.</source>
-        <translation type="unfinished"></translation>
+        <translation>এই রুমে ভূমিকা বা অনুমতি বদলানোর অনুমতি আপনার নেই।</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -26885,7 +26885,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+14"/>
         <source>This room&apos;s permission levels haven&apos;t loaded on this backend, so they are not shown.</source>
-        <translation type="unfinished"></translation>
+        <translation>এই ব্যাকএন্ডে এই রুমের অনুমতির স্তর লোড হয়নি, তাই সেগুলো দেখানো হচ্ছে না।</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -26958,7 +26958,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+40"/>
         <source>Set custom level for %1</source>
-        <translation type="unfinished"></translation>
+        <translation>%1-এর জন্য কাস্টম স্তর নির্ধারণ করুন</translation>
     </message>
     <message>
         <location line="+29"/>
@@ -27023,7 +27023,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+105"/>
         <source>Role in this room</source>
-        <translation type="unfinished"></translation>
+        <translation>এই রুমে ভূমিকা</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -27063,7 +27063,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+44"/>
         <source>Set %1 to %2 in this room?</source>
-        <translation type="unfinished">এই রুমে %1-কে %2 করবেন?</translation>
+        <translation>এই রুমে %1-কে %2 করবেন?</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -27083,7 +27083,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+15"/>
         <source>You will also no longer be able to change roles or permissions in this room.</source>
-        <translation type="unfinished">এই রুমে আপনি আর ভূমিকা বা অনুমতি বদলাতেও পারবেন না।</translation>
+        <translation>এই রুমে আপনি আর ভূমিকা বা অনুমতি বদলাতেও পারবেন না।</translation>
     </message>
     <message>
         <location line="+1"/>

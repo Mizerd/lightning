@@ -2029,70 +2029,70 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../qml/BulkRedactionBar.qml" line="+32"/>
         <source>Deleting %1 of %2 messages…</source>
-        <translation type="unfinished"></translation>
+        <translation>正在删除 %1/%2 条消息…</translation>
     </message>
     <message numerus="yes">
         <location line="+4"/>
         <source>%n message(s) selected</source>
-        <translation type="unfinished">
+        <translation>
             <numerusform>已选中 %n 条消息</numerusform>
         </translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Stopped after %1 of %2 messages; %3 failed.</source>
-        <translation type="unfinished"></translation>
+        <translation>已在 %1/%2 条消息后停止；%3 条失败。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Deleted %1 of %2 messages; %3 failed.</source>
-        <translation type="unfinished"></translation>
+        <translation>已删除 %1/%2 条消息；%3 条失败。</translation>
     </message>
     <message>
         <location line="+10"/>
         <location line="+61"/>
         <source>Cancel</source>
-        <translation type="unfinished">取消</translation>
+        <translation>取消</translation>
     </message>
     <message>
         <location line="-61"/>
         <source>Dismiss</source>
-        <translation type="unfinished"></translation>
+        <translation>关闭</translation>
     </message>
     <message numerus="yes">
         <location line="+9"/>
         <source>Delete %n messages…</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>删除 %n 条消息…</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+31"/>
         <source>Delete %n messages?</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>删除 %n 条消息？</numerusform>
         </translation>
     </message>
     <message>
         <location line="+8"/>
         <source>These messages will be removed for everyone in this room. This cannot be undone.</source>
-        <translation type="unfinished"></translation>
+        <translation>这些消息将对此房间中的所有人移除。此操作无法撤销。</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Reason (optional)</source>
-        <translation type="unfinished"></translation>
+        <translation>理由（可选）</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Reason for deleting messages</source>
-        <translation type="unfinished"></translation>
+        <translation>删除消息的理由</translation>
     </message>
     <message numerus="yes">
         <location line="+12"/>
         <source>Delete %n messages</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>删除 %n 条消息</numerusform>
         </translation>
     </message>
 </context>
@@ -2101,35 +2101,35 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../src/app/BulkRedactionController.cpp" line="+78"/>
         <source>A previous deletion of this message is still in progress.</source>
-        <translation type="unfinished"></translation>
+        <translation>此消息之前的删除仍在进行中。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>That message cannot be deleted with your current permissions.</source>
-        <translation type="unfinished"></translation>
+        <translation>以你当前的权限无法删除该消息。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Select up to 50 messages at once.</source>
-        <translation type="unfinished"></translation>
+        <translation>一次最多选择 50 条消息。</translation>
     </message>
     <message numerus="yes">
         <location line="+67"/>
         <source>%n message(s) in the range cannot be deleted.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>范围内有 %n 条消息无法删除。</numerusform>
         </translation>
     </message>
     <message>
         <location line="+52"/>
         <location line="+14"/>
         <source>The server refused a redaction.</source>
-        <translation type="unfinished"></translation>
+        <translation>服务器拒绝了一次删除。</translation>
     </message>
     <message>
         <location line="+36"/>
         <source>One redaction was already in progress; its result is unknown.</source>
-        <translation type="unfinished"></translation>
+        <translation>已有一次删除在进行中；其结果未知。</translation>
     </message>
 </context>
 <context>
@@ -10760,7 +10760,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/MainScreen.qml" line="+562"/>
         <source>Resize room list</source>
-        <translation type="unfinished"></translation>
+        <translation>调整房间列表大小</translation>
     </message>
     <message>
         <location line="+219"/>
@@ -12485,7 +12485,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+86"/>
         <source>Select messages to delete</source>
-        <translation type="unfinished"></translation>
+        <translation>选择要删除的消息</translation>
     </message>
     <message>
         <location line="+574"/>
@@ -13191,7 +13191,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+25"/>
         <source>Message not found.</source>
-        <translation type="unfinished"></translation>
+        <translation>未找到消息。</translation>
     </message>
     <message>
         <location line="+83"/>
@@ -15490,12 +15490,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-59"/>
         <source>Layout</source>
-        <translation type="unfinished">布局</translation>
+        <translation>布局</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Chat</source>
-        <translation type="unfinished"></translation>
+        <translation>聊天</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -17140,7 +17140,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+82"/>
         <source>Room permissions</source>
-        <translation type="unfinished"></translation>
+        <translation>房间权限</translation>
     </message>
     <message>
         <location line="+211"/>
@@ -18044,19 +18044,19 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/RoomListCompactRow.qml" line="+34"/>
         <source>%1, muted</source>
-        <translation type="unfinished">%1，已静音</translation>
+        <translation>%1，已静音</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1, mention in a thread</source>
         <comment>compact room row</comment>
-        <translation type="unfinished">%1，话题中有提及</translation>
+        <translation>%1，话题中有提及</translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%1, %n mention(s)</source>
         <comment>compact room row</comment>
-        <translation type="unfinished">
+        <translation>
             <numerusform>%1，%n 条提及</numerusform>
         </translation>
     </message>
@@ -18064,17 +18064,17 @@ Signing out and signing in again is the only fix.</source>
         <location line="+2"/>
         <source>%1, unread</source>
         <comment>compact room row</comment>
-        <translation type="unfinished">%1，未读</translation>
+        <translation>%1，未读</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Activate to expand</source>
-        <translation type="unfinished">激活以扩展</translation>
+        <translation>激活以扩展</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Activate to collapse</source>
-        <translation type="unfinished">激活以折叠</translation>
+        <translation>激活以折叠</translation>
     </message>
 </context>
 <context>
@@ -18344,17 +18344,17 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+287"/>
         <source>Expand %1 room list</source>
-        <translation type="unfinished"></translation>
+        <translation>展开 %1 的房间列表</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Show all rooms</source>
-        <translation type="unfinished"></translation>
+        <translation>显示所有房间</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Show unread rooms</source>
-        <translation type="unfinished"></translation>
+        <translation>显示未读房间</translation>
     </message>
     <message>
         <location line="-314"/>
@@ -23901,7 +23901,7 @@ Escape, and the single letters the message menu uses while it is open, are reser
         <location line="+5"/>
         <location line="+4"/>
         <source>Layout · Messages and threads</source>
-        <translation type="unfinished"></translation>
+        <translation>布局 · 消息和话题</translation>
     </message>
     <message>
         <location line="+33"/>
@@ -23915,7 +23915,7 @@ Escape, and the single letters the message menu uses while it is open, are reser
         <location line="+4"/>
         <location line="+4"/>
         <source>Layout · Room list and panels</source>
-        <translation type="unfinished"></translation>
+        <translation>布局 · 房间列表和面板</translation>
     </message>
     <message>
         <location line="-527"/>
@@ -23926,13 +23926,13 @@ Escape, and the single letters the message menu uses while it is open, are reser
         <location line="+5"/>
         <location line="+8"/>
         <source>Chat · Timeline</source>
-        <translation type="unfinished"></translation>
+        <translation>聊天 · 时间线</translation>
     </message>
     <message>
         <location line="+74"/>
         <location line="+5"/>
         <source>Layout · System tray</source>
-        <translation type="unfinished"></translation>
+        <translation>布局 · 系统托盘</translation>
     </message>
     <message>
         <location line="+8"/>
@@ -23945,71 +23945,71 @@ Escape, and the single letters the message menu uses while it is open, are reser
         <location line="+4"/>
         <location line="+4"/>
         <source>Chat · Message box</source>
-        <translation type="unfinished"></translation>
+        <translation>聊天 · 消息输入框</translation>
     </message>
     <message>
         <location line="-32"/>
         <source>Chat · Emoji and sticker packs</source>
-        <translation type="unfinished"></translation>
+        <translation>聊天 · 表情和贴纸包</translation>
     </message>
     <message>
         <location line="+388"/>
         <source>conversation list classic channels folders room list layout</source>
-        <translation type="unfinished"></translation>
+        <translation>conversation list classic channels folders room list layout 对话列表 频道 文件夹 房间列表 布局</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>spaces rail sidebar show hide</source>
-        <translation type="unfinished"></translation>
+        <translation>spaces rail sidebar show hide 空间栏 侧边栏 显示 隐藏</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Show the room list</source>
-        <translation type="unfinished"></translation>
+        <translation>显示房间列表</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>room list sidebar show hide</source>
-        <translation type="unfinished"></translation>
+        <translation>room list sidebar show hide 房间列表 侧边栏 显示 隐藏</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>application icon app icon window icon taskbar</source>
-        <translation type="unfinished"></translation>
+        <translation>application icon app icon window icon taskbar 应用图标 窗口图标 任务栏</translation>
     </message>
     <message>
         <location line="+186"/>
         <location line="+3630"/>
         <source>Messages and threads</source>
-        <translation type="unfinished"></translation>
+        <translation>消息和话题</translation>
     </message>
     <message>
         <location line="-3628"/>
         <location line="+3812"/>
         <source>Room list and panels</source>
-        <translation type="unfinished"></translation>
+        <translation>房间列表和面板</translation>
     </message>
     <message>
         <location line="-3100"/>
         <location line="+975"/>
         <location line="+2461"/>
         <source>Chat</source>
-        <translation type="unfinished"></translation>
+        <translation>聊天</translation>
     </message>
     <message>
         <location line="-2215"/>
         <source>Theme, colours and gradients, chat background, text and fonts — per account. How the window is arranged is under Layout; the timeline and the message box are under Chat.</source>
-        <translation type="unfinished"></translation>
+        <translation>主题、颜色和渐变、聊天背景、文字和字体——按账号设置。窗口布局在“布局”中；时间线和消息输入框在“聊天”中。</translation>
     </message>
     <message>
         <location line="+1675"/>
         <source>How the window is arranged: messages and threads, the room list, the Spaces rail and the panels — per account.</source>
-        <translation type="unfinished"></translation>
+        <translation>窗口的布局：消息和话题、房间列表、空间栏和面板——按账号设置。</translation>
     </message>
     <message>
         <location line="+66"/>
         <source>Lightning&apos;s own layout. Nheko compact is a denser layout you can switch back from at any time. A preset sets the three choices just below it; a choice it set says so.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 自己的布局。Nheko compact 是更紧凑的布局，可随时切换回来。预设会设置其下方的三个选项；由它设置的选项会注明。</translation>
     </message>
     <message>
         <location line="+82"/>
@@ -24024,12 +24024,12 @@ Escape, and the single letters the message menu uses while it is open, are reser
     <message>
         <location line="+234"/>
         <source>Conversation list: compact</source>
-        <translation type="unfinished"></translation>
+        <translation>对话列表：紧凑</translation>
     </message>
     <message>
         <location line="+148"/>
         <source>What a room shows, and how you write in it — per account.</source>
-        <translation type="unfinished"></translation>
+        <translation>房间显示什么以及你如何在其中输入——按账号设置。</translation>
     </message>
     <message>
         <location line="+754"/>
@@ -26470,72 +26470,72 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="-322"/>
         <source>The level every member starts at.</source>
-        <translation type="unfinished"></translation>
+        <translation>每位成员的初始等级。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Messages and notifications</source>
-        <translation type="unfinished"></translation>
+        <translation>消息和通知</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Send messages</source>
-        <translation type="unfinished"></translation>
+        <translation>发送消息</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Notify everyone (@room)</source>
-        <translation type="unfinished"></translation>
+        <translation>通知所有人（@room）</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Room profile</source>
-        <translation type="unfinished"></translation>
+        <translation>房间资料</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Room name</source>
-        <translation type="unfinished">房间名称</translation>
+        <translation>房间名称</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Room avatar</source>
-        <translation type="unfinished"></translation>
+        <translation>房间头像</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Room topic</source>
-        <translation type="unfinished"></translation>
+        <translation>房间主题</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Change room access</source>
-        <translation type="unfinished"></translation>
+        <translation>更改房间访问权限</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>History visibility</source>
-        <translation type="unfinished"></translation>
+        <translation>历史记录可见性</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Guest access</source>
-        <translation type="unfinished"></translation>
+        <translation>访客访问</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Upgrade room</source>
-        <translation type="unfinished"></translation>
+        <translation>升级房间</translation>
     </message>
     <message>
         <location line="+79"/>
         <source>Room</source>
-        <translation type="unfinished">房间</translation>
+        <translation>房间</translation>
     </message>
     <message>
         <location line="+195"/>
         <source>Loading this room&apos;s members. Controls remain disabled until the roster arrives.</source>
-        <translation type="unfinished"></translation>
+        <translation>正在加载此房间的成员。成员名单到达前，控件将保持禁用。</translation>
     </message>
     <message>
         <location line="+39"/>
@@ -26791,7 +26791,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+42"/>
         <source>You can only require a level at or below your own, and only set a member&apos;s role below your own — never for someone at or above it. A room using a custom level shows that number.</source>
-        <translation type="unfinished"></translation>
+        <translation>你只能要求不高于自己的等级，并且只能将成员的角色设为低于你自己的——绝不能为与你同级或更高的人设置。使用自定义等级的房间会显示该数值。</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -26801,7 +26801,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+11"/>
         <source>You don&apos;t have permission to change roles or permissions in this room.</source>
-        <translation type="unfinished"></translation>
+        <translation>你没有权限更改此房间的角色或权限。</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -26811,7 +26811,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+14"/>
         <source>This room&apos;s permission levels haven&apos;t loaded on this backend, so they are not shown.</source>
-        <translation type="unfinished"></translation>
+        <translation>此房间的权限等级尚未在此后端加载，因此不予显示。</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -26884,7 +26884,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+40"/>
         <source>Set custom level for %1</source>
-        <translation type="unfinished"></translation>
+        <translation>为 %1 设置自定义等级</translation>
     </message>
     <message>
         <location line="+29"/>
@@ -26949,7 +26949,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+105"/>
         <source>Role in this room</source>
-        <translation type="unfinished"></translation>
+        <translation>在此房间中的角色</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -26989,7 +26989,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+44"/>
         <source>Set %1 to %2 in this room?</source>
-        <translation type="unfinished">在此房间中将 %1 设为 %2？</translation>
+        <translation>在此房间中将 %1 设为 %2？</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -27009,7 +27009,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+15"/>
         <source>You will also no longer be able to change roles or permissions in this room.</source>
-        <translation type="unfinished">你也将无法再更改此房间中的角色或权限。</translation>
+        <translation>你也将无法再更改此房间中的角色或权限。</translation>
     </message>
     <message>
         <location line="+1"/>

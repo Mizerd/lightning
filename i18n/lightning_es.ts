@@ -2038,12 +2038,12 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
     <message>
         <location filename="../qml/BulkRedactionBar.qml" line="+32"/>
         <source>Deleting %1 of %2 messages…</source>
-        <translation type="unfinished"></translation>
+        <translation>Eliminando %1 de %2 mensajes…</translation>
     </message>
     <message numerus="yes">
         <location line="+4"/>
         <source>%n message(s) selected</source>
-        <translation type="unfinished">
+        <translation>
             <numerusform>%n mensaje seleccionado</numerusform>
             <numerusform>%n mensajes seleccionados</numerusform>
         </translation>
@@ -2051,61 +2051,61 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
     <message>
         <location line="+3"/>
         <source>Stopped after %1 of %2 messages; %3 failed.</source>
-        <translation type="unfinished"></translation>
+        <translation>Se detuvo tras %1 de %2 mensajes; %3 fallaron.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Deleted %1 of %2 messages; %3 failed.</source>
-        <translation type="unfinished"></translation>
+        <translation>Se eliminaron %1 de %2 mensajes; %3 fallaron.</translation>
     </message>
     <message>
         <location line="+10"/>
         <location line="+61"/>
         <source>Cancel</source>
-        <translation type="unfinished">Cancelar</translation>
+        <translation>Cancelar</translation>
     </message>
     <message>
         <location line="-61"/>
         <source>Dismiss</source>
-        <translation type="unfinished">Descartar</translation>
+        <translation>Descartar</translation>
     </message>
     <message numerus="yes">
         <location line="+9"/>
         <source>Delete %n messages…</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Eliminar %n mensaje…</numerusform>
+            <numerusform>Eliminar %n mensajes…</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+31"/>
         <source>Delete %n messages?</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>¿Eliminar %n mensaje?</numerusform>
+            <numerusform>¿Eliminar %n mensajes?</numerusform>
         </translation>
     </message>
     <message>
         <location line="+8"/>
         <source>These messages will be removed for everyone in this room. This cannot be undone.</source>
-        <translation type="unfinished"></translation>
+        <translation>Estos mensajes se quitarán para todos en esta sala. No se puede deshacer.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Reason (optional)</source>
-        <translation type="unfinished">Motivo (opcional)</translation>
+        <translation>Motivo (opcional)</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Reason for deleting messages</source>
-        <translation type="unfinished"></translation>
+        <translation>Motivo para eliminar los mensajes</translation>
     </message>
     <message numerus="yes">
         <location line="+12"/>
         <source>Delete %n messages</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Eliminar %n mensaje</numerusform>
+            <numerusform>Eliminar %n mensajes</numerusform>
         </translation>
     </message>
 </context>
@@ -2114,36 +2114,36 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
     <message>
         <location filename="../src/app/BulkRedactionController.cpp" line="+78"/>
         <source>A previous deletion of this message is still in progress.</source>
-        <translation type="unfinished"></translation>
+        <translation>Todavía hay en curso una eliminación anterior de este mensaje.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>That message cannot be deleted with your current permissions.</source>
-        <translation type="unfinished"></translation>
+        <translation>Ese mensaje no se puede eliminar con tus permisos actuales.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Select up to 50 messages at once.</source>
-        <translation type="unfinished"></translation>
+        <translation>Selecciona como máximo 50 mensajes a la vez.</translation>
     </message>
     <message numerus="yes">
         <location line="+67"/>
         <source>%n message(s) in the range cannot be deleted.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n mensaje del intervalo no se puede eliminar.</numerusform>
+            <numerusform>%n mensajes del intervalo no se pueden eliminar.</numerusform>
         </translation>
     </message>
     <message>
         <location line="+52"/>
         <location line="+14"/>
         <source>The server refused a redaction.</source>
-        <translation type="unfinished"></translation>
+        <translation>El servidor rechazó una eliminación.</translation>
     </message>
     <message>
         <location line="+36"/>
         <source>One redaction was already in progress; its result is unknown.</source>
-        <translation type="unfinished"></translation>
+        <translation>Ya había una eliminación en curso; se desconoce su resultado.</translation>
     </message>
 </context>
 <context>
@@ -10796,7 +10796,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     <message>
         <location filename="../qml/MainScreen.qml" line="+562"/>
         <source>Resize room list</source>
-        <translation type="unfinished"></translation>
+        <translation>Cambiar el tamaño de la lista de salas</translation>
     </message>
     <message>
         <location line="+219"/>
@@ -12526,7 +12526,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     <message>
         <location line="+86"/>
         <source>Select messages to delete</source>
-        <translation type="unfinished"></translation>
+        <translation>Seleccionar mensajes para eliminar</translation>
     </message>
     <message>
         <location line="+574"/>
@@ -13238,7 +13238,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     <message>
         <location line="+25"/>
         <source>Message not found.</source>
-        <translation type="unfinished"></translation>
+        <translation>No se encontró el mensaje.</translation>
     </message>
     <message>
         <location line="+83"/>
@@ -15542,12 +15542,12 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     <message>
         <location line="-59"/>
         <source>Layout</source>
-        <translation type="unfinished">Disposición</translation>
+        <translation>Disposición</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Chat</source>
-        <translation type="unfinished"></translation>
+        <translation>Chat</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -17197,7 +17197,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     <message>
         <location line="+82"/>
         <source>Room permissions</source>
-        <translation type="unfinished"></translation>
+        <translation>Permisos de la sala</translation>
     </message>
     <message>
         <location line="+211"/>
@@ -18106,19 +18106,19 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     <message>
         <location filename="../qml/RoomListCompactRow.qml" line="+34"/>
         <source>%1, muted</source>
-        <translation type="unfinished">%1, silenciada</translation>
+        <translation>%1, silenciada</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1, mention in a thread</source>
         <comment>compact room row</comment>
-        <translation type="unfinished">%1, mención en un hilo</translation>
+        <translation>%1, mención en un hilo</translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%1, %n mention(s)</source>
         <comment>compact room row</comment>
-        <translation type="unfinished">
+        <translation>
             <numerusform>%1, %n mención</numerusform>
             <numerusform>%1, %n menciones</numerusform>
         </translation>
@@ -18127,17 +18127,17 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <location line="+2"/>
         <source>%1, unread</source>
         <comment>compact room row</comment>
-        <translation type="unfinished"></translation>
+        <translation>%1, no leído</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Activate to expand</source>
-        <translation type="unfinished">Activar para expandir</translation>
+        <translation>Activar para expandir</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Activate to collapse</source>
-        <translation type="unfinished">Activar para colapsar</translation>
+        <translation>Activar para colapsar</translation>
     </message>
 </context>
 <context>
@@ -18408,17 +18408,17 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     <message>
         <location line="+287"/>
         <source>Expand %1 room list</source>
-        <translation type="unfinished"></translation>
+        <translation>Expandir la lista de salas de %1</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Show all rooms</source>
-        <translation type="unfinished"></translation>
+        <translation>Mostrar todas las salas</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Show unread rooms</source>
-        <translation type="unfinished"></translation>
+        <translation>Mostrar salas sin leer</translation>
     </message>
     <message>
         <location line="-314"/>
@@ -23982,7 +23982,7 @@ Escape y las letras individuales que utiliza el menú de mensajes mientras está
         <location line="+5"/>
         <location line="+4"/>
         <source>Layout · Messages and threads</source>
-        <translation type="unfinished"></translation>
+        <translation>Disposición · Mensajes e hilos</translation>
     </message>
     <message>
         <location line="+33"/>
@@ -23996,7 +23996,7 @@ Escape y las letras individuales que utiliza el menú de mensajes mientras está
         <location line="+4"/>
         <location line="+4"/>
         <source>Layout · Room list and panels</source>
-        <translation type="unfinished"></translation>
+        <translation>Disposición · Lista de salas y paneles</translation>
     </message>
     <message>
         <location line="-527"/>
@@ -24007,13 +24007,13 @@ Escape y las letras individuales que utiliza el menú de mensajes mientras está
         <location line="+5"/>
         <location line="+8"/>
         <source>Chat · Timeline</source>
-        <translation type="unfinished"></translation>
+        <translation>Chat · Línea de tiempo</translation>
     </message>
     <message>
         <location line="+74"/>
         <location line="+5"/>
         <source>Layout · System tray</source>
-        <translation type="unfinished"></translation>
+        <translation>Disposición · Bandeja del sistema</translation>
     </message>
     <message>
         <location line="+8"/>
@@ -24026,71 +24026,71 @@ Escape y las letras individuales que utiliza el menú de mensajes mientras está
         <location line="+4"/>
         <location line="+4"/>
         <source>Chat · Message box</source>
-        <translation type="unfinished"></translation>
+        <translation>Chat · Cuadro de mensaje</translation>
     </message>
     <message>
         <location line="-32"/>
         <source>Chat · Emoji and sticker packs</source>
-        <translation type="unfinished"></translation>
+        <translation>Chat · Paquetes de emojis y pegatinas</translation>
     </message>
     <message>
         <location line="+388"/>
         <source>conversation list classic channels folders room list layout</source>
-        <translation type="unfinished"></translation>
+        <translation>conversation list classic channels folders room list layout lista de conversaciones canales carpetas lista de salas disposición</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>spaces rail sidebar show hide</source>
-        <translation type="unfinished"></translation>
+        <translation>spaces rail sidebar show hide carril de espacios barra lateral mostrar ocultar</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Show the room list</source>
-        <translation type="unfinished"></translation>
+        <translation>Mostrar la lista de salas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>room list sidebar show hide</source>
-        <translation type="unfinished"></translation>
+        <translation>room list sidebar show hide lista de salas barra lateral mostrar ocultar</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>application icon app icon window icon taskbar</source>
-        <translation type="unfinished"></translation>
+        <translation>application icon app icon window icon taskbar icono de la aplicación icono de la ventana barra de tareas</translation>
     </message>
     <message>
         <location line="+186"/>
         <location line="+3630"/>
         <source>Messages and threads</source>
-        <translation type="unfinished"></translation>
+        <translation>Mensajes e hilos</translation>
     </message>
     <message>
         <location line="-3628"/>
         <location line="+3812"/>
         <source>Room list and panels</source>
-        <translation type="unfinished"></translation>
+        <translation>Lista de salas y paneles</translation>
     </message>
     <message>
         <location line="-3100"/>
         <location line="+975"/>
         <location line="+2461"/>
         <source>Chat</source>
-        <translation type="unfinished"></translation>
+        <translation>Chat</translation>
     </message>
     <message>
         <location line="-2215"/>
         <source>Theme, colours and gradients, chat background, text and fonts — per account. How the window is arranged is under Layout; the timeline and the message box are under Chat.</source>
-        <translation type="unfinished"></translation>
+        <translation>Tema, colores y degradados, fondo del chat, texto y fuentes, por cuenta. La organización de la ventana está en Disposición; la línea de tiempo y el cuadro de mensaje, en Chat.</translation>
     </message>
     <message>
         <location line="+1675"/>
         <source>How the window is arranged: messages and threads, the room list, the Spaces rail and the panels — per account.</source>
-        <translation type="unfinished"></translation>
+        <translation>Cómo se organiza la ventana: mensajes e hilos, la lista de salas, el carril de espacios y los paneles, por cuenta.</translation>
     </message>
     <message>
         <location line="+66"/>
         <source>Lightning&apos;s own layout. Nheko compact is a denser layout you can switch back from at any time. A preset sets the three choices just below it; a choice it set says so.</source>
-        <translation type="unfinished"></translation>
+        <translation>La disposición propia de Lightning. Nheko compact es una disposición más densa que puedes deshacer en cualquier momento. Un preajuste fija las tres opciones de debajo; una opción que haya fijado lo indica.</translation>
     </message>
     <message>
         <location line="+82"/>
@@ -24105,12 +24105,12 @@ Escape y las letras individuales que utiliza el menú de mensajes mientras está
     <message>
         <location line="+234"/>
         <source>Conversation list: compact</source>
-        <translation type="unfinished"></translation>
+        <translation>Lista de conversaciones: compacta</translation>
     </message>
     <message>
         <location line="+148"/>
         <source>What a room shows, and how you write in it — per account.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lo que muestra una sala y cómo escribes en ella, por cuenta.</translation>
     </message>
     <message>
         <location line="+754"/>
@@ -26552,72 +26552,72 @@ Nota: importar claves no verifica esta sesión.</translation>
     <message>
         <location line="-322"/>
         <source>The level every member starts at.</source>
-        <translation type="unfinished"></translation>
+        <translation>El nivel con el que empieza cada miembro.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Messages and notifications</source>
-        <translation type="unfinished"></translation>
+        <translation>Mensajes y notificaciones</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Send messages</source>
-        <translation type="unfinished"></translation>
+        <translation>Enviar mensajes</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Notify everyone (@room)</source>
-        <translation type="unfinished"></translation>
+        <translation>Notificar a todos (@room)</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Room profile</source>
-        <translation type="unfinished"></translation>
+        <translation>Perfil de la sala</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Room name</source>
-        <translation type="unfinished">Nombre de la sala</translation>
+        <translation>Nombre de la sala</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Room avatar</source>
-        <translation type="unfinished"></translation>
+        <translation>Avatar de la sala</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Room topic</source>
-        <translation type="unfinished"></translation>
+        <translation>Tema de la sala</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Change room access</source>
-        <translation type="unfinished"></translation>
+        <translation>Cambiar el acceso a la sala</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>History visibility</source>
-        <translation type="unfinished"></translation>
+        <translation>Visibilidad del historial</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Guest access</source>
-        <translation type="unfinished"></translation>
+        <translation>Acceso de invitados</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Upgrade room</source>
-        <translation type="unfinished"></translation>
+        <translation>Actualizar la sala</translation>
     </message>
     <message>
         <location line="+79"/>
         <source>Room</source>
-        <translation type="unfinished">Sala</translation>
+        <translation>Sala</translation>
     </message>
     <message>
         <location line="+195"/>
         <source>Loading this room&apos;s members. Controls remain disabled until the roster arrives.</source>
-        <translation type="unfinished"></translation>
+        <translation>Cargando los miembros de esta sala. Los controles seguirán desactivados hasta que llegue la lista.</translation>
     </message>
     <message>
         <location line="+39"/>
@@ -26874,7 +26874,7 @@ Nota: importar claves no verifica esta sesión.</translation>
     <message>
         <location line="+42"/>
         <source>You can only require a level at or below your own, and only set a member&apos;s role below your own — never for someone at or above it. A room using a custom level shows that number.</source>
-        <translation type="unfinished"></translation>
+        <translation>Solo puedes exigir un nivel igual o inferior al tuyo, y solo asignar a un miembro un rol inferior al tuyo, nunca a alguien de tu nivel o superior. Una sala con un nivel personalizado muestra ese número.</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -26884,7 +26884,7 @@ Nota: importar claves no verifica esta sesión.</translation>
     <message>
         <location line="+11"/>
         <source>You don&apos;t have permission to change roles or permissions in this room.</source>
-        <translation type="unfinished"></translation>
+        <translation>No tienes permiso para cambiar roles ni permisos en esta sala.</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -26894,7 +26894,7 @@ Nota: importar claves no verifica esta sesión.</translation>
     <message>
         <location line="+14"/>
         <source>This room&apos;s permission levels haven&apos;t loaded on this backend, so they are not shown.</source>
-        <translation type="unfinished"></translation>
+        <translation>Los niveles de permisos de esta sala no se han cargado en este backend, así que no se muestran.</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -26967,7 +26967,7 @@ Nota: importar claves no verifica esta sesión.</translation>
     <message>
         <location line="+40"/>
         <source>Set custom level for %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Establecer un nivel personalizado para %1</translation>
     </message>
     <message>
         <location line="+29"/>
@@ -27032,7 +27032,7 @@ Nota: importar claves no verifica esta sesión.</translation>
     <message>
         <location line="+105"/>
         <source>Role in this room</source>
-        <translation type="unfinished"></translation>
+        <translation>Rol en esta sala</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -27072,7 +27072,7 @@ Nota: importar claves no verifica esta sesión.</translation>
     <message>
         <location line="+44"/>
         <source>Set %1 to %2 in this room?</source>
-        <translation type="unfinished">¿Establecer a %1 como %2 en esta sala?</translation>
+        <translation>¿Establecer a %1 como %2 en esta sala?</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -27092,7 +27092,7 @@ Nota: importar claves no verifica esta sesión.</translation>
     <message>
         <location line="+15"/>
         <source>You will also no longer be able to change roles or permissions in this room.</source>
-        <translation type="unfinished">Además, ya no podrás cambiar roles ni permisos en esta sala.</translation>
+        <translation>Además, ya no podrás cambiar roles ni permisos en esta sala.</translation>
     </message>
     <message>
         <location line="+1"/>
