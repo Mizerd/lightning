@@ -10460,6 +10460,10 @@ private Q_SLOTS:
             qPrintable(QStringLiteral("row hover stayed suspended at idle: ")
                        + rowHoverState(timeline, rowHover)),
             kSignalTimeoutMs);
+        // Qt drops a move to the position the cursor already has, and the
+        // case before this one can leave it exactly at `at` (same fixture,
+        // same geometry): step off first so the move below is a real one.
+        QTest::mouseMove(&window, at + QPoint(0, 3));
         QTest::mouseMove(&window, at);
         QTRY_VERIFY2_WITH_TIMEOUT(
             timeline->property("hoveredActionsKey").toString() == actionKey,
