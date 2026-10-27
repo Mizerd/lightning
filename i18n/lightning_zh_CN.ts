@@ -4759,7 +4759,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+15"/>
         <source>Room list</source>
-        <translation>房间清单</translation>
+        <translation>房间列表</translation>
     </message>
     <message>
         <location line="+1"/>

@@ -4867,7 +4867,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+15"/>
         <source>Room list</source>
-        <translation>قائمة الغرفة</translation>
+        <translation>قائمة الغرف</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -20520,7 +20520,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-4654"/>
         <source>room list width panel size sidebar</source>
-        <translation>الشريط الجانبي لحجم لوحة عرض قائمة الغرفة</translation>
+        <translation>الشريط الجانبي لحجم لوحة عرض قائمة الغرف</translation>
     </message>
     <message>
         <location line="+11"/>

@@ -9380,7 +9380,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+1"/>
         <source>Someone started a call.</source>
-        <translation>কেউ ডাক শুরু করল।</translation>
+        <translation>কেউ একটি কল শুরু করেছেন।</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -16089,7 +16089,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+1"/>
         <source>There is a call in this room</source>
-        <translation>এই রুমে একটা ডাক আছে</translation>
+        <translation>এই রুমে একটি কল চলছে</translation>
     </message>
 </context>
 <context>
