@@ -2070,17 +2070,17 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message numerus="yes">
         <location line="+9"/>
         <source>Delete %n messages…</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Delete %n message…</numerusform>
+            <numerusform>Delete %n messages…</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+31"/>
         <source>Delete %n messages?</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Delete %n message?</numerusform>
+            <numerusform>Delete %n messages?</numerusform>
         </translation>
     </message>
     <message>
@@ -2101,9 +2101,9 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message numerus="yes">
         <location line="+12"/>
         <source>Delete %n messages</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Delete %n message</numerusform>
+            <numerusform>Delete %n messages</numerusform>
         </translation>
     </message>
 </context>
@@ -2127,9 +2127,9 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message numerus="yes">
         <location line="+67"/>
         <source>%n message(s) in the range cannot be deleted.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n message in the range cannot be deleted.</numerusform>
+            <numerusform>%n messages in the range cannot be deleted.</numerusform>
         </translation>
     </message>
     <message>
