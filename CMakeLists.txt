@@ -566,6 +566,8 @@ set(APP_SOURCES
     src/app/RoomBatchController.cpp
     src/app/PinnedMessagesController.h
     src/app/PinnedMessagesController.cpp
+    src/app/SavedMessagesController.h
+    src/app/SavedMessagesController.cpp
     src/app/RoomUpgradeController.h
     src/app/RoomUpgradeController.cpp
     src/app/OpenRoomPermissions.h
@@ -1187,6 +1189,7 @@ set(APP_QML_FILES
     qml/StatusDialog.qml
     qml/SendLaterDialog.qml
     qml/ActivityCenterPanel.qml
+    qml/SavedMessagesPanel.qml
     qml/AnchoredPopup.qml
     qml/PopupResizeGrip.qml
     qml/EmojiPicker.qml
@@ -3643,6 +3646,17 @@ if(BUILD_TESTING)
     target_include_directories(pinned-messages-test PRIVATE src)
     target_link_libraries(pinned-messages-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME pinned-messages COMMAND pinned-messages-test)
+
+    qt_add_executable(saved-messages-test
+        tests/SavedMessagesControllerTest.cpp
+        src/app/SavedMessagesController.h
+        src/app/SavedMessagesController.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+    )
+    target_include_directories(saved-messages-test PRIVATE src)
+    target_link_libraries(saved-messages-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME saved-messages COMMAND saved-messages-test)
 
     # Image metadata removal on send (JPEG / PNG / WebP / HEIC), byte level.
     qt_add_executable(image-metadata-test

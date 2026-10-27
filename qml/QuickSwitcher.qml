@@ -19,6 +19,8 @@ Popup {
     // Global message search (dialog hosted by MainScreen), optionally seeded
     // with what was typed.
     signal globalSearchRequested(string query)
+    signal savedMessagesRequested()
+    signal threadsRequested()
     parent: Overlay.overlay
     modal: true
     dim: true
@@ -105,6 +107,28 @@ Popup {
             iconName: "settings", keywords: "settings preferences",
             enabled: true, run: function() { app.showSettings() }
         })
+        if (app.savedMessages) {
+            actions.push({
+                kind: "action", id: "saved-messages",
+                label: qsTr("Saved messages"),
+                subtitle: qsTr("Open your saved message hub"),
+                iconName: "bookmark",
+                keywords: "saved bookmark messages",
+                enabled: true,
+                run: function() { switcher.savedMessagesRequested() }
+            })
+        }
+        if (app.activity) {
+            actions.push({
+                kind: "action", id: "threads-activity",
+                label: qsTr("Threads activity"),
+                subtitle: qsTr("Review threads across rooms"),
+                iconName: "forum",
+                keywords: "threads activity unread following",
+                enabled: true,
+                run: function() { switcher.threadsRequested() }
+            })
+        }
         if (app.discovery && app.discovery.supported) {
             actions.push({
                 kind: "action", id: "discover-rooms",

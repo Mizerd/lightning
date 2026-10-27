@@ -527,6 +527,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 QCoreApplication::quit();
             });
     m_pinned       = std::make_unique<PinnedMessagesController>(this);
+    m_savedMessages = std::make_unique<SavedMessagesController>(this);
     m_roomUpgrade  = std::make_unique<RoomUpgradeController>(this);
     m_openRoomPermissions = std::make_unique<OpenRoomPermissions>(this);
     m_thread       = std::make_unique<ThreadController>(this);
@@ -2084,6 +2085,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 }
             });
     m_pinned->setClient(m_client.get());
+    m_savedMessages->setClient(m_client.get());
     m_roomUpgrade->setClient(m_client.get());
     m_openRoomPermissions->setClient(m_client.get());
     m_backup->setClient(m_client.get());
@@ -2120,6 +2122,11 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_activity->setClient(m_client.get());
     // An Activity row click routes exactly like a notification click.
     connect(m_activity.get(), &ActivityModel::openRequested, this,
+            [this](const QString &roomId, const QString &eventId,
+                   const QString &threadRootId) {
+        routeNotificationOpen(roomId, eventId, threadRootId);
+    });
+    connect(m_savedMessages.get(), &SavedMessagesController::openRequested, this,
             [this](const QString &roomId, const QString &eventId,
                    const QString &threadRootId) {
         routeNotificationOpen(roomId, eventId, threadRootId);

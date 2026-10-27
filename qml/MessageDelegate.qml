@@ -4358,6 +4358,25 @@ Item {
             root.copyToClipboard(
                 root.timelineModel.messagePermalink(root.menuEventId))
     }
+    function toggleSavedMessage() {
+        if (!app.savedMessages || !app.savedMessages.loaded
+                || app.savedMessages.busy || root.menuEventId === ""
+                || model.redacted === true || model.undecryptable === true
+                || model.isLocalEcho === true || model.isVirtual === true
+                || model.isPoll === true)
+            return
+        const roomId = root.timelineModel.realRoomIdForEvent(root.menuEventId)
+        if (!roomId || roomId.length === 0)
+            return
+        if (app.savedMessages.isSaved(roomId, root.menuEventId)) {
+            app.savedMessages.remove(roomId, root.menuEventId)
+        } else {
+            const details = root.timelineModel.messageDetails(root.menuEventId)
+            const threadRootId = root.inThreadPanel
+                  ? app.thread.rootEventId : (details.threadRootId || "")
+            app.savedMessages.save(roomId, root.menuEventId, threadRootId)
+        }
+    }
     // The keyboard-selected row's hotkeys (TimelinePane.runNavigationAction):
     // the same actions as the context menu, never a second implementation.
     function runSelectionAction(action) {
@@ -4366,6 +4385,7 @@ Item {
         root.menuEventId = model.eventId
         switch (action) {
         case "timeline.forwardMessage": beginForward(); return true
+        case "timeline.saveMessage": toggleSavedMessage(); return true
         case "timeline.deleteMessage":
             if (root.bulkSelectionMode)
                 app.bulkRedaction.toggle(root.menuEventId, root.canRedactOthers)
@@ -4640,6 +4660,25 @@ Item {
                          && app.pinned.revision >= 0
                          && app.pinned.canTogglePin(root.menuEventId, false)
                 onTriggered: app.pinned.unpin(root.menuEventId)
+            }
+            AppMenuItem {
+                objectName: "saveMessageMenuItem"
+                iconName: "bookmark"
+                readonly property string targetRoom:
+                    root.timelineModel.realRoomIdForEvent(root.menuEventId)
+                readonly property bool alreadySaved:
+                    app.savedMessages && app.savedMessages.revision >= 0
+                    && app.savedMessages.isSaved(targetRoom, root.menuEventId)
+                text: alreadySaved ? qsTr("Remove from saved messages")
+                                   : qsTr("Save message")
+                accel: "S"
+                visible: !!app.savedMessages && app.savedMessages.loaded
+                         && model.redacted !== true && model.undecryptable !== true
+                         && model.isLocalEcho !== true && model.isVirtual !== true
+                         && model.isPoll !== true
+                         && targetRoom !== "" && root.menuEventId !== ""
+                enabled: visible && !app.savedMessages.busy
+                onTriggered: root.toggleSavedMessage()
             }
             AppMenuItem {
                 objectName: "copyTextMenuItem"

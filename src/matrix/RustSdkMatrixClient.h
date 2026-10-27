@@ -588,6 +588,7 @@ public:
                             const QString &replyToEventId,
                             const QString &threadRootEventId) override;
     void requestActivitySeed(int limit) override;
+    void requestActivitySeedPage(const QString &from, int limit) override;
     // Message edit history and event source.
     void requestEditHistory(const QString &roomId, const QString &eventId) override;
     void requestEventSource(const QString &roomId, const QString &eventId) override;

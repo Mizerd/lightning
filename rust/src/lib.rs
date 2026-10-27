@@ -9103,6 +9103,23 @@ pub unsafe extern "C" fn mx_rust_request_activity_seed(
     })
 }
 
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_request_activity_seed_page(
+    ptr: *mut c_void,
+    limit: u32,
+    from: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let token = unsafe { cstr_arg(from) }?;
+        if token.is_empty() || token.len() > 4096 {
+            return Err("invalid_page_token".to_owned());
+        }
+        rooms::request_activity_seed_page(bridge, limit, Some(token))
+            .map(|_| String::new())
+    })
+}
+
 /// Message edit history and event source. Answers on
 /// `message_edit_history` / `event_source`; see rooms.rs.
 #[no_mangle]

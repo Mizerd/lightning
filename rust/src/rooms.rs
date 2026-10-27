@@ -7754,6 +7754,14 @@ pub(crate) fn activity_seed_entry(
 }
 
 pub(crate) fn request_activity_seed(bridge: &RustClient, limit: u32) -> Result<(), String> {
+    request_activity_seed_page(bridge, limit, None)
+}
+
+pub(crate) fn request_activity_seed_page(
+    bridge: &RustClient,
+    limit: u32,
+    from: Option<String>,
+) -> Result<(), String> {
     use matrix_sdk::ruma::api::client::push::get_notifications;
     use matrix_sdk::ruma::UInt;
 
@@ -7766,6 +7774,7 @@ pub(crate) fn request_activity_seed(bridge: &RustClient, limit: u32) -> Result<(
         let mut request = get_notifications::v3::Request::new();
         request.limit = Some(UInt::from(limit.clamp(1, 100)));
         request.only = Some("highlight".to_owned());
+        request.from = from.clone();
         let answer = client.send(request).await;
         if !timelines.lifecycle_current(lifecycle) {
             return;
@@ -7776,12 +7785,14 @@ pub(crate) fn request_activity_seed(bridge: &RustClient, limit: u32) -> Result<(
                 // A fixed token (HTTP status + errcode, or the transport
                 // class), so the C++ warning says why without any server text.
                 enqueue(&events, json!({
-                    "type": "activity_seed", "lifecycle": lifecycle, "ok": false, "entries": [],
+                    "type": if from.is_some() { "activity_seed_page" } else { "activity_seed" },
+                    "lifecycle": lifecycle, "ok": false, "entries": [],
                     "category": crate::oauth::http_failure_reason(&err),
                 }));
                 return;
             }
         };
+        let next_token = response.next_token.clone().unwrap_or_default();
         let mut entries: Vec<serde_json::Value> = Vec::new();
         for notification in response.notifications {
             let value: serde_json::Value =
@@ -7797,7 +7808,9 @@ pub(crate) fn request_activity_seed(bridge: &RustClient, limit: u32) -> Result<(
             }
         }
         enqueue(&events, json!({
-            "type": "activity_seed", "lifecycle": lifecycle, "ok": true, "entries": entries,
+            "type": if from.is_some() { "activity_seed_page" } else { "activity_seed" },
+            "lifecycle": lifecycle, "ok": true, "entries": entries,
+            "next_token": next_token,
         }));
     });
     Ok(())

@@ -1585,6 +1585,8 @@ char *mx_rust_send_room_message(void *client,
    timestamp_ms, read, encrypted, body, thread_root_id}]}`; an encrypted
    event carries no body. */
 char *mx_rust_request_activity_seed(void *client, unsigned int limit);
+char *mx_rust_request_activity_seed_page(void *client, unsigned int limit,
+                                         const char *from);
 char *mx_rust_request_edit_history(void *client,
                                    const char *room_id,
                                    const char *event_id);

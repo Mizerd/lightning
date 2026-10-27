@@ -1,10 +1,10 @@
-//! Two standard, cross-client account-data preferences: MSC4278
-//! `m.media_preview_config` (invite avatars, media previews) and Element's
-//! `m.recent_emoji`.
+//! Allow-listed account-data transport: the standard media/invite preferences,
+//! recent emoji, and Lightning's saved-message references. The latter is
+//! metadata only; `check_saved_content` refuses previews and bodies.
 //!
-//! This is transport only. The SDK keeps global account data in its state
-//! store as sync delivers it, so a read answers from the store (no request),
-//! a write is one bounded PUT, and a change made by another device (or our own
+//! This is transport only. Simple reads use the SDK state store; saved
+//! references and fail-closed policy types read the server. A write is one
+//! bounded PUT, and a change made by another device (or our own
 //! write coming back) arrives through an event handler that tells C++ only
 //! WHICH type changed; C++ then re-reads it. What the values MEAN (unknown
 //! value = off, emoji merge) is decided in C++, where it is tested without a
@@ -47,13 +47,15 @@ use crate::{enqueue, EventQueueRef, RustClient};
 
 pub(crate) const MEDIA_PREVIEW_TYPE: &str = "m.media_preview_config";
 pub(crate) const RECENT_EMOJI_TYPE: &str = "m.recent_emoji";
+/// Personal message references only. The homeserver can read room/event ids.
+pub(crate) const SAVED_MESSAGES_TYPE: &str = "org.lightning_matrix.saved_messages";
 pub(crate) const INVITE_PERMISSION_TYPE: &str = "m.invite_permission_config";
 pub(crate) const INVITE_PERMISSION_UNSTABLE_TYPE: &str =
     "org.matrix.msc4380.invite_permission_config";
 /// The `/versions` unstable feature a server advertises for MSC4380.
 pub(crate) const INVITE_PERMISSION_FEATURE: &str = "org.matrix.msc4380";
 
-/// A write is one small object; anything larger is not one of these two.
+/// A write is one small object; never accept an unbounded account-data blob.
 const MAX_CONTENT_BYTES: usize = 16 * 1024;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 
@@ -62,6 +64,7 @@ pub(crate) fn allowed_type(event_type: &str) -> Option<&'static str> {
     match event_type {
         MEDIA_PREVIEW_TYPE => Some(MEDIA_PREVIEW_TYPE),
         RECENT_EMOJI_TYPE => Some(RECENT_EMOJI_TYPE),
+        SAVED_MESSAGES_TYPE => Some(SAVED_MESSAGES_TYPE),
         INVITE_PERMISSION_TYPE => Some(INVITE_PERMISSION_TYPE),
         INVITE_PERMISSION_UNSTABLE_TYPE => Some(INVITE_PERMISSION_UNSTABLE_TYPE),
         _ => None,
@@ -79,6 +82,43 @@ pub(crate) fn parse_content(json: &str) -> Result<Value, &'static str> {
         return Err("invalid_content");
     }
     Ok(value)
+}
+
+/// Keep the account-data event metadata-only even if a future UI mistakenly
+/// passes a preview/body. The transport is not an encrypted store.
+pub(crate) fn check_saved_content(value: &Value) -> Result<(), &'static str> {
+    let entries = value.get("entries").and_then(Value::as_array).ok_or("invalid_content")?;
+    if value.as_object().map_or(true, |o| {
+        o.len() != 2 || o.get("version") != Some(&json!(1))
+    })
+        || entries.len() > 100
+    {
+        return Err("invalid_content");
+    }
+    let valid_event = |item: Option<&Value>, empty_allowed: bool| {
+        item.and_then(Value::as_str).is_some_and(|id| {
+            (empty_allowed && id.is_empty())
+                || (id.len() <= 255
+                    && !id.contains('\u{1f}')
+                    && matrix_sdk::ruma::EventId::parse(id).is_ok())
+        })
+    };
+    for item in entries {
+        let o = item.as_object().ok_or("invalid_content")?;
+        if o.len() != 4
+            || !o.get("room_id").and_then(Value::as_str).is_some_and(|id| {
+                id.len() <= 255
+                    && !id.contains('\u{1f}')
+                    && matrix_sdk::ruma::RoomId::parse(id).is_ok()
+            })
+            || !valid_event(o.get("event_id"), false)
+            || !valid_event(o.get("thread_root_id"), true)
+            || !o.get("saved_at_ms").is_some_and(Value::is_u64)
+        {
+            return Err("invalid_content");
+        }
+    }
+    Ok(())
 }
 
 /// The event C++ receives for a read: `present` is false when the account
@@ -114,6 +154,7 @@ pub(crate) fn reads_from_server(event_type: &str) -> bool {
     event_type == INVITE_PERMISSION_TYPE
         || event_type == INVITE_PERMISSION_UNSTABLE_TYPE
         || event_type == MEDIA_PREVIEW_TYPE
+        || event_type == SAVED_MESSAGES_TYPE
 }
 
 /// `account_pref_failed { pref_type, category }`: a server read that did not
@@ -176,6 +217,9 @@ pub(crate) fn write(
 ) -> Result<(), String> {
     let event_type = allowed_type(&event_type).ok_or_else(|| "unsupported_type".to_owned())?;
     let content = parse_content(&content_json).map_err(str::to_owned)?;
+    if event_type == SAVED_MESSAGES_TYPE {
+        check_saved_content(&content).map_err(str::to_owned)?;
+    }
     let client = require_client(bridge)?;
     let events = Arc::clone(&bridge.events);
     let lifecycle = bridge.timelines.lifecycle();
@@ -274,6 +318,10 @@ pub(crate) struct MediaPreviewConfigEventContent {}
 pub(crate) struct RecentEmojiEventContent {}
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, EventContent)]
+#[ruma_event(type = "org.lightning_matrix.saved_messages", kind = GlobalAccountData)]
+pub(crate) struct SavedMessagesEventContent {}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, EventContent)]
 #[ruma_event(type = "m.invite_permission_config", kind = GlobalAccountData)]
 pub(crate) struct InvitePermissionEventContent {}
 
@@ -321,12 +369,36 @@ pub(crate) fn install_change_handlers(
             }
         },
     );
-    vec![media, emoji, invite, unstable]
+    let saved_events = Arc::clone(&events);
+    let saved = client.add_event_handler(
+        move |_ev: GlobalAccountDataEvent<SavedMessagesEventContent>| {
+            let events = Arc::clone(&saved_events);
+            async move {
+                enqueue(&events, change_payload(SAVED_MESSAGES_TYPE));
+            }
+        },
+    );
+    vec![media, emoji, invite, unstable, saved]
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn saved_messages_account_data_rejects_plaintext_and_composites() {
+        let reference = json!({"room_id":"!room:example.org", "event_id":"$reply",
+            "thread_root_id":"$root", "saved_at_ms":42});
+        assert_eq!(allowed_type(SAVED_MESSAGES_TYPE), Some(SAVED_MESSAGES_TYPE));
+        assert!(reads_from_server(SAVED_MESSAGES_TYPE));
+        assert!(check_saved_content(&json!({"version":1,"entries":[reference.clone()]})).is_ok());
+        let mut with_body = reference.clone();
+        with_body["body"] = json!("secret");
+        assert!(check_saved_content(&json!({"version":1,"entries":[with_body]})).is_err());
+        let mut composite = reference;
+        composite["room_id"] = json!("!room:example.org\u{1f}thread\u{1f}$root");
+        assert!(check_saved_content(&json!({"version":1,"entries":[composite]})).is_err());
+    }
 
     #[test]
     fn the_policy_types_are_read_from_the_server() {
@@ -360,7 +432,7 @@ mod tests {
     }
 
     #[test]
-    fn only_the_two_standard_types_can_cross() {
+    fn only_allowlisted_account_data_types_can_cross() {
         assert_eq!(allowed_type("m.media_preview_config"), Some("m.media_preview_config"));
         assert_eq!(allowed_type("m.recent_emoji"), Some("m.recent_emoji"));
         for other in [

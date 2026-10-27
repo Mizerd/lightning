@@ -315,6 +315,22 @@ Item {
         id: quickSwitcher
         onDiscoverRequested: (startMode) => roomsPanel.openDiscover(startMode)
         onGlobalSearchRequested: (query) => messageSearchDialog.openDialog(query)
+        onSavedMessagesRequested: savedMessagesPanel.openPanel()
+        onThreadsRequested: {
+            app.activity.filter = "threads"
+            roomsPanel.openActivityCenter()
+        }
+    }
+    SavedMessagesPanel {
+        id: savedMessagesPanel
+    }
+    Shortcut {
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("nav.savedMessages")]
+        }
+        enabled: app.loggedIn && !!app.savedMessages
+        onActivated: savedMessagesPanel.openPanel()
     }
 
     Shortcut {

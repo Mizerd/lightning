@@ -1010,6 +1010,12 @@ ApplicationWindow {
                     pinNotice.show(message)
             }
         }
+        Connections {
+            target: app.savedMessages
+            function onActionFailed(message) {
+                pinNotice.show(message, true)
+            }
+        }
         // Report outcome. The report dialog closes before the server answers,
         // so report both outcomes here (a silent success looks like a dead menu
         // item). The controller supplies the translated sentences.

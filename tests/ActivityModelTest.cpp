@@ -18,6 +18,7 @@
 
 #include <QSignalSpy>
 #include <QtTest/QtTest>
+#include <algorithm>
 
 namespace {
 
@@ -28,6 +29,9 @@ public:
     using MatrixClient::MatrixClient;
     QString self = QStringLiteral("@me:mock.local");
     QList<RoomInfo> roomSet;
+    QString requestedActivityPage;
+    void requestActivitySeedPage(const QString &from, int) override
+    { requestedActivityPage = from; }
     // Only the Rust backend keeps all four unread fields current; one case
     // turns this off to prove the refusal is real.
     bool tracksRead = true;
@@ -133,6 +137,101 @@ class ActivityModelTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
+    void threadActivityGroupsRootsAndKeepsSeenSeparateFromRead()
+    {
+        Harness h;
+        auto entry = [](const QString &id, const QString &room,
+                        const QString &root, qint64 time) {
+            return QVariantMap{
+                { QStringLiteral("eventId"), id },
+                { QStringLiteral("roomId"), room },
+                { QStringLiteral("threadRootId"), root },
+                { QStringLiteral("senderId"), QStringLiteral("@bob:mock.local") },
+                { QStringLiteral("kind"), QStringLiteral("mention") },
+                { QStringLiteral("preview"), QStringLiteral("hi") },
+                { QStringLiteral("timestampMs"), time },
+            };
+        };
+        const QString other = QStringLiteral("!other:mock.local");
+        h.model.seed({entry(QStringLiteral("$a2"), kRoom, QStringLiteral("$rootA"), 200),
+                      entry(QStringLiteral("$a1"), kRoom, QStringLiteral("$rootA"), 100),
+                      entry(QStringLiteral("$b1"), kRoom, QStringLiteral("$rootB"), 150),
+                      entry(QStringLiteral("$c1"), other, QStringLiteral("$rootC"), 175)});
+        QCOMPARE(h.model.threadActivity(QStringLiteral("all")).size(), 3);
+        QCOMPARE(h.model.threadActivity(QStringLiteral("unread")).size(), 3);
+        bool muteOther = true;
+        h.model.setNotificationModeSource([&](const QString &roomId) {
+            return roomId == other && muteOther ? 2 : 0;
+        });
+        QCOMPARE(h.model.threadActivity(QStringLiteral("all")).size(), 2);
+        muteOther = false;
+        h.model.notificationModesChanged();
+        QCOMPARE(h.model.threadActivity(QStringLiteral("all")).size(), 3);
+        h.model.markSeen(QStringLiteral("$a2"));
+        // Seen is only an Activity Center marker, never a thread receipt.
+        QCOMPARE(h.model.threadActivity(QStringLiteral("unread")).size(), 3);
+        h.model.markAllSeen();
+        QCOMPARE(h.model.threadActivity(QStringLiteral("unread")).size(), 3);
+        QSignalSpy opened(&h.model, &ActivityModel::openRequested);
+        h.model.openThreadActivity(kRoom, QStringLiteral("$rootA"),
+                                   QStringLiteral("$a2"));
+        QCOMPARE(opened.size(), 1);
+        QCOMPARE(opened.first().at(0).toString(), kRoom);
+        QCOMPARE(opened.first().at(1).toString(), QStringLiteral("$a2"));
+        QCOMPARE(opened.first().at(2).toString(), QStringLiteral("$rootA"));
+        h.model.markRoomReadUpTo(kRoom, 250, QStringLiteral("$rootA"));
+        QCOMPARE(h.model.threadActivity(QStringLiteral("unread")).size(), 2);
+        const auto remaining = h.model.threadActivity(QStringLiteral("unread"));
+        QVERIFY(std::any_of(remaining.begin(), remaining.end(), [](const QVariant &v) {
+            return v.toMap().value(QStringLiteral("rootEventId"))
+                == QStringLiteral("$rootB");
+        }));
+    }
+
+    void followedThreadsUseServerSubscriptionState()
+    {
+        Harness h;
+        h.model.seed({QVariantMap{
+            { QStringLiteral("eventId"), QStringLiteral("$reply") },
+            { QStringLiteral("roomId"), kRoom },
+            { QStringLiteral("threadRootId"), QStringLiteral("$root") },
+            { QStringLiteral("senderId"), QStringLiteral("@bob:mock.local") },
+            { QStringLiteral("timestampMs"), 100 },
+        }});
+        QCOMPARE(h.model.threadActivity(QStringLiteral("following")).size(), 0);
+        Q_EMIT h.client.threadSubscriptionState(kRoom, QStringLiteral("$root"),
+                                                 true, true, false);
+        QCOMPARE(h.model.threadActivity(QStringLiteral("following")).size(), 1);
+        Q_EMIT h.client.threadSubscriptionState(kRoom, QStringLiteral("$root"),
+                                                 true, false, false);
+        QCOMPARE(h.model.threadActivity(QStringLiteral("following")).size(), 0);
+        h.model.clear();
+        QCOMPARE(h.model.threadActivity(QStringLiteral("all")).size(), 0);
+    }
+
+    void olderThreadActivityRetriesTheSameCursorAndAppends()
+    {
+        Harness h;
+        Q_EMIT h.client.activitySeedCursorReceived(QStringLiteral("page-one"));
+        QVERIFY(h.model.threadHasMore());
+        h.model.loadOlderThreadActivity();
+        QCOMPARE(h.client.requestedActivityPage, QStringLiteral("page-one"));
+        QVERIFY(h.model.threadPageLoading());
+        Q_EMIT h.client.activitySeedPageFailed(QStringLiteral("timeout"));
+        QVERIFY(h.model.threadPageFailed());
+        h.model.loadOlderThreadActivity();
+        QCOMPARE(h.client.requestedActivityPage, QStringLiteral("page-one"));
+        Q_EMIT h.client.activitySeedPageReceived({QVariantMap{
+            { QStringLiteral("eventId"), QStringLiteral("$older") },
+            { QStringLiteral("roomId"), kRoom },
+            { QStringLiteral("threadRootId"), QStringLiteral("$root") },
+            { QStringLiteral("senderId"), QStringLiteral("@bob:mock.local") },
+            { QStringLiteral("timestampMs"), 100 },
+        }}, QString());
+        QVERIFY(!h.model.threadHasMore());
+        QVERIFY(!h.model.threadPageLoading());
+        QCOMPARE(h.model.threadActivity(QStringLiteral("all")).size(), 1);
+    }
     // Reading a room (this client's read receipt) marks its entries seen up
     // to that point.
     void readingARoomMarksItsEntriesSeenUpToThatPoint()

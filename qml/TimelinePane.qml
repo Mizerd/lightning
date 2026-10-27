@@ -3668,6 +3668,7 @@ Rectangle {
                         }
                         break
                     case "timeline.forwardMessage":
+                    case "timeline.saveMessage":
                     case "timeline.deleteMessage":
                     case "timeline.copyMessageText":
                     case "timeline.copyMessageLink":

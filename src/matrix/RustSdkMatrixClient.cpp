@@ -10123,6 +10123,18 @@ void RustSdkMatrixClient::requestActivitySeed(int limit)
         qCDebug(lcRust) << "activity seed request refused";
 }
 
+void RustSdkMatrixClient::requestActivitySeedPage(const QString &from, int limit)
+{
+    if (!m_loggedIn || !m_rustHandle || from.isEmpty())
+        return;
+    const QByteArray token = from.toUtf8();
+    const QString result = takeRustString(mx_rust_request_activity_seed_page(
+        m_rustHandle, static_cast<unsigned int>(qBound(1, limit, 100)),
+        token.constData()));
+    if (!result.isEmpty())
+        Q_EMIT activitySeedPageFailed(result.left(48));
+}
+
 void RustSdkMatrixClient::requestEditHistory(const QString &roomId,
                                              const QString &eventId)
 {
@@ -13663,7 +13675,9 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             event.value(QStringLiteral("category")).toString());
         return true;
     }
-    if (type == QLatin1String("activity_seed")) {
+    if (type == QLatin1String("activity_seed")
+        || type == QLatin1String("activity_seed_page")) {
+        const bool page = type == QLatin1String("activity_seed_page");
         // A failed fetch is not "no highlights": say so, so the caller can try
         // again instead of treating the session as seeded.
         // The caller retries with a backoff (5 s .. 160 s), so a server that
@@ -13672,6 +13686,11 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         // there is one client per process.
         static int seedFailuresInARow = 0;
         if (!event.value(QStringLiteral("ok")).toBool(true)) {
+            if (page) {
+                Q_EMIT activitySeedPageFailed(
+                    event.value(QStringLiteral("category")).toString().left(48));
+                return true;
+            }
             ++seedFailuresInARow;
             const QString category = event.value(QStringLiteral("category")).toString();
             if (seedFailuresInARow == 1) {
@@ -13713,7 +13732,13 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                 { QStringLiteral("kind"), QStringLiteral("highlight") },
             });
         }
-        Q_EMIT activitySeedReceived(entries);
+        const QString next = event.value(QStringLiteral("next_token")).toString();
+        if (page)
+            Q_EMIT activitySeedPageReceived(entries, next);
+        else {
+            Q_EMIT activitySeedCursorReceived(next);
+            Q_EMIT activitySeedReceived(entries);
+        }
         return true;
     }
     if (type == QLatin1String("room_send_result")) {

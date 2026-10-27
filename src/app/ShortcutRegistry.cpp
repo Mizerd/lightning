@@ -222,6 +222,8 @@ void ShortcutRegistry::buildTables()
         { QStringLiteral("nav.activityCenter"), navCat,
           tr("Open the Activity Center"), QStringLiteral("Ctrl+Shift+I"),
           GlobalContext },
+        { QStringLiteral("nav.savedMessages"), navCat,
+          tr("Open saved messages"), {}, GlobalContext },
 
         // ── View / shell ────────────────────────────────────────────────
         { QStringLiteral("dialog.previousItem"), dialogCat,
@@ -313,6 +315,9 @@ void ShortcutRegistry::buildTables()
         // that is half-page down. Delete confirms exactly as the menu does.
         { QStringLiteral("timeline.forwardMessage"), roomCat,
           tr("Forward the selected message"), QStringLiteral("F"),
+          MessageSelectionContext },
+        { QStringLiteral("timeline.saveMessage"), roomCat,
+          tr("Save or remove the selected message"), QStringLiteral("S"),
           MessageSelectionContext },
         { QStringLiteral("timeline.deleteMessage"), roomCat,
           tr("Delete the selected message"), QStringLiteral("Delete"),

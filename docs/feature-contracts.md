@@ -854,6 +854,53 @@ backend capability checks and honest live-test status.
   the MessageSelectionContext keys (older/newer, half pages, reply) with the
   same delegate mark and eligibility as the room timeline.
 
+#### Threads in the Activity Center (Q1)
+
+The Activity Center's Threads area groups its bounded account activity rows by
+real `(room_id, root_event_id)` and keeps the newest exact reply as the open
+target. Unread is a conservative dot from a notification not yet covered by a
+confirmed threaded/unthreaded receipt or reconciled room read state. Seeing an
+activity row, opening the list, or marking notifications seen does not mark a
+thread read. A mention cue is a still-unread highlighted row; Participating
+means a classified reply in a thread the user started/joined or a direct reply.
+Following is only shown when the server reports an MSC4306 subscription; the
+model queries at most 50 discovered roots per visit and never guesses a state.
+Muted rooms are hidden under the existing Activity Center notification-mode
+rule, not marked read. It does not enumerate unrelated threads: those remain
+in the per-room SDK Threads list. The server's highlight notification feed is
+paged by `next_token` 60 at a time, with a retry that keeps the same cursor.
+If the server lacks `/notifications`, older discovery is explicitly unavailable.
+No participant fan-out or all-room polling is involved.
+
+### Saved messages (Q4)
+
+The personal saved hub uses the existing SDK global account-data transport,
+with the allow-listed type `org.lightning_matrix.saved_messages`. Lightning
+had no general message bookmark state; `m.room.pinned_events` is shared room
+state and cannot represent a personal bookmark. The namespaced type is used
+so it cannot collide with Matrix's standard events or another client's private
+schema. Version 1 contains only `entries` of `{room_id, event_id,
+thread_root_id, saved_at_ms}`. The Rust boundary validates real Matrix IDs,
+rejects internal composite IDs and every extra field, and caps the event at
+16 KiB / 100 references. It contains no preview, filename, message body,
+media URL, key or token. **Global account data is readable by the homeserver
+and is synchronized across devices**: room/event/root identifiers and save
+times are exposed there. The feature has one default, with no special-case
+sync toggle. This is the account-data storage path requested for the absent
+bookmark foundation; it is not an encrypted private note store.
+
+The hub resolves content on demand through the SDK's cache-first
+`load_or_fetch_event` source path, at most four events at once and without
+downloading media. Resolved previews live in memory only and are dropped on
+account switch, reload, or redaction. A missing/redacted/undecryptable event
+remains a saved reference with an unavailable label; no old excerpt is stored
+in account data. Open routes real room/event/root IDs through the same exact
+navigation used by Activity. Save/remove writes are serialized; a failed write
+restores the prior local list. Account data has no compare-and-swap, so
+simultaneous edits from two devices to this one event can overwrite each
+other; a server read after writes converges to its accepted state. This
+limitation needs live multi-device validation before a stronger merge claim.
+
 ### E2EE
 
 - SDK-owned encrypted sending/receiving and persistent crypto store

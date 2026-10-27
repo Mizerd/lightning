@@ -1227,6 +1227,7 @@ Rectangle {
                         panel.focusComposer()
                         break
                     case "timeline.deleteMessage":
+                    case "timeline.saveMessage":
                         var selected = rowForEvent(selectedEventId)
                         var rowItem = selected >= 0 ? itemAtIndex(selected) : null
                         if (rowItem && rowItem.runSelectionAction)

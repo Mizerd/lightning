@@ -1134,9 +1134,10 @@ public:
     // report queued behind an operation and lost to a sign-out is made again.
     virtual void acknowledgeInterruptedSetup() {}
 
-    // Two standard account-data preferences, nothing else: "m.media_preview_config"
-    // (MSC4278) and "m.recent_emoji". readAccountPref answers from the SDK's
-    // state store on accountPrefRead; writeAccountPref (a JSON object, bounded)
+    // Allow-listed account-data types: standard preferences and Lightning's
+    // metadata-only saved-message references. readAccountPref answers on
+    // accountPrefRead (server-fetched for saved references and fail-closed
+    // policy types); writeAccountPref (a JSON object, bounded)
     // answers on accountPrefWritten. A change made elsewhere arrives as
     // accountPrefChanged, after which the caller re-reads.
     // Whether this backend keeps account-data preferences at all. One that
@@ -1362,6 +1363,8 @@ public:
     // encrypted, preview, threadRootId, msgtype}], or activitySeedFailed;
     // never ciphertext.
     virtual void requestActivitySeed(int limit) { Q_UNUSED(limit); }
+    virtual void requestActivitySeedPage(const QString &from, int limit)
+    { Q_UNUSED(from); Q_UNUSED(limit); }
     // An empty alias clears the canonical alias. Answers on
     // roomEditFinished with field "canonical_alias".
     virtual quint64 setRoomCanonicalAlias(const QString &roomId,
@@ -2453,6 +2456,10 @@ Q_SIGNALS:
                                const QString &key, qint64 timestampMs,
                                bool targetIsOwn = false, bool backlog = false);
     void activitySeedReceived(const QVariantList &entries);
+    void activitySeedCursorReceived(const QString &nextToken);
+    void activitySeedPageReceived(const QVariantList &entries,
+                                  const QString &nextToken);
+    void activitySeedPageFailed(const QString &category);
     // requestActivitySeed failed: nothing was fetched. Distinct from an empty
     // seed, which means the server has no highlights. `category` is the fixed
     // failure token ("http_404_M_UNRECOGNIZED", "timeout", ...; empty when

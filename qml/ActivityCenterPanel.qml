@@ -23,10 +23,26 @@ Dialog {
     padding: AppTheme.spacing16
 
     readonly property var activity: app.activity
+    property string threadScope: "unread"
+    readonly property bool showingThreads: !!activity && activity.filter === "threads"
+    readonly property var threadRows: {
+        if (!showingThreads || !activity || !activity.threadActivity)
+            return []
+        var revision = activity.threadActivityRevision
+        return activity.threadActivity(threadScope)
+    }
     // Opening a modal gives the popup focus, but not its keyboard-driven
     // list. Do this on every open, including after tabbing to a control;
     // leave the current row and the model's seen state alone.
-    onOpened: listView.forceActiveFocus(Qt.PopupFocusReason)
+    onOpened: {
+        if (showingThreads) {
+            if (activity.refreshThreadFollowing)
+                activity.refreshThreadFollowing()
+            threadList.forceActiveFocus(Qt.PopupFocusReason)
+        } else {
+            listView.forceActiveFocus(Qt.PopupFocusReason)
+        }
+    }
 
     // The keyword list is NOT edited here: it used to be a second, local list
     // that only filtered this panel and never notified or pushed. The account's
@@ -46,13 +62,14 @@ Dialog {
         if (action === "dialog.close") {
             root.close()
         } else if (action === "dialog.previousItem" || action === "dialog.nextItem") {
-            if (listView.count > 0) {
+            var activeList = root.showingThreads ? threadList : listView
+            if (activeList.count > 0) {
                 const delta = action === "dialog.previousItem" ? -1 : 1
-                listView.currentIndex = Math.max(0, Math.min(listView.count - 1,
-                    listView.currentIndex < 0 ? 0 : listView.currentIndex + delta))
-                listView.positionViewAtIndex(listView.currentIndex, ListView.Contain)
+                activeList.currentIndex = Math.max(0, Math.min(activeList.count - 1,
+                    activeList.currentIndex < 0 ? 0 : activeList.currentIndex + delta))
+                activeList.positionViewAtIndex(activeList.currentIndex, ListView.Contain)
             }
-            listView.forceActiveFocus(Qt.ShortcutFocusReason)
+            activeList.forceActiveFocus(Qt.ShortcutFocusReason)
         } else {
             return false
         }
@@ -243,7 +260,42 @@ Dialog {
                 { value: "keywords", label: qsTr("Keywords") }
             ]
             current: root.activity ? root.activity.filter : "all"
-            onActivated: (value) => { if (root.activity) root.activity.filter = value }
+            onActivated: (value) => {
+                if (!root.activity) return
+                root.activity.filter = value
+                if (value === "threads" && root.activity.refreshThreadFollowing)
+                    root.activity.refreshThreadFollowing()
+                Qt.callLater(function() {
+                    (value === "threads" ? threadList : listView)
+                        .forceActiveFocus(Qt.ShortcutFocusReason)
+                })
+            }
+        }
+
+        SegmentedControl {
+            objectName: "threadActivityScope"
+            visible: root.showingThreads
+            keyForwardTargets: [dialogKeySink]
+            storm: true
+            dense: true
+            fitWidth: true
+            Layout.fillWidth: true
+            model: [
+                { value: "unread", label: qsTr("Unread") },
+                { value: "participating", label: qsTr("Participating") },
+                { value: "following", label: qsTr("Following") },
+                { value: "all", label: qsTr("All known") }
+            ]
+            current: root.threadScope
+            onActivated: (value) => root.threadScope = value
+        }
+        Label {
+            visible: root.showingThreads
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            color: AppTheme.stormTextMuted
+            font.pixelSize: AppTheme.textMeta
+            text: qsTr("Threads found through activity in this account. Older and unrelated threads may be missing. Muted rooms are hidden. Opening this list does not mark threads read.")
         }
 
         // Keywords are account push rules; they are edited in Settings.
@@ -281,6 +333,7 @@ Dialog {
             && root.activity.historyUnavailable
             && root.activity.filter !== "invites"
             && root.activity.filter !== "keywords"
+            && !root.showingThreads
 
         Label {
             objectName: "activityHistoryUnavailable"
@@ -294,7 +347,8 @@ Dialog {
 
         Label {
             objectName: "activityEmptyState"
-            visible: listView.count === 0
+            visible: root.showingThreads ? threadList.count === 0
+                                         : listView.count === 0
             Layout.fillWidth: true
             Layout.topMargin: AppTheme.spacing24
             horizontalAlignment: Text.AlignHCenter
@@ -304,6 +358,12 @@ Dialog {
             text: {
                 if (!root.activity)
                     return ""
+                if (root.showingThreads)
+                    return root.threadScope === "following"
+                           ? qsTr("No followed threads found in recent activity.")
+                           : root.threadScope === "unread"
+                             ? qsTr("No unread threads found in recent activity.")
+                             : qsTr("No threads found in recent activity.")
                 if (panelColumn.historyHintApplies)
                     return qsTr("Older activity is not available from this server. New mentions, replies and reactions will show up here as they arrive.")
                 switch (root.activity.filter) {
@@ -336,6 +396,7 @@ Dialog {
                 clip: true
                 spacing: AppTheme.spacing4
                 model: root.activity
+                visible: !root.showingThreads
                 activeFocusOnTab: true
                 keyNavigationEnabled: true
                 currentIndex: 0
@@ -504,10 +565,139 @@ Dialog {
                     }
                 }
             }
+            ListView {
+                id: threadList
+                objectName: "threadActivityList"
+                visible: root.showingThreads
+                anchors.fill: parent
+                clip: true
+                spacing: AppTheme.spacing4
+                model: root.threadRows
+                activeFocusOnTab: true
+                currentIndex: 0
+                Accessible.role: Accessible.List
+                Accessible.name: qsTr("Threads activity")
+                Keys.forwardTo: [dialogKeySink]
+                Keys.onReturnPressed: openCurrent()
+                Keys.onEnterPressed: openCurrent()
+                Keys.onSpacePressed: openCurrent()
+                function openCurrent() {
+                    if (currentItem) currentItem.openThread()
+                }
+                ScrollBar.vertical: ScrollBar { }
+                footer: Item {
+                    width: threadList.width
+                    height: root.activity && root.activity.threadHasMore
+                            ? AppTheme.buttonHeightSm + AppTheme.spacing12 : 0
+                    AppButton {
+                        anchors.centerIn: parent
+                        visible: parent.height > 0
+                        storm: true
+                        kind: "ghost"
+                        size: "sm"
+                        enabled: root.activity && !root.activity.threadPageLoading
+                        text: root.activity && root.activity.threadPageLoading
+                              ? qsTr("Loading…")
+                              : root.activity && root.activity.threadPageFailed
+                                ? qsTr("Retry older activity")
+                                : qsTr("Load older activity")
+                        onClicked: root.activity.loadOlderThreadActivity()
+                    }
+                }
+                delegate: Rectangle {
+                    id: threadRow
+                    required property int index
+                    required property var modelData
+                    width: threadList.width
+                    implicitHeight: threadContent.implicitHeight + AppTheme.spacing12 * 2
+                    radius: AppTheme.radiusTile
+                    color: hover.hovered ? AppTheme.stormSelection : AppTheme.stormInset
+                    border.width: threadRow.ListView.isCurrentItem && threadList.activeFocus ? 2 : 1
+                    border.color: AppTheme.stormBorder
+                    function openThread() {
+                        threadList.currentIndex = index
+                        if (root.activity && root.activity.openThreadActivity)
+                            root.activity.openThreadActivity(modelData.roomId,
+                                modelData.rootEventId, modelData.eventId)
+                        root.close()
+                    }
+                    Accessible.role: Accessible.Button
+                    Accessible.name: root.fill(qsTr("Thread in %1, %2: %3"),
+                        [root.isolate(modelData.roomName),
+                         root.isolate(modelData.senderName),
+                         modelData.encrypted ? qsTr("Encrypted message")
+                                             : modelData.preview])
+                    Accessible.onPressAction: openThread()
+                    HoverHandler { id: hover }
+                    TapHandler { onTapped: threadRow.openThread() }
+                    RowLayout {
+                        id: threadContent
+                        anchors.fill: parent
+                        anchors.margins: AppTheme.spacing12
+                        spacing: AppTheme.spacing8
+                        Icon { name: "forum"; size: 18; color: AppTheme.stormText }
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: AppTheme.spacing2
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Label {
+                                    text: modelData.roomName
+                                    textFormat: Text.PlainText
+                                    color: AppTheme.stormText
+                                    font.weight: AppTheme.weightStrong
+                                    elide: Text.ElideRight
+                                    Layout.fillWidth: true
+                                }
+                                Label {
+                                    text: root.timeLabel(modelData.timestampMs)
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.textMeta
+                                }
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                text: root.isolate(modelData.senderName) + ": "
+                                      + (modelData.encrypted ? qsTr("Encrypted message")
+                                                             : modelData.preview)
+                                textFormat: Text.PlainText
+                                color: AppTheme.stormTextMuted
+                                elide: Text.ElideRight
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                text: modelData.rootPreview
+                                      ? root.fill(qsTr("Root: %1"),
+                                                  [modelData.rootPreview])
+                                      : qsTr("Root context loads when opened")
+                                textFormat: Text.PlainText
+                                color: AppTheme.stormTextMuted
+                                font.pixelSize: AppTheme.textMeta
+                                elide: Text.ElideRight
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                visible: modelData.following || modelData.mention
+                                text: (modelData.mention ? qsTr("Mention") : "")
+                                      + (modelData.mention && modelData.following ? " · " : "")
+                                      + (modelData.following ? qsTr("Following") : "")
+                                color: AppTheme.stormTextMuted
+                                font.pixelSize: AppTheme.textMeta
+                            }
+                        }
+                        Rectangle {
+                            width: 8; height: 8; radius: 4
+                            color: AppTheme.bolt
+                            visible: modelData.unread
+                        }
+                    }
+                }
+            }
             MiddleClickScroller {
                 objectName: "activityMiddleClickScroller"
                 anchors.fill: parent
                 z: 1
+                visible: !root.showingThreads
                 view: listView
             }
         }

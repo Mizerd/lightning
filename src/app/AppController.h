@@ -89,6 +89,7 @@
 #include "models/SpaceChannelModel.h"
 #include "models/TimelineModel.h"
 #include "app/PinnedMessagesController.h"
+#include "app/SavedMessagesController.h"
 #include "app/RoomUpgradeController.h"
 #include "app/OpenRoomPermissions.h"
 #include "models/TimelineScrollController.h"
@@ -469,6 +470,7 @@ class AppController : public QObject
     Q_PROPERTY(AudioDeviceTester* audioTester READ audioTester CONSTANT)
     // Pinned messages for the active room (not the Room Information panel's).
     Q_PROPERTY(PinnedMessagesController* pinned READ pinned CONSTANT)
+    Q_PROPERTY(SavedMessagesController* savedMessages READ savedMessages CONSTANT)
     // Room upgrade links for the active room. Never follows an upgrade by
     // itself.
     Q_PROPERTY(RoomUpgradeController* roomUpgrade READ roomUpgrade CONSTANT)
@@ -849,6 +851,7 @@ public:
     void setParkedOpenTimeoutMsForTest(int ms) { m_parkedOpenTimeoutMs = ms; }
     bool hasParkedOpenForTest() const { return m_parkedOpen.has_value(); }
     PinnedMessagesController *pinned() const { return m_pinned.get(); }
+    SavedMessagesController *savedMessages() const { return m_savedMessages.get(); }
     RoomUpgradeController *roomUpgrade() const { return m_roomUpgrade.get(); }
     OpenRoomPermissions *openRoomPermissions() const
     { return m_openRoomPermissions.get(); }
@@ -1996,6 +1999,7 @@ private:
     // Ends an RTC ring answered on another of our devices, or abandoned.
     void noteRtcSessionForRing(const QString &roomId);
     std::unique_ptr<PinnedMessagesController> m_pinned;
+    std::unique_ptr<SavedMessagesController> m_savedMessages;
     std::unique_ptr<RoomUpgradeController> m_roomUpgrade;
     std::unique_ptr<OpenRoomPermissions> m_openRoomPermissions;
     std::unique_ptr<ThreadController> m_thread;

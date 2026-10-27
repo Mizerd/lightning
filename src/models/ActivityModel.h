@@ -50,6 +50,13 @@ class ActivityModel : public QAbstractListModel
     // arrived since. The panel says so instead of "Nothing here yet".
     Q_PROPERTY(bool historyUnavailable READ historyUnavailable
                    NOTIFY historyUnavailableChanged)
+    // Discovered thread conversations, grouped by real room/root ids. This is
+    // a bounded activity source, not a claim to enumerate every room's threads.
+    Q_PROPERTY(int threadActivityRevision READ threadActivityRevision
+                   NOTIFY threadActivityChanged)
+    Q_PROPERTY(bool threadPageLoading READ threadPageLoading NOTIFY threadPageChanged)
+    Q_PROPERTY(bool threadPageFailed READ threadPageFailed NOTIFY threadPageChanged)
+    Q_PROPERTY(bool threadHasMore READ threadHasMore NOTIFY threadPageChanged)
 
 public:
     enum Roles {
@@ -121,6 +128,16 @@ public:
     QStringList keywords() const { return m_keywords; }
     void setKeywords(const QStringList &keywords);
     bool historyUnavailable() const { return m_historyUnavailable; }
+    int threadActivityRevision() const { return m_threadActivityRevision; }
+    bool threadPageLoading() const { return m_threadPageLoading; }
+    bool threadPageFailed() const { return m_threadPageFailed; }
+    bool threadHasMore() const { return !m_threadPageToken.isEmpty(); }
+    Q_INVOKABLE QVariantList threadActivity(const QString &scope) const;
+    Q_INVOKABLE void refreshThreadFollowing();
+    Q_INVOKABLE void loadOlderThreadActivity();
+    Q_INVOKABLE void openThreadActivity(const QString &roomId,
+                                       const QString &rootEventId,
+                                       const QString &eventId);
     /// A seed failure (MatrixClient::activitySeedFailed's category) that asking
     /// again will not fix: the server does not implement GET /notifications
     /// (M_UNRECOGNIZED, or a bare 404/405/501 from a proxy in front of it).
@@ -238,6 +255,8 @@ Q_SIGNALS:
     void filterChanged();
     void keywordsChanged();
     void historyUnavailableChanged();
+    void threadActivityChanged();
+    void threadPageChanged();
     void openRequested(const QString &roomId, const QString &eventId,
                        const QString &threadRootId);
 
@@ -263,6 +282,9 @@ private:
         QString reactionKey;
         bool encrypted = false;
         bool seenMark = false;
+        // Only a receipt or reconciled room read state sets this. Seeing an
+        // Activity row never says that the conversation was read.
+        bool readMark = false;
         // The seed runs on the first Syncing state, before room payloads or
         // member snapshots arrive, so a row may display a raw room or user id.
         // These flags mark that it is waiting for a real name. displayNameFor()
@@ -360,6 +382,12 @@ private:
     // invited; see inviteAnswered(). Bounded.
     QSet<QString> m_answeredInvites;
     bool m_historyUnavailable = false;
+    int m_threadActivityRevision = 0;
+    // 0 unknown, 1 unsupported, 2 not followed, 3 followed.
+    QHash<QString, int> m_threadFollowing;
+    QString m_threadPageToken;
+    bool m_threadPageLoading = false;
+    bool m_threadPageFailed = false;
     // Seeded rows whose room was unknown when the seed landed, left on the
     // server's `read` flag. Retried on roomsChanged; a seed before any room
     // payload leaves every row here.

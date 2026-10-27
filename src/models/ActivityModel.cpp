@@ -58,6 +58,10 @@ QString collapse(const QString &text)
 ActivityModel::ActivityModel(QObject *parent)
     : QAbstractListModel(parent)
 {
+    connect(this, &QAbstractItemModel::dataChanged, this, [this] {
+        ++m_threadActivityRevision;
+        Q_EMIT threadActivityChanged();
+    });
 }
 
 void ActivityModel::setStore(Store store)
@@ -118,6 +122,39 @@ void ActivityModel::setClient(MatrixClient *client)
     if (!m_client)
         return;
     connect(m_client, &MatrixClient::loggedOut, this, [this] { clear(); });
+    connect(m_client, &MatrixClient::threadSubscriptionState, this,
+            [this](const QString &roomId, const QString &rootId,
+                   bool supported, bool subscribed, bool) {
+        const QString key = roomId + QChar(0x1f) + rootId;
+        const int state = !supported ? 1 : (subscribed ? 3 : 2);
+        if (m_threadFollowing.value(key) == state)
+            return;
+        m_threadFollowing.insert(key, state);
+        ++m_threadActivityRevision;
+        Q_EMIT threadActivityChanged();
+    });
+    connect(m_client, &MatrixClient::activitySeedCursorReceived, this,
+            [this](const QString &next) {
+        m_threadPageToken = next;
+        m_threadPageLoading = false;
+        m_threadPageFailed = false;
+        Q_EMIT threadPageChanged();
+    });
+    connect(m_client, &MatrixClient::activitySeedPageReceived, this,
+            [this](const QVariantList &entries, const QString &next) {
+        m_threadPageToken = next;
+        m_threadPageLoading = false;
+        m_threadPageFailed = false;
+        seed(entries);
+        refreshThreadFollowing();
+        Q_EMIT threadPageChanged();
+    });
+    connect(m_client, &MatrixClient::activitySeedPageFailed, this,
+            [this](const QString &) {
+        m_threadPageLoading = false;
+        m_threadPageFailed = true;
+        Q_EMIT threadPageChanged();
+    });
     // The account's store loads as soon as the account is known, not on the
     // first Syncing: an offline restore never reaches Syncing, and anything
     // written before the load (a seen marker, a keyword) would replace the
@@ -355,6 +392,10 @@ void ActivityModel::clear()
     // Room notification modes are account-scoped: a room two accounts share
     // can be muted for one and not the other.
     m_muteCache.clear();
+    m_threadFollowing.clear();
+    m_threadPageToken.clear();
+    m_threadPageLoading = false;
+    m_threadPageFailed = false;
     const bool keywordsMoved = !m_keywords.isEmpty();
     m_keywords.clear();
     endResetModel();
@@ -364,6 +405,9 @@ void ActivityModel::clear()
     setHistoryUnavailable(false);
     Q_EMIT countChanged();
     Q_EMIT unseenCountChanged();
+    ++m_threadActivityRevision;
+    Q_EMIT threadActivityChanged();
+    Q_EMIT threadPageChanged();
 }
 
 void ActivityModel::setHistoryUnavailable(bool unavailable)
@@ -526,7 +570,7 @@ void ActivityModel::markRoomReadUpTo(const QString &rawRoomId, qint64 timestampM
     const qint64 readAtMs = now();
     bool changed = false;
     for (Entry &e : m_entries) {
-        if (e.seenMark || e.roomId != roomId)
+        if (e.roomId != roomId)
             continue;
         if (e.kind == QLatin1String("invite"))
             continue;
@@ -540,16 +584,18 @@ void ActivityModel::markRoomReadUpTo(const QString &rawRoomId, qint64 timestampM
         // has shown it, on the message it decorates.
         if (e.kind == QLatin1String("reaction") && threadRootId.isEmpty()
             && e.arrivedMs > 0 && e.arrivedMs < readAtMs) {
+            changed = !e.readMark || !e.seenMark || changed;
+            e.readMark = true;
             e.seenMark = true;
-            changed = true;
             continue;
         }
         // An entry without a timestamp cannot be compared; leave it rather than
         // assume it is old.
         if (e.timestampMs <= 0 || e.timestampMs > timestampMs)
             continue;
+        changed = !e.readMark || !e.seenMark || changed;
+        e.readMark = true;
         e.seenMark = true;
-        changed = true;
     }
     if (!changed)
         return;
@@ -561,16 +607,16 @@ void ActivityModel::markRoomReadUpTo(const QString &rawRoomId, qint64 timestampM
     Q_EMIT unseenCountChanged();
 }
 
-// One pass over the rooms holding unseen rows, so a batch costs one rebuild.
+// One pass over rooms holding entries without a confirmed read, even when a
+// user has already seen their Activity rows.
 void ActivityModel::reconcileRoomsAgainstTheirReadState()
 {
     if (!m_client || !m_client->tracksRoomReadState())
         return;
     QSet<QString> rooms;
     for (const Entry &e : m_entries) {
-        // isSeen(), not seenMark: after a restart the marker carries the state
-        // and seenMark is false everywhere.
-        if (!isSeen(e) && e.kind != QLatin1String("invite"))
+        // A seen row may still need its read state reconciled.
+        if (!e.readMark && e.kind != QLatin1String("invite"))
             rooms.insert(e.roomId);
     }
     bool changed = false;
@@ -596,7 +642,7 @@ bool ActivityModel::markRoomReadIfClear(const QString &roomId)
     // Cheap rejection first; this runs on every room payload.
     bool holds = false;
     for (const Entry &e : m_entries) {
-        if (!isSeen(e) && e.roomId == roomId
+        if (!e.readMark && e.roomId == roomId
             && e.kind != QLatin1String("invite")) {
             holds = true;
             break;
@@ -630,7 +676,7 @@ bool ActivityModel::markRoomReadIfClear(const QString &roomId)
     int marked = 0;
     qint64 nearestLagMs = -1;
     for (Entry &e : m_entries) {
-        if (e.seenMark || e.roomId != roomId)
+        if (e.roomId != roomId)
             continue;
         if (e.kind == QLatin1String("invite"))
             continue;
@@ -643,6 +689,9 @@ bool ActivityModel::markRoomReadIfClear(const QString &roomId)
             continue;
         if (e.timestampMs <= 0 || e.timestampMs > readUpToMs)
             continue;
+        if (e.readMark)
+            continue;
+        e.readMark = true;
         e.seenMark = true;
         ++marked;
         const qint64 lagMs = info.countsWrittenAtMs - e.arrivedMs;
@@ -698,6 +747,126 @@ void ActivityModel::open(const QString &id)
     }
 }
 
+QVariantList ActivityModel::threadActivity(const QString &scope) const
+{
+    // One row per conversation, newest exact reply retained. The only
+    // discovery source is this account's bounded Activity feed. It includes
+    // mentions inside other people's threads as well as our own threads.
+    QVariantList rows;
+    QHash<QString, int> positions;
+    QHash<QString, QHash<QString, QString>> loadedRoots;
+    for (const Entry &e : m_entries) {
+        if (e.threadRootId.isEmpty() || e.eventId.isEmpty()
+            || isMutedRoom(e) || e.kind == QLatin1String("reaction"))
+            continue;
+        const QString key = e.roomId + QChar(0x1f) + e.threadRootId;
+        int pos = positions.value(key, -1);
+        if (pos < 0) {
+            if (m_client && !loadedRoots.contains(e.roomId)) {
+                QHash<QString, QString> previews;
+                for (const TimelineEvent &item : m_client->timeline(e.roomId))
+                    if (!item.eventId.isEmpty())
+                        previews.insert(item.eventId, previewOf(item));
+                loadedRoots.insert(e.roomId, previews);
+            }
+            pos = rows.size();
+            positions.insert(key, pos);
+            rows.append(QVariantMap{
+                { QStringLiteral("roomId"), e.roomId },
+                { QStringLiteral("roomName"), e.roomName },
+                { QStringLiteral("rootEventId"), e.threadRootId },
+                { QStringLiteral("eventId"), e.eventId },
+                { QStringLiteral("senderName"), e.senderName },
+                { QStringLiteral("preview"), e.preview },
+                { QStringLiteral("rootPreview"),
+                  loadedRoots.value(e.roomId).value(e.threadRootId) },
+                { QStringLiteral("encrypted"), e.encrypted },
+                { QStringLiteral("timestampMs"), e.timestampMs },
+                { QStringLiteral("unread"), false },
+                { QStringLiteral("mention"), false },
+                { QStringLiteral("relevant"), false },
+                { QStringLiteral("participating"), false },
+                { QStringLiteral("following"), m_threadFollowing.value(key, 0) == 3 },
+                { QStringLiteral("followSupported"), m_threadFollowing.value(key, 0) >= 2 },
+            });
+        }
+        QVariantMap row = rows.at(pos).toMap();
+        row.insert(QStringLiteral("unread"),
+                   row.value(QStringLiteral("unread")).toBool() || !e.readMark);
+        const bool mention = e.kind == QLatin1String("mention")
+            || e.kind == QLatin1String("room_mention")
+            || e.kind == QLatin1String("highlight");
+        row.insert(QStringLiteral("mention"),
+                   row.value(QStringLiteral("mention")).toBool()
+                       || (mention && !e.readMark));
+        row.insert(QStringLiteral("relevant"), true);
+        row.insert(QStringLiteral("participating"),
+                   row.value(QStringLiteral("participating")).toBool()
+                       || e.kind == QLatin1String("thread")
+                       || e.kind == QLatin1String("reply"));
+        rows[pos] = row;
+    }
+    QVariantList filtered;
+    for (const QVariant &v : rows) {
+        const QVariantMap row = v.toMap();
+        if (scope == QLatin1String("unread")
+            && !row.value(QStringLiteral("unread")).toBool())
+            continue;
+        if (scope == QLatin1String("following")
+            && !row.value(QStringLiteral("following")).toBool())
+            continue;
+        if (scope == QLatin1String("participating")
+            && !row.value(QStringLiteral("participating")).toBool())
+            continue;
+        filtered.append(row);
+    }
+    return filtered;
+}
+
+void ActivityModel::refreshThreadFollowing()
+{
+    if (!m_client)
+        return;
+    // Query discovered roots only, once per account session. A bounded feed
+    // means no all-rooms poll or participant fetch when the panel opens.
+    int asked = 0;
+    for (const QVariant &v : threadActivity(QStringLiteral("all"))) {
+        const QVariantMap row = v.toMap();
+        const QString roomId = row.value(QStringLiteral("roomId")).toString();
+        const QString rootId = row.value(QStringLiteral("rootEventId")).toString();
+        const QString key = roomId + QChar(0x1f) + rootId;
+        if (m_threadFollowing.contains(key))
+            continue;
+        m_threadFollowing.insert(key, 1); // pending/unsupported until answered
+        m_client->queryThreadSubscription(roomId, rootId);
+        if (++asked >= 50)
+            break;
+    }
+}
+
+void ActivityModel::loadOlderThreadActivity()
+{
+    if (!m_client || m_threadPageLoading || m_threadPageToken.isEmpty())
+        return;
+    m_threadPageLoading = true;
+    m_threadPageFailed = false;
+    Q_EMIT threadPageChanged();
+    m_client->requestActivitySeedPage(m_threadPageToken, 60);
+}
+
+void ActivityModel::openThreadActivity(const QString &roomId,
+                                       const QString &rootEventId,
+                                       const QString &eventId)
+{
+    if (roomId.isEmpty() || rootEventId.isEmpty() || eventId.isEmpty()
+        || MatrixClient::isThreadTimelineId(roomId))
+        return;
+    // It was selected in Activity, so its notification is seen; its thread
+    // remains unread until the SDK confirms a receipt for that timeline.
+    markSeen(eventId);
+    Q_EMIT openRequested(roomId, eventId, rootEventId);
+}
+
 // ---- filter --------------------------------------------------------------
 
 void ActivityModel::setFilter(const QString &filter)
@@ -750,6 +919,8 @@ void ActivityModel::rebuildVisible()
             m_visible.append(i);
     endResetModel();
     Q_EMIT countChanged();
+    ++m_threadActivityRevision;
+    Q_EMIT threadActivityChanged();
 }
 
 // ---- keywords ------------------------------------------------------------
@@ -1339,6 +1510,7 @@ void ActivityModel::seed(const QVariantList &entries)
         // The server's read flag counts as seen, as in Element, but it is not
         // trusted alone; see reconcileSeedAgainstRoomCounts().
         e.seenMark = m.value(QStringLiteral("read")).toBool();
+        e.readMark = e.seenMark;
         m_ids.insert(e.id);
         seeded.append(e.id);
         m_entries.append(std::move(e));
@@ -1433,6 +1605,7 @@ QStringList ActivityModel::reconcileSeedAgainstRoomCounts(const QStringList &see
             continue;
         }
         e.seenMark = true;
+        e.readMark = true;
         if (flippedAny)
             *flippedAny = true;
     }
@@ -1596,5 +1769,7 @@ bool ActivityModel::addEntry(Entry entry)
         m_entries.removeLast();
     }
     Q_EMIT unseenCountChanged();
+    ++m_threadActivityRevision;
+    Q_EMIT threadActivityChanged();
     return true;
 }
