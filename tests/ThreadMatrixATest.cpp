@@ -3,6 +3,9 @@
 #include "threads/ThreadController.h"
 
 #include <QSignalSpy>
+#include <QDir>
+#include <QFileInfo>
+#include <QTemporaryFile>
 #include <QtTest/QtTest>
 
 namespace {
@@ -119,6 +122,70 @@ private slots:
                 for (const auto &reaction : event.reactions)
                     reacted |= reaction.key == QStringLiteral("👍") && reaction.byMe;
         QVERIFY(reacted);
+    }
+
+    void committedUploadKeepsItsThreadAcrossNavigationAndCompletion()
+    {
+        for (const bool accepted : {true, false}) {
+            MockMatrixClient client;
+            QVERIFY(login(client));
+            ThreadController thread;
+            thread.setClient(&client);
+            const QString rootA = fixtureRoot(client);
+            QVERIFY(!rootA.isEmpty());
+            const QString rootB = client.timeline(roomId).first().eventId;
+            QVERIFY(rootB != rootA);
+            client.sendThreadReply(roomId, rootB, QStringLiteral("B reply"));
+            thread.openThread(roomId, rootA);
+            QTRY_COMPARE(thread.state(), ThreadController::Ready);
+
+            QTemporaryFile file(QDir::tempPath()
+                                + QStringLiteral("/thread-matrix-XXXXXX.bin"));
+            QVERIFY(file.open());
+            QCOMPARE(file.write("committed payload"), qint64(17));
+            QVERIFY(file.flush());
+            thread.addAttachment(QUrl::fromLocalFile(file.fileName()));
+            QCOMPARE(thread.attachments()->rowCount(), 1);
+            thread.sendText(QString{});
+            QCOMPARE(client.threadAttachmentCallsForTest(), 1);
+            int uploadedEvents = 0;
+            for (const auto &event : client.timeline(roomId)) {
+                if (event.body != QFileInfo(file.fileName()).fileName())
+                    continue;
+                ++uploadedEvents;
+                QCOMPARE(event.threadRootId, rootA);
+            }
+            QCOMPARE(uploadedEvents, 1);
+            const quint64 opId = thread.attachments()->entries().first().opId;
+            QVERIFY(opId != 0);
+            QCOMPARE(thread.attachments()->entries().first().state,
+                     QStringLiteral("dispatching"));
+
+            thread.openThread(roomId, rootB);
+            QTRY_COMPARE(thread.state(), ThreadController::Ready);
+            QCOMPARE(thread.attachments()->rowCount(), 0);
+            Q_EMIT client.attachmentQueueFinished(
+                opId, roomId, accepted,
+                accepted ? QString() : QStringLiteral("upload_failed"));
+            QCOMPARE(thread.attachments()->rowCount(), 0);
+            QCOMPARE(client.threadAttachmentCallsForTest(), 1);
+
+            thread.openThread(roomId, rootA);
+            QTRY_COMPARE(thread.state(), ThreadController::Ready);
+            QCOMPARE(thread.attachments()->rowCount(), 1);
+            QCOMPARE(thread.attachments()->entries().first().state,
+                     accepted ? QStringLiteral("sent")
+                              : QStringLiteral("failed"));
+            QCOMPARE(thread.attachments()->entries().first().opId, quint64(0));
+            if (!accepted)
+                QVERIFY(!thread.attachments()->entries().first().error.isEmpty());
+            thread.openThread(roomId, rootB);
+            QTRY_COMPARE(thread.state(), ThreadController::Ready);
+            QCOMPARE(thread.attachments()->rowCount(), 0);
+            thread.openThread(roomId, rootA);
+            QTRY_COMPARE(thread.state(), ThreadController::Ready);
+            QCOMPARE(thread.attachments()->rowCount(), 1);
+        }
     }
 };
 

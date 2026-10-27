@@ -378,6 +378,15 @@ void ThreadController::openThread(const QString &roomId,
     m_draftDebounce.stop();
     saveDraftNow();
 
+    // The old thread owns uploads already handed to the SDK. Unsent rows
+    // retain the existing discard-on-navigation behavior.
+    const QString previousId = timelineId();
+    if (!previousId.isEmpty()) {
+        auto committed = m_attachments->takeCommitted();
+        if (!committed.isEmpty())
+            m_committedAttachments[previousId].append(committed);
+    }
+
     stopHistoryFill();
     ++m_traceGeneration;
     m_roomId = roomId;
@@ -389,6 +398,7 @@ void ThreadController::openThread(const QString &roomId,
     restoreDraft();
     // Queued attachments belong to the thread they were prepared in.
     clearAttachments();
+    m_attachments->restoreEntries(m_committedAttachments.take(timelineId()));
     // Abandon any reply search in the previous thread silently;
     // navigationStale() handles batches already in flight.
     clearNavigation(/*clearMessage=*/true);
@@ -431,6 +441,9 @@ void ThreadController::close()
     cancelReply();
     clearComposerText();
     clearAttachments();
+    for (const auto &entries : std::as_const(m_committedAttachments))
+        m_attachments->discardEntries(entries);
+    m_committedAttachments.clear();
     clearNavigation(/*clearMessage=*/true);
     resetFollowState();
     m_lastMarkedReadEventId.clear();
@@ -857,6 +870,8 @@ void ThreadController::dispatchAttachment(int row)
     } else {
         entry.state = QStringLiteral("dispatching");
         entry.opId = opId;
+        entry.committed = true;
+        entry.threadRootId = m_rootEventId;
         m_imagePrep.track(opId, strippedSub);
     }
     m_attachments->updateEntry(row);
@@ -930,11 +945,10 @@ void ThreadController::onAttachmentQueueFinished(quint64 opId,
                 tr("The voice message could not be sent."));
         return;
     }
-    if (!roomId.isEmpty() && roomId != m_roomId)
-        return;
     auto &entries = m_attachments->entries();
     for (int row = 0; row < entries.size(); ++row) {
-        if (entries[row].opId != opId)
+        if (entries[row].opId != opId
+            || (!roomId.isEmpty() && roomId != m_roomId))
             continue;   // not ours (the room composer owns other op ids).
         if (ok) {
             // The SDK local echo now owns this attachment's send state.
@@ -947,6 +961,20 @@ void ThreadController::onAttachmentQueueFinished(quint64 opId,
             m_attachments->updateEntry(row);
         }
         return;
+    }
+    for (auto it = m_committedAttachments.begin();
+         it != m_committedAttachments.end(); ++it) {
+        for (auto &entry : it.value()) {
+            if (entry.opId != opId
+                || (!roomId.isEmpty()
+                    && MatrixClient::threadTimelineId(roomId, entry.threadRootId)
+                           != it.key()))
+                continue;
+            entry.state = ok ? QStringLiteral("sent") : QStringLiteral("failed");
+            entry.error = ok ? QString() : tr("Upload failed. Retry or remove.");
+            entry.opId = 0;
+            return;
+        }
     }
 }
 

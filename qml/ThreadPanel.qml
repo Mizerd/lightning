@@ -1908,7 +1908,9 @@ Rectangle {
                                               ? (model.error || qsTr("Failed"))
                                               : (model.state === "dispatching"
                                                  ? qsTr("Sending…")
-                                                 : model.sizeLabel)
+                                                 : (model.state === "sent"
+                                                    ? qsTr("Sent")
+                                                    : model.sizeLabel))
                                         color: model.state === "failed"
                                                ? AppTheme.danger
                                                : AppTheme.textMuted
@@ -1927,6 +1929,7 @@ Rectangle {
                                 }
                                 IconButton {
                                     visible: model.isImage && model.state !== "dispatching"
+                                             && model.state !== "sent"
                                              && model.previewSource
                                              && (model.mime || "") !== "image/svg+xml"
                                     implicitWidth: 20; implicitHeight: 20

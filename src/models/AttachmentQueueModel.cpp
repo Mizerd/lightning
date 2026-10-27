@@ -918,6 +918,38 @@ void AttachmentQueueModel::clearAll()
     Q_EMIT countChanged();
 }
 
+QList<AttachmentQueueModel::Entry> AttachmentQueueModel::takeCommitted()
+{
+    QList<Entry> taken;
+    for (int row = m_entries.size() - 1; row >= 0; --row) {
+        if (!m_entries.at(row).committed)
+            continue;
+        beginRemoveRows({}, row, row);
+        taken.prepend(m_entries.takeAt(row));
+        endRemoveRows();
+    }
+    if (!taken.isEmpty())
+        Q_EMIT countChanged();
+    return taken;
+}
+
+void AttachmentQueueModel::restoreEntries(const QList<Entry> &entries)
+{
+    if (entries.isEmpty())
+        return;
+    const int first = m_entries.size();
+    beginInsertRows({}, first, first + entries.size() - 1);
+    m_entries.append(entries);
+    endInsertRows();
+    Q_EMIT countChanged();
+}
+
+void AttachmentQueueModel::discardEntries(const QList<Entry> &entries)
+{
+    for (const Entry &entry : entries)
+        releaseStaged(entry);
+}
+
 void AttachmentQueueModel::retryAt(int row)
 {
     if (row < 0 || row >= m_entries.size())
@@ -925,6 +957,7 @@ void AttachmentQueueModel::retryAt(int row)
     Entry &entry = m_entries[row];
     if (entry.state != QLatin1String("failed"))
         return;
+    entry.committed = false;
     if (entry.isSvg) {
         // Refused or unreadable conversion: convert again, the file may have
         // changed. It dispatches once it resolves, if the user already sent.

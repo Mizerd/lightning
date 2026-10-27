@@ -89,6 +89,7 @@ public:
         QString error;
         bool retryable = true;
         quint64 opId = 0;    // set while dispatching
+        bool committed = false; // handed to the SDK; keep with its thread
         // Videos are postered locally as soon as they are queued (see
         // startPosterJob); `posterPending` holds only this entry's dispatch
         // until it resolves. Extraction failure is not send failure: the video
@@ -200,6 +201,9 @@ public:
     bool isEmpty() const { return m_entries.isEmpty(); }
     QList<Entry> &entries() { return m_entries; }
     void updateEntry(int row);
+    QList<Entry> takeCommitted();
+    void restoreEntries(const QList<Entry> &entries);
+    void discardEntries(const QList<Entry> &entries);
 
     static QString humanSize(qint64 bytes);
 

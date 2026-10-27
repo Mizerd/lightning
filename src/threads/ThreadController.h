@@ -353,6 +353,7 @@ private:
     // state. Not `mutable`, so a const getter can never emit.
     int m_lastReplyCount = -1;
     AttachmentQueueModel *m_attachments = nullptr;
+    QHash<QString, QList<AttachmentQueueModel::Entry>> m_committedAttachments;
     State m_state = Closed;
     bool m_traceEnabled = false;
     quint64 m_traceGeneration = 0;
