@@ -4144,6 +4144,8 @@ if(BUILD_TESTING)
         src/media/VideoPosterExtractor.cpp
         src/threads/ThreadController.h
         src/threads/ThreadController.cpp
+        src/crypto/E2eeDiagnostics.h
+        src/crypto/E2eeDiagnostics.cpp
         src/media/ImageMetadata.h
         src/media/ImageMetadata.cpp
         src/media/ImageSendPrep.h
@@ -4951,6 +4953,8 @@ if(BUILD_TESTING)
         tests/ThreadControllerTest.cpp
         src/threads/ThreadController.h
         src/threads/ThreadController.cpp
+        src/crypto/E2eeDiagnostics.h
+        src/crypto/E2eeDiagnostics.cpp
         src/media/ImageMetadata.h
         src/media/ImageMetadata.cpp
         src/media/ImageSendPrep.h
