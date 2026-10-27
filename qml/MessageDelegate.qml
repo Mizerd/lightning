@@ -169,6 +169,9 @@ Item {
     // with membership and member_profile halves; other kinds follow the master.
     // Keep in step with TimelineModel::activityKindVisible.
     readonly property bool roomActivityVisible: {
+        if (isStateActivity)
+            return model.stateGroupLeader !== true
+                   || root.stateActivityEntries.length > 0
         if (!isRoutineActivity) return true
         if (!app.settings.showRoomActivity) return false
         if (model.stateKind === "membership")
@@ -2328,6 +2331,8 @@ Item {
                             Label {
                                 objectName: "replyQuoteBody"
                                 text: model.replyToPreview
+                                      || (model.replyToRedacted === true
+                                          ? qsTr("Original message removed") : "")
                                       || root.replyKindLabel()
                                       || qsTr("(original message not loaded)")
                                 textFormat: Text.PlainText

@@ -531,7 +531,7 @@ class SettingsManager : public QObject
     Q_PROPERTY(bool voicePlayerDocked READ voicePlayerDocked
                    WRITE setVoicePlayerDocked NOTIFY voicePlayerDockedChanged)
     // Audio-file rows show the cover art as a large square above the controls
-    // (default on); off keeps the compact tile beside the play button. A file
+    // (opt-in); off keeps the compact tile beside the play button. A file
     // with no art always uses the compact layout.
     Q_PROPERTY(bool largeAlbumArt READ largeAlbumArt WRITE setLargeAlbumArt
                    NOTIFY largeAlbumArtChanged)

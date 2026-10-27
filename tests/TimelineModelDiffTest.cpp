@@ -163,6 +163,7 @@ private Q_SLOTS:
     void voiceReplyPreviewsKeepCopyTextAsTheFileName();
     void aQuoteWithNoEmbeddedDetailsIsReadFromTheLoadedTarget();
     void aQuoteFollowsItsTargetWhenTheTargetChanges();
+    void hiddenActivityKeepsSecurityChangesAndTheirDateVisible();
     void realCountExcludesVirtualRows();
     // MSC4274 galleries and the reply target's kind.
     void aGalleryRowListsEveryItemForTheDelegateAndTheViewer();
@@ -2121,6 +2122,8 @@ void TimelineModelDiffTest::aQuoteFollowsItsTargetWhenTheTargetChanges()
     auto own = makeEvent(QStringLiteral("$o"), QStringLiteral("x"));
     own.replyToEventId = target.eventId;
     own.replyToPreview = QStringLiteral("embedded");
+    own.replyToMediaKey = QStringLiteral("$cached-image");
+    own.replyToKind = QStringLiteral("image");
     m_client->mirror = { target, reply, own };
     Q_EMIT m_client->timelineReset(kRoom);
     const auto rowOf = [&](const QString &id) {
@@ -2161,6 +2164,38 @@ void TimelineModelDiffTest::aQuoteFollowsItsTargetWhenTheTargetChanges()
     m_client->mirror = { gone, reply, own };
     Q_EMIT m_client->eventChangedAt(kRoom, rowOf(target.eventId), gone);
     QVERIFY(preview(reply.eventId).isEmpty());
+    QVERIFY(preview(own.eventId).isEmpty());
+    const QModelIndex ownIndex = m_model->index(rowOf(own.eventId));
+    QVERIFY(m_model->data(ownIndex, TimelineModel::ReplyToRedactedRole).toBool());
+    QVERIFY(m_model->data(ownIndex, TimelineModel::ReplyToMediaKeyRole)
+                .toString().isEmpty());
+    QVERIFY(m_model->data(ownIndex, TimelineModel::ReplyToKindRole)
+                .toString().isEmpty());
+}
+
+void TimelineModelDiffTest::hiddenActivityKeepsSecurityChangesAndTheirDateVisible()
+{
+    auto date = makeEvent(QStringLiteral("$date"), QString{});
+    date.type = TimelineEvent::DateDivider;
+    auto join = makeEvent(QStringLiteral("$join"), QStringLiteral("joined"));
+    join.type = TimelineEvent::StateChange;
+    join.stateKind = QStringLiteral("membership");
+    auto grant = makeEvent(QStringLiteral("$grant"), QStringLiteral("Permissions changed"));
+    grant.type = TimelineEvent::StateChange;
+    grant.stateKind = QStringLiteral("m.room.power_levels");
+    m_client->mirror = { date, join, grant };
+    Q_EMIT m_client->timelineReset(kRoom);
+    m_model->setShowRoomActivity(false);
+
+    const QVariantList entries = m_model->data(m_model->index(1),
+        TimelineModel::StateGroupEntriesRole).toList();
+    QCOMPARE(entries.size(), 1);
+    QCOMPARE(entries.first().toMap().value(QStringLiteral("eventId")).toString(),
+             grant.eventId);
+    QVERIFY(m_model->data(m_model->index(0),
+        TimelineModel::DividerIntroducesVisibleContentRole).toBool());
+    QVERIFY(m_model->activityKindVisible(grant.stateKind));
+    QVERIFY(!m_model->activityKindVisible(join.stateKind));
 }
 
 void TimelineModelDiffTest::voiceReplyPreviewsKeepCopyTextAsTheFileName()

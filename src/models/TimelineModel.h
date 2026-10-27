@@ -101,6 +101,7 @@ public:
         ReplyToSenderIdRole,
         ReplyToPreviewRole,
         ReplyToMediaKeyRole,
+        ReplyToRedactedRole,      // Loaded original was redacted; discard embedded quote.
         MediaMxcUrlRole,
         MediaHttpUrlRole,
         MediaThumbnailHttpUrlRole,

@@ -91,7 +91,7 @@ constexpr auto kMediaVolume         = "media/volume";       // 0..1
 constexpr auto kMediaPlaybackRate   = "media/playbackRate";  // 0.25..4.0
 constexpr auto kVoiceMiniPlayerCorner = "media/miniPlayerCorner"; // 0..3
 constexpr auto kVoicePlayerDocked   = "media/playerDocked";   // bool
-constexpr auto kLargeAlbumArt       = "media/largeAlbumArt";    // bool, default on
+constexpr auto kLargeAlbumArt       = "media/largeAlbumArt";    // bool, default off
 // QRectF: x/y fractions of the free space, width/height pixels.
 constexpr auto kVoiceMiniPlayerGeometry = "media/miniPlayerGeometry";
 constexpr auto kVoicePlaybackRate   = "media/voicePlaybackRate"; // 0.25..4.0
@@ -4157,7 +4157,7 @@ void SettingsManager::setVoicePlayerDocked(bool docked)
 
 bool SettingsManager::largeAlbumArt() const
 {
-    return m_store->value(kLargeAlbumArt, true).toBool();
+    return m_store->value(kLargeAlbumArt, false).toBool();
 }
 
 void SettingsManager::setLargeAlbumArt(bool large)

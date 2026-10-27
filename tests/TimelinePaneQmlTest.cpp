@@ -871,17 +871,31 @@ private Q_SLOTS:
         });
         QVERIFY(root->setProperty("entries", entries));
 
+        auto *summary = root->findChild<QQuickItem *>(
+            QStringLiteral("stateActivitySummaryLabel"));
+        QVERIFY(summary != nullptr);
+        QVERIFY(!summary->property("text").toString().contains(
+            QStringLiteral("security")));
+        entries.append(QVariantMap{
+            { QStringLiteral("stableEventId"), QStringLiteral("item-grant") },
+            { QStringLiteral("eventKind"), QStringLiteral("m.room.power_levels") },
+            { QStringLiteral("description"), QStringLiteral("Permissions changed") },
+        });
+        QVERIFY(root->setProperty("entries", entries));
+        QTRY_VERIFY_WITH_TIMEOUT(summary->property("text").toString().contains(
+            QStringLiteral("permissions or security changed")), kSignalTimeoutMs);
+
         auto *expanded = root->findChild<QQuickItem *>(
             QStringLiteral("stateActivityExpandedContent"));
         QVERIFY(expanded != nullptr);
-        QCOMPARE(root->property("entryCount").toInt(), 2);
+        QCOMPARE(root->property("entryCount").toInt(), 3);
         QCOMPARE(expanded->isVisible(), false);
         QCOMPARE(expanded->height(), 0.0);
 
         QVERIFY(root->setProperty("expanded", true));
         QTRY_VERIFY_WITH_TIMEOUT(expanded->isVisible(), kSignalTimeoutMs);
         QTRY_COMPARE_WITH_TIMEOUT(root->property("renderedEntryCount").toInt(),
-                                  2, kSignalTimeoutMs);
+                                  3, kSignalTimeoutMs);
         QTRY_VERIFY_WITH_TIMEOUT(root->property("expandedContentHeight").toReal() > 0.0,
                                  kSignalTimeoutMs);
 

@@ -33,6 +33,18 @@ Item {
         return kept;
     }
     readonly property int entryCount: entriesWithoutCalls.length
+    readonly property bool hasSecurityChanges: {
+        for (var i = 0; i < entriesWithoutCalls.length; ++i) {
+            var kind = entriesWithoutCalls[i].eventKind || ""
+            if (kind === "m.room.power_levels"
+                || kind === "m.room.encryption"
+                || kind === "m.room.join_rules"
+                || kind === "m.room.history_visibility"
+                || kind === "m.room.server_acl")
+                return true
+        }
+        return false
+    }
     readonly property bool canExpand: entryCount > 0
 
     // A collapsed group draws one summary line. The model breaks state runs at
@@ -110,6 +122,7 @@ Item {
                 }
                 Label {
                     id: summaryLabel
+                    objectName: "stateActivitySummaryLabel"
                     Layout.fillWidth: true
                     // The summary can carry a member-chosen display name: never
                     // markup.
@@ -120,6 +133,9 @@ Item {
                         var summary = qsTr("%n room update(s)",
                                            "collapsed state-event group",
                                            root.entryCount)
+                        if (root.hasSecurityChanges)
+                            summary = qsTr("%1 · permissions or security changed")
+                                .arg(summary)
                         if (root.dateRangeLabel.length > 0)
                             return qsTr("%1 · %2")
                                 .arg(summary)

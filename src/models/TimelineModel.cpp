@@ -941,6 +941,10 @@ QVariantList TimelineModel::stateGroupEntriesFrom(int leaderRow) const
                 ++i;
                 continue;
             }
+            if (!activityKindVisible(e.stateKind)) {
+                ++i;
+                continue;
+            }
             QVariantMap entry;
             entry.insert(QStringLiteral("stableEventId"),
                          e.itemId.isEmpty() ? e.eventId : e.itemId);
@@ -1348,7 +1352,7 @@ bool TimelineModel::dividerIntroducesVisibleContent(int dividerRow) const
     //   * any non-virtual, non-state row draws;
     //   * a state row draws only its group summary, and only on the leader;
     //   * a routine state row draws nothing while room activity is hidden.
-    bool leaderChecked = false;
+    bool stateRunChecked = false;
     for (int row = dividerRow + 1; row < m_events.size(); ++row) {
         const auto &e = m_events.at(row);
         if (e.type == TimelineEvent::DateDivider)
@@ -1361,16 +1365,12 @@ bool TimelineModel::dividerIntroducesVisibleContent(int dividerRow) const
             return true;
         if (e.type != TimelineEvent::StateChange)
             return true;
-        const bool routine = !e.stateKind.isEmpty();
-        if (routine && !activityKindVisible(e.stateKind))
-            continue;
-        // A date divider ends a state run, so the first drawable state row
-        // after it leads its own group. Still derived from stateGroupLeaderRow,
-        // and only the first drawable state row needs asking; the rest share
-        // its run.
-        if (!leaderChecked) {
-            leaderChecked = true;
-            if (stateGroupLeaderRow(row) == row)
+        // A hidden membership row can lead a run containing a visible
+        // security change. Ask the leader's filtered entries, not this row's
+        // kind, or its date divider disappears.
+        if (!stateRunChecked) {
+            stateRunChecked = true;
+            if (!stateGroupEntriesFrom(row).isEmpty())
                 return true;
         }
     }
@@ -1382,6 +1382,19 @@ bool TimelineModel::dividerIntroducesVisibleContent(int dividerRow) const
 // follows the master switch alone.
 bool TimelineModel::activityKindVisible(const QString &stateKind) const
 {
+    // Untyped backend notifications are not proven routine; keep their
+    // existing visibility when the routine-activity switch is off.
+    if (stateKind.isEmpty())
+        return true;
+    // Permission and encryption changes remain discoverable even when routine
+    // join/profile noise is hidden. This is presentation only: events stay in
+    // the model and retain their exact ids for search and navigation.
+    if (stateKind == QLatin1String("m.room.power_levels")
+        || stateKind == QLatin1String("m.room.encryption")
+        || stateKind == QLatin1String("m.room.join_rules")
+        || stateKind == QLatin1String("m.room.history_visibility")
+        || stateKind == QLatin1String("m.room.server_acl"))
+        return true;
     if (!m_showRoomActivity)
         return false;
     if (stateKind == QLatin1String("membership"))
@@ -1642,6 +1655,8 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
                    : e.replyToSenderId;
     case ReplyToPreviewRole: {
         const auto *target = eventForId(e.replyToEventId);
+        if (target && target->redacted)
+            return QString{};
         if (target && !target->redacted && target->type == TimelineEvent::Audio
             && target->mediaIsVoice)
             return replyPreviewForEvent(e.replyToEventId);
@@ -1649,7 +1664,15 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
             return replyPreviewForEvent(e.replyToEventId);
         return e.replyToPreview;
     }
-    case ReplyToMediaKeyRole:    return e.replyToMediaKey;
+    case ReplyToMediaKeyRole:
+        if (const auto *target = eventForId(e.replyToEventId);
+            target && target->redacted)
+            return QString{};
+        return e.replyToMediaKey;
+    case ReplyToRedactedRole: {
+        const auto *target = eventForId(e.replyToEventId);
+        return target && target->redacted;
+    }
     case MediaMxcUrlRole:        return e.mediaMxcUrl;
     case MediaHttpUrlRole:       return mediaHttp(e.mediaMxcUrl);
     case MediaThumbnailHttpUrlRole: {
@@ -1843,6 +1866,9 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
     case ReplyToKindRole: {
         if (e.redacted)
             return QString{};
+        if (const auto *target = eventForId(e.replyToEventId);
+            target && target->redacted)
+            return QString{};
         if (const auto *target = loadedReplyTarget(e)) {
             switch (target->type) {
             case TimelineEvent::Image:   return QStringLiteral("image");
@@ -1855,7 +1881,10 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
         }
         return e.replyToKind;
     }
-    case ReplyToCountRole:       return e.redacted ? 0 : e.replyToCount;
+    case ReplyToCountRole: {
+        const auto *target = eventForId(e.replyToEventId);
+        return e.redacted || (target && target->redacted) ? 0 : e.replyToCount;
+    }
     case SentReceiptRole:
         // The answer is cached by refreshSentReceipt(); reading it must not
         // scan, or binding N own rows costs O(N^2).
@@ -1911,6 +1940,7 @@ QHash<int, QByteArray> TimelineModel::roleNames() const
         { ReplyToSenderIdRole,     "replyToSenderId" },
         { ReplyToPreviewRole,      "replyToPreview" },
         { ReplyToMediaKeyRole,      "replyToMediaKey" },
+        { ReplyToRedactedRole,      "replyToRedacted" },
         { MediaMxcUrlRole,         "mediaMxc" },
         { MediaHttpUrlRole,        "mediaUrl" },
         { MediaThumbnailHttpUrlRole,"mediaThumbUrl" },
@@ -2895,18 +2925,19 @@ void TimelineModel::refreshQuotesOfRepliesTo(const QSet<QString> &inserted)
     if (inserted.isEmpty())
         return;
     const QList<int> roles = { ReplyToSenderRole, ReplyToSenderIdRole,
-                               ReplyToPreviewRole, ReplyToKindRole,
+                               ReplyToPreviewRole, ReplyToMediaKeyRole,
+                               ReplyToRedactedRole, ReplyToKindRole,
                                ReplyToCountRole };
     for (int row = 0; row < m_events.size(); ++row) {
         const TimelineEvent &e = m_events.at(row);
         if (e.replyToEventId.isEmpty() || !inserted.contains(e.replyToEventId))
             continue;
-        // Only a quote that is read from the target row (none of its own
-        // details): a reply that embedded them keeps them. The target may
-        // have just been redacted, so it need not be loadable any more: the
-        // role then reads empty and the stale preview must go.
-        if (!e.replyToPreview.isEmpty() || !e.replyToSender.isEmpty()
-            || !e.replyToSenderId.isEmpty() || !e.replyToKind.isEmpty())
+        // Embedded details normally win, but a loaded redaction must clear
+        // them too. This emits only for replies to the changed target.
+        const auto *target = eventForId(e.replyToEventId);
+        if (target && !target->redacted
+            && (!e.replyToPreview.isEmpty() || !e.replyToSender.isEmpty()
+                || !e.replyToSenderId.isEmpty() || !e.replyToKind.isEmpty()))
             continue;
         Q_EMIT dataChanged(index(row), index(row), roles);
     }

@@ -234,13 +234,13 @@ Rectangle {
         360, root.hostContentWidth >= 0
              ? root.hostContentWidth
              : (bubble ? bubble.width : 360))
-    // "Large album art" (app.settings.largeAlbumArt, default on): an audio
+    // "Large album art" (app.settings.largeAlbumArt, opt-in): an audio
     // file whose cover has been seen shows it as a big square above the
     // controls. Without art, or with the setting off, the compact 40 px tile
     // sits BESIDE the play button. Either way the button never covers the art.
     readonly property bool largeCover:
         !root.isVoice && root.artworkSource.length > 0
-        && app.settings && app.settings.largeAlbumArt !== false
+        && app.settings && app.settings.largeAlbumArt === true
     implicitHeight: cardColumn.implicitHeight + 12
     color: root.inBubble ? "transparent" : AppTheme.embedSurface
     radius: AppTheme.radiusSm
