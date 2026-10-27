@@ -81,6 +81,30 @@ bool ringShown(QQuickItem *row)
 
 } // namespace
 
+// Two compact rows in a bare list, for the compact-column cases.
+static constexpr const char *kCompactRows = R"QML(
+import QtQuick
+import MatrixClient
+ListView {
+    objectName: "compactTestList"
+    width: 64; height: 160
+    focus: true
+    currentIndex: 0
+    keyNavigationEnabled: true
+    model: ListModel {
+        ListElement { title: "Alice"; room: "!alice:test"; unread: 3; mentions: 1 }
+        ListElement { title: "General"; room: "!general:test"; unread: 0; mentions: 0 }
+    }
+    delegate: RoomListCompactRow {
+        label: title
+        rowId: room
+        unreadCount: unread
+        highlightCount: mentions
+        hasUnread: unread > 0
+    }
+}
+)QML";
+
 class RoomListClassicQmlTest : public QObject
 {
     Q_OBJECT
@@ -458,28 +482,6 @@ RoomsPanel { objectName: "panel"; width: 380; height: 700 }
             QStringLiteral("ToolTip.visible: hovered && !roomListSortMenu.opened")));
     }
 
-    static constexpr const char *kCompactRows = R"QML(
-import QtQuick
-import MatrixClient
-ListView {
-    objectName: "compactTestList"
-    width: 64; height: 160
-    focus: true
-    currentIndex: 0
-    keyNavigationEnabled: true
-    model: ListModel {
-        ListElement { title: "Alice"; room: "!alice:test"; unread: 3; mentions: 1 }
-        ListElement { title: "General"; room: "!general:test"; unread: 0; mentions: 0 }
-    }
-    delegate: RoomListCompactRow {
-        label: title
-        rowId: room
-        unreadCount: unread
-        highlightCount: mentions
-        hasUnread: unread > 0
-    }
-}
-)QML";
 
     void compactRowsKeepAvatarBadgeAndTooltipInsideColumn()
     {
