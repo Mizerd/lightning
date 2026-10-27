@@ -79,11 +79,12 @@
 #include <QOpenGLContext>
 #include <QOpenGLFunctions>
 #include <QQuickWindow>
+#include <QPixmapCache>
+#include <QTimer>
 #include <QSGRendererInterface>
 #include <QScreen>
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
 #include <QImage>
-#include <QTimer>
 #endif
 #include <QQmlContext>
 #include <QQuickStyle>
@@ -94,6 +95,7 @@
 #include <QDateTime>
 #include <memory>
 #include <QFile>
+#include "models/ReverseListProxyModel.h"
 #include <QTextStream>
 
 #include <atomic>
@@ -2907,6 +2909,58 @@ int main(int argc, char *argv[])
         });
 
     engine.loadFromModule("MatrixClient", "Main");
+
+    // The engine is destroyed after app.exec(), while the controller is still
+    // alive. Remove the timeline's model before that teardown so thousands of
+    // row delegates cannot be destroyed as part of an opaque engine destructor.
+    // This also gives a phase timestamp if the reset itself is slow.
+    QObject::connect(&app, &QCoreApplication::aboutToQuit, &engine,
+                     [&engine, &controller] {
+        QElapsedTimer clock;
+        clock.start();
+        qInfo("quit: hiding windows and clearing timeline delegates");
+        for (QWindow *window : QGuiApplication::allWindows())
+            window->hide();
+        if (auto *view = qobject_cast<ReverseListProxyModel *>(
+                controller.timelineView()))
+            view->setSourceModel(nullptr);
+        qInfo("quit: timeline delegates cleared elapsedMs=%lld",
+              static_cast<long long>(clock.elapsed()));
+    });
+
+    // Public Qt has no QQuickPixmap cache occupancy API. The byte cache is
+    // reported separately; the QPixmapCache value below is its configured
+    // limit, not a claim about Qt Quick's decoded texture use.
+    QTimer scrollMemoryTimer;
+    if (qEnvironmentVariableIsSet("LIGHTNING_SCROLL_MEMORY_TRACE")) {
+        QObject::connect(&scrollMemoryTimer, &QTimer::timeout, &app,
+                         [&controller] {
+            qint64 rssKiB = -1;
+#ifdef Q_OS_LINUX
+            QFile status(QStringLiteral("/proc/self/status"));
+            if (status.open(QIODevice::ReadOnly)) {
+                while (!status.atEnd()) {
+                    const QByteArray line = status.readLine();
+                    if (line.startsWith("VmRSS:")) {
+                        const QList<QByteArray> fields = line.simplified().split(' ');
+                        if (fields.size() >= 2)
+                            rssKiB = fields.at(1).toLongLong();
+                        break;
+                    }
+                }
+            }
+#endif
+            qInfo("scroll-memory rssKiB=%lld bridgeBytes=%lld "
+                  "qtPixmapLimitKiB=%d rows=%d sourceRows=%d",
+                  static_cast<long long>(rssKiB),
+                  static_cast<long long>(controller.mediaBridge()->cacheBytesUsed()),
+                  QPixmapCache::cacheLimit(),
+                  controller.timelineView()->rowCount(),
+                  controller.timeline()->rowCount());
+        });
+        scrollMemoryTimer.setInterval(5000);
+        scrollMemoryTimer.start();
+    }
 
     const int status = app.exec();
     // Kept for the one exit that bypasses the normal return: see

@@ -141,6 +141,13 @@ Item {
     // refreshMediaBand in TimelinePane.qml) and assigns this from its index
     // range. Hosts without a band (thread ListView, fixtures) stay permissive.
     property bool mediaInBand: true
+    // The fetch band may remain open toward the live edge to protect geometry.
+    // Decoded pictures have a smaller, symmetric retention range.
+    property bool mediaPixmapRetained: true
+    // Thread and fixture hosts have no retention band and keep their existing
+    // pixmap-cache behaviour. Main-timeline images must release on band exit.
+    readonly property bool mediaPixmapCacheAllowed:
+        !timelineView || timelineView.mediaRetainFirstRow === undefined
 
     readonly property bool isVirtualRow: model.isVirtual === true
     readonly property bool isStateActivity: model.isStateActivity === true
@@ -2287,7 +2294,8 @@ Item {
                                 fillMode: Image.PreserveAspectCrop
                                 asynchronous: true
                                 sourceSize.width: 48
-                                source: visible && bridgeSource.length > 0
+                                source: visible && root.mediaPixmapRetained
+                                        && bridgeSource.length > 0
                                         ? bridgeSource + "|shape:round:160" : ""
                                 Connections {
                                     target: app.mediaBridge
@@ -3655,13 +3663,14 @@ Item {
                                 AppTheme.scaled(AppTheme.reactionEmojiBox)
                             fillMode: Image.PreserveAspectFit
                             asynchronous: true
-                            cache: true
+                            cache: root.mediaPixmapCacheAllowed
                             // Re-resolve through a counter the binding reads;
                             // assigning `source` would destroy the binding.
                             property int resolveTick: 0
                             source: {
                                 var _tick = resolveTick
-                                return (reactionChip.customEmojiReaction
+                                return (root.mediaPixmapRetained
+                                        && reactionChip.customEmojiReaction
                                         && app.mediaBridge.supported)
                                     ? app.mediaBridge.mxcImageSource(
                                           modelData.key, 64)
@@ -5208,11 +5217,11 @@ Item {
                 anchors.fill: parent
                 // The still stays until the animation has a frame to show.
                 visible: !directAnimated.visible
-                source: directMedia.staticSource
+                source: root.mediaPixmapRetained ? directMedia.staticSource : ""
                 fillMode: Image.PreserveAspectFit
                 sourceSize.width: 720
                 asynchronous: true
-                cache: true
+                cache: root.mediaPixmapCacheAllowed
             }
             AnimatedImage {
                 id: directAnimated
@@ -5220,7 +5229,7 @@ Item {
                 visible: directMedia.animationWanted
                          && status === AnimatedImage.Ready
                 // Not gated on `visible`, which waits for Ready.
-                source: directMedia.animationWanted
+                source: root.mediaPixmapRetained && directMedia.animationWanted
                         ? directMedia.animatedSource : ""
                 fillMode: Image.PreserveAspectFit
                 // Suspension stops it through `playing`: a `paused` set
@@ -5646,12 +5655,14 @@ Item {
                             visible: !cardAnimation.visible
                             fillMode: Image.PreserveAspectFit
                             asynchronous: true
-                            cache: true
+                            cache: root.mediaPixmapCacheAllowed
                             // Re-resolve through a counter; assigning `source`
                             // would destroy the binding.
                             property int resolveTick: 0
                             source: {
                                 var _tick = resolveTick
+                                if (!root.mediaPixmapRetained)
+                                    return ""
                                 return card.previewStatic.length > 0
                                     ? card.previewStatic
                                     : (card.p.imageMxc || "").length > 0
@@ -5679,7 +5690,8 @@ Item {
                             visible: card.previewAnimation.length > 0
                                      && status === AnimatedImage.Ready
                             // Nothing decodes in a box that is not drawn.
-                            source: cardMedia.visible ? card.previewAnimation : ""
+                            source: cardMedia.visible && root.mediaPixmapRetained
+                                    ? card.previewAnimation : ""
                             fillMode: Image.PreserveAspectFit
                             playing: MotionPolicy.plays(cardMediaHover.hovered)
                                      && root.rowOnScreen
@@ -5870,9 +5882,10 @@ Item {
                                 visible: !root.mediaHidden
                                 fillMode: Image.PreserveAspectCrop
                                 asynchronous: true
-                                cache: true
+                                cache: root.mediaPixmapCacheAllowed
                                 sourceSize.width: Math.round(galleryBox.tile * 2)
-                                source: galleryTile.bridgeSource
+                                source: root.mediaPixmapRetained
+                                        ? galleryTile.bridgeSource : ""
                             }
                             Icon {
                                 anchors.centerIn: parent
@@ -6298,16 +6311,18 @@ Item {
             // Static path (default; also the frame for non-animated GIFs).
             Image {
                 id: img
+                objectName: "messageStillImage"
                 anchors.fill: parent
                 visible: !imageBox.animateGif && !root.mediaHidden
                 fillMode: Image.PreserveAspectFit
                 // Cleared while hidden: an Image with a source still holds the
                 // decoded pixmap.
-                source: (imageBox.animateGif || root.mediaHidden)
+                source: (imageBox.animateGif || root.mediaHidden
+                         || !root.mediaPixmapRetained)
                         ? "" : imageBox.roundedSource
                 sourceSize.width: 640
                 asynchronous: true
-                cache: true
+                cache: root.mediaPixmapCacheAllowed
             }
 
             // Animated path: confirmed GIFs with animation enabled. Paused
@@ -6317,9 +6332,10 @@ Item {
                 anchors.fill: parent
                 visible: imageBox.animateGif
                 fillMode: Image.PreserveAspectFit
-                source: imageBox.animateGif ? imageBox.animatedSource : ""
+                source: imageBox.animateGif && root.mediaPixmapRetained
+                        ? imageBox.animatedSource : ""
                 asynchronous: true
-                cache: true
+                cache: root.mediaPixmapCacheAllowed
                 playing: imageBox.animateGif && root.rowOnScreen
                          && !MotionPolicy.suspended
                 // Keeps the bridge from evicting the file mid-play.
@@ -6651,10 +6667,11 @@ Item {
                 // degrades to the still picture.
                 visible: !root.mediaHidden && !stickerAnim.animating
                 fillMode: Image.PreserveAspectFit
-                source: root.mediaHidden ? "" : stickerBox.resolvedSource
+                source: root.mediaHidden || !root.mediaPixmapRetained
+                        ? "" : stickerBox.resolvedSource
                 sourceSize.width: 360
                 asynchronous: true
-                cache: true
+                cache: root.mediaPixmapCacheAllowed
             }
             AnimatedImage {
                 id: stickerAnim
@@ -6664,7 +6681,8 @@ Item {
                 // Loaded whenever animated bytes exist and animation is not
                 // globally off, so on-hover playback starts immediately. The
                 // still frame yields to `animating`, not `source`.
-                source: (!root.mediaHidden && stickerBox.gifMode !== 2)
+                source: (!root.mediaHidden && root.mediaPixmapRetained
+                         && stickerBox.gifMode !== 2)
                         ? stickerBox.animatedSource : ""
                 readonly property bool animating:
                     status === AnimatedImage.Ready
@@ -6674,7 +6692,7 @@ Item {
                 playing: animating && root.rowOnScreen
                          && !MotionPolicy.suspended
                 asynchronous: true
-                cache: true
+                cache: root.mediaPixmapCacheAllowed
                 // Keeps the bridge from evicting the file mid-play.
                 AnimationFileHold {}
             }
@@ -7068,14 +7086,14 @@ Item {
                 fillMode: Image.PreserveAspectCrop
                 // Rounded via the provider's baked mask when served by the
                 // media bridge.
-                source: videoBox.usesBridge
+                source: root.mediaPixmapRetained && videoBox.usesBridge
                         ? (videoBox.bridgeSource.indexOf("image://lightning-media/") === 0
                            ? videoBox.bridgeSource + "|shape:round:35"
                            : videoBox.bridgeSource)
                         : ""
                 sourceSize.width: 640
                 asynchronous: true
-                cache: true
+                cache: root.mediaPixmapCacheAllowed
                 visible: status === Image.Ready
             }
             // Play affordance + type identity, over thumbnail or skeleton.

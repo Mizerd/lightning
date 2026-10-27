@@ -4016,6 +4016,9 @@ void AppController::prepareForShutdown()
     // or this log line can tell which phase to look at next time.
     QElapsedTimer shutdownTimer;
     shutdownTimer.start();
+    qCInfo(lcApp) << "quit: prepareForShutdown begin";
+    if (QQuickWindow *window = mainWindow())
+        window->hide();
 
     // Live accounts (Labs): every background account starts retiring now,
     // on its own pool, so it retires in parallel with the foreground's stop
@@ -4134,6 +4137,7 @@ void AppController::prepareForShutdown()
     }
 
     const qint64 elapsed = shutdownTimer.elapsed();
+    qCInfo(lcApp) << "quit: prepareForShutdown end elapsed_ms=" << elapsed;
     if (elapsed >= 1000) {
         qCInfo(lcApp) << "prepareForShutdown took" << elapsed
                       << "ms before the window can finish closing";

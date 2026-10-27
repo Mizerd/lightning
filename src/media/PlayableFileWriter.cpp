@@ -1,5 +1,6 @@
 #include "media/PlayableFileWriter.h"
 #include "storage/ScratchFile.h"
+#include "media/ShutdownThreadJoin.h"
 
 #include <QFileDevice>
 #include <QLoggingCategory>
@@ -33,8 +34,11 @@ PlayableFileWriter::~PlayableFileWriter()
 {
     // Cancel first so the wait is bounded by one chunk.
     cancelAll();
-    m_thread->quit();
-    m_thread->wait();
+    if (!lightning::media::quitAndJoinWorkerForShutdown(m_thread, 2000)) {
+        qCWarning(lcPlayableWrite)
+            << "quit: playable writer exceeded 2000 ms; detaching thread";
+        return;
+    }
     delete m_thread;
 }
 

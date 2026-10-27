@@ -2690,6 +2690,11 @@ Rectangle {
                 // first refresh.
                 property int mediaBandFirstRow: 0
                 property int mediaBandLastRow: 2147483647
+                // Decoded pictures only need a few viewports around the reader.
+                // This is separate from the fetch band: that band's open newest
+                // side protects late media height changes and pagination.
+                property int mediaRetainFirstRow: 0
+                property int mediaRetainLastRow: 2147483647
                 // The band's far edge lies past the loaded rows, so rows still
                 // landing (the history fill, the paced reveal) belong inside
                 // it. At the live edge nothing moves contentY while they land,
@@ -2702,6 +2707,8 @@ Rectangle {
                         mediaBandFirstRow = 0
                         mediaBandLastRow = 2147483647
                         mediaBandOpen = true
+                        mediaRetainFirstRow = 0
+                        mediaRetainLastRow = 2147483647
                         return
                     }
                     var h = Math.max(height, 400)
@@ -2723,6 +2730,10 @@ Rectangle {
                     mediaBandOpen = far >= contentHeight
                     mediaBandLastRow = (mediaBandOpen || last < 0)
                                        ? count - 1 : last
+                    var near = viewRowAtContentY(contentY - h * 2.5)
+                    mediaRetainFirstRow = Math.max(0, near < 0 ? 0 : near)
+                    mediaRetainLastRow = Math.max(mediaRetainFirstRow,
+                        (far >= contentHeight || last < 0) ? count - 1 : last)
                 }
                 // Content grew under an open band: re-derive it at most every
                 // 100 ms, and never mid-gesture (the settle does that). Once the
@@ -2944,6 +2955,9 @@ Rectangle {
                             // Same for the media band.
                             mediaInBand: index >= timeline.mediaBandFirstRow
                                          && index <= timeline.mediaBandLastRow
+                            mediaPixmapRetained:
+                                index >= timeline.mediaRetainFirstRow
+                                && index <= timeline.mediaRetainLastRow
                         }
                     }
                 }
@@ -4735,8 +4749,8 @@ Rectangle {
                 }
                 // Row window: bounds the instantiated rows, since render and
                 // polish cost grow with loaded rows. Safety constraints:
-                //   * applied only when the reader is settled, never
-                //     mid-gesture;
+                //   * started only when the reader is settled; subsequent
+                //     bounded steps stop when a new gesture starts;
                 //   * a generous runway below the reader, so a downward gesture
                 //     cannot reach the window's low edge;
                 //   * the correction restores the reader's own anchor event's
@@ -4747,6 +4761,15 @@ Rectangle {
                 readonly property int windowRunwayRows: 220   // below reader
                 readonly property int windowMarginRows: 120   // above reader
                 readonly property int windowMinRows: 320      // never below
+                property int pendingWindowSkip: -1
+                property int pendingWindowOldest: -1
+                property int pendingWindowTotal: -1
+                readonly property int windowTrimStepRows: 8
+                Timer {
+                    id: rowWindowTrimTimer
+                    interval: 16
+                    onTriggered: timeline.stepRowWindowTrim()
+                }
                 function applyRowWindow() {
                     if (!app.timelineView || !app.timelineView.setWindow)
                         return
@@ -4810,6 +4833,32 @@ Rectangle {
                     }
                     if (wantSkip === skip && wantRows === rows)
                         return
+                    pendingWindowSkip = wantSkip
+                    pendingWindowOldest = wantSkip + wantRows
+                    pendingWindowTotal = total
+                    stepRowWindowTrim()
+                }
+                function stepRowWindowTrim() {
+                    if (pendingWindowSkip < 0 || !app.timelineView
+                        || viewportMotionActive
+                        || !presentationReady || !app.timeline
+                        || app.timeline.count !== pendingWindowTotal) {
+                        pendingWindowSkip = -1
+                        rowWindowTrimTimer.stop()
+                        return
+                    }
+                    const skip = rowWindowSkip
+                    const oldest = skip + count
+                    const nextSkip = skip + Math.max(-windowTrimStepRows,
+                        Math.min(windowTrimStepRows, pendingWindowSkip - skip))
+                    const nextOldest = oldest + Math.max(-windowTrimStepRows,
+                        Math.min(windowTrimStepRows, pendingWindowOldest - oldest))
+                    const wantRows = nextOldest - nextSkip
+                    const wantSkip = nextSkip
+                    if (wantSkip === skip && wantRows === count) {
+                        pendingWindowSkip = -1
+                        return
+                    }
                     // Hold the reader's own row at the same screen offset,
                     // measured before and after. Summing the heights of
                     // released rows does not work: they are at the far end from
@@ -4826,7 +4875,10 @@ Rectangle {
                     // (mid-reset); applying a structural change there dumps the
                     // reader. Bail.
                     if (!anchorItem || anchorEventId === "")
+                    {
+                        pendingWindowSkip = -1
                         return
+                    }
                     const anchorOffset = anchorItem.y - contentY
 
                     // The mutation itself can move contentY (the Flickable
@@ -4849,6 +4901,8 @@ Rectangle {
                         // Should be impossible for an on-screen row; count it
                         // rather than apply a correction computed from nothing.
                         ++diagWindowUnmeasuredRows
+                        pendingWindowSkip = -1
+                        return
                     }
                     ++diagWindowApplications
                     // Rows the window re-exposed at its newest end are paid
@@ -4856,6 +4910,11 @@ Rectangle {
                     newestEndInsertedRows = 0
                     updateStickAndPaginate()
                     captureViewAnchor()
+                    if (wantSkip !== pendingWindowSkip
+                        || nextOldest !== pendingWindowOldest)
+                        rowWindowTrimTimer.start()
+                    else
+                        pendingWindowSkip = -1
                 }
 
                 // followStateApplies: false for an input event that could not
@@ -4892,12 +4951,23 @@ Rectangle {
                 // false when the skip is already 0. The chunk is modest because
                 // these rows are built synchronously (3-7 ms each); the
                 // settle-time applyRowWindow() releases the surplus again.
-                readonly property int windowNewEndExtendRows: 60
+                readonly property int windowNewEndExtendRows: 3
+                Timer {
+                    id: rowWindowExtendTimer
+                    interval: 16
+                    onTriggered: {
+                        if (timeline.rowWindowSkip > 0
+                            && timeline.contentY - timeline.wheelMinY()
+                               < timeline.height * 3
+                            && timeline.extendRowWindowAtNewEnd())
+                            start()
+                    }
+                }
                 // One viewport of remaining runway, so rows exist before the
                 // reader arrives.
                 function nearWindowNewEdge() {
                     return rowWindowSkip > 0
-                           && contentY - wheelMinY() < Math.max(1, height)
+                           && contentY - wheelMinY() < Math.max(1, height * 3)
                 }
                 function extendRowWindowAtNewEnd() {
                     if (!app.timelineView
@@ -4940,6 +5010,8 @@ Rectangle {
                     // second time.
                     newestEndInsertedRows = 0
                     captureViewAnchor()
+                    if (rowWindowSkip > 0 && !rowWindowExtendTimer.running)
+                        rowWindowExtendTimer.start()
                     return true
                 }
 
@@ -5468,12 +5540,13 @@ Rectangle {
                     objectName: "scrollSettleTimer"
                     interval: 250
                     onTriggered: {
+                        rowWindowExtendTimer.stop()
                         timeline.refreshMediaBand()
                         timeline.updateStickAndPaginate()
                         timeline.saveRoomPosition()
                         timeline.captureViewAnchor()
-                        // The only place the row window is applied: never
-                        // mid-gesture.
+                        // Start a bounded trim after settle. Its timer checks
+                        // motion before every subsequent step.
                         timeline.applyRowWindow()
                         // A completed gesture near the top re-arms the edge;
                         // otherwise backfill stops in a filtered room once the
@@ -5500,6 +5573,9 @@ Rectangle {
                     target: null
                     acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
                     onWheel: (event) => {
+                        // A new gesture invalidates a settle-time trim target.
+                        timeline.pendingWindowSkip = -1
+                        rowWindowTrimTimer.stop()
                         // Timed only while LIGHTNING_SCROLL_TRACE is set.
                         var notchStartMs = timeline.scrollTrace ? Date.now() : 0
                         // Stop any autoscroll; a wheel notch also owns

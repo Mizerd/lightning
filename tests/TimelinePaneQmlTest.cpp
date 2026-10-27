@@ -2028,6 +2028,11 @@ private Q_SLOTS:
         const qreal anchorOffset = before.value(1).toReal();
         QVERIFY2(!anchorId.isEmpty(), "no anchor event under the viewport");
 
+        QSignalSpy removed(controller.timelineView(),
+                           &QAbstractItemModel::rowsRemoved);
+        QSignalSpy inserted(controller.timelineView(),
+                            &QAbstractItemModel::rowsInserted);
+
         // Apply the window as the settle timer does.
         QQmlExpression apply(qmlContext(timeline), timeline,
                              QStringLiteral("applyRowWindow()"));
@@ -2035,8 +2040,14 @@ private Q_SLOTS:
         QVERIFY2(!apply.hasError(),
                  apply.error().toString().toUtf8().constData());
         QCoreApplication::processEvents();
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("pendingWindowSkip").toInt() < 0, 10000);
 
         // (1) Rows are bounded.
+        // A trim now advances by at most eight rows at either end per turn.
+        // Wait for the producer, not for a single model notification.
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("pendingWindowSkip").toInt() < 0, 10000);
         const int rowsAfter = timeline->property("count").toInt();
         QVERIFY2(rowsAfter < rowsBefore,
                  qPrintable(QStringLiteral("no rows released: %1 -> %2")
@@ -2044,6 +2055,30 @@ private Q_SLOTS:
         QVERIFY2(rowsAfter <= 520,
                  qPrintable(QStringLiteral("window too loose: %1 rows")
                                 .arg(rowsAfter)));
+        QVERIFY(QMetaObject::invokeMethod(timeline, "refreshMediaBand"));
+        QVERIFY2(timeline->property("mediaRetainFirstRow").toInt() > 0,
+                 "the decoded-image range still retains every newer row");
+        auto *outsidePictureRange = itemAtViewRow(timeline, 0);
+        QVERIFY(outsidePictureRange != nullptr);
+        QVERIFY(!outsidePictureRange->property("mediaPixmapRetained").toBool());
+        auto *readerPictureRange = itemAtViewRow(
+            timeline, timeline->property("visibleFirstRow").toInt());
+        QVERIFY(readerPictureRange != nullptr);
+        QVERIFY(readerPictureRange->property("mediaPixmapRetained").toBool());
+        QVERIFY2(removed.size() > 1,
+                 "the window was trimmed in a single GUI-thread operation");
+        for (const auto &change : removed) {
+            const int first = change.at(1).toInt();
+            const int last = change.at(2).toInt();
+            QVERIFY2(last - first + 1 <= 8,
+                     "a trim removed more than one frame's row budget");
+        }
+        for (const auto &change : inserted) {
+            const int first = change.at(1).toInt();
+            const int last = change.at(2).toInt();
+            QVERIFY2(last - first + 1 <= 8,
+                     "a trim inserted more than one frame's row budget");
+        }
 
         // (2) The reader's message did not move on screen.
         QQmlExpression after(
@@ -2095,6 +2130,8 @@ private Q_SLOTS:
         QVERIFY2(!apply2.hasError(),
                  apply2.error().toString().toUtf8().constData());
         QCoreApplication::processEvents();
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("pendingWindowSkip").toInt() < 0, 10000);
 
         QVERIFY2(timeline->property("rowWindowSkip").toInt() < skipAfter,
                  qPrintable(QStringLiteral("skip did not come back down: %1")
@@ -2118,6 +2155,53 @@ private Q_SLOTS:
         // them, so it cannot reproduce the unmeasured-row hazard the flush in
         // applyRowWindow() guards against; a pass here does not prove absence.
         QCOMPARE(timeline->property("diagWindowUnmeasuredRows").toInt(), 0);
+    }
+
+    void newestWindowExtensionBuildsOnlyAFrameBudgetAndKeepsTheAnchor()
+    {
+        AppController controller(AppController::MockBackend);
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline =
+            deepHistoryPane(controller, engine, window, 900, 0.55);
+        QVERIFY(timeline != nullptr);
+        QQmlExpression apply(qmlContext(timeline), timeline,
+                             QStringLiteral("applyRowWindow()"));
+        apply.evaluate();
+        QVERIFY2(!apply.hasError(),
+                 apply.error().toString().toUtf8().constData());
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("pendingWindowSkip").toInt() < 0, 10000);
+        QVERIFY(timeline->property("rowWindowSkip").toInt() > 3);
+
+        QQmlExpression anchor(qmlContext(timeline), timeline,
+            QStringLiteral("(function(){ var r = viewRowAtContentY(contentY);"
+                           " var it = itemAtViewRow(r);"
+                           " return [eventIdAtViewRow(r), it.y - contentY]; })()"));
+        const QVariantList before = anchor.evaluate().toList();
+        QVERIFY2(!anchor.hasError(),
+                 anchor.error().toString().toUtf8().constData());
+        QVERIFY(!before.at(0).toString().isEmpty());
+        QSignalSpy inserted(controller.timelineView(),
+                            &QAbstractItemModel::rowsInserted);
+        QQmlExpression extend(qmlContext(timeline), timeline,
+                              QStringLiteral("extendRowWindowAtNewEnd()"));
+        QVERIFY(extend.evaluate().toBool());
+        QVERIFY2(!extend.hasError(),
+                 extend.error().toString().toUtf8().constData());
+        QVERIFY(!inserted.isEmpty());
+        QCOMPARE(inserted.first().at(2).toInt()
+                 - inserted.first().at(1).toInt() + 1, 3);
+
+        QQmlExpression after(qmlContext(timeline), timeline,
+            QStringLiteral("(function(id){ var r = viewRowForStableId(id);"
+                           " var it = itemAtViewRow(r);"
+                           " return it.y - contentY; })('")
+                + before.at(0).toString() + QStringLiteral("')"));
+        const qreal offset = after.evaluate().toReal();
+        QVERIFY2(!after.hasError(),
+                 after.error().toString().toUtf8().constData());
+        QVERIFY(qAbs(offset - before.at(1).toReal()) <= 2.0);
     }
 
     // Trimming the oldest end shrinks wheelMaxY() and so moves the reader's
@@ -2145,6 +2229,8 @@ private Q_SLOTS:
         QVERIFY2(!apply.hasError(),
                  apply.error().toString().toUtf8().constData());
         QCoreApplication::processEvents();
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("pendingWindowSkip").toInt() < 0, 10000);
 
         QVERIFY2(timeline->property("count").toInt() < rowsBefore,
                  "nothing was released, so the hazard was never exercised");
@@ -2182,6 +2268,8 @@ private Q_SLOTS:
         QVERIFY2(!apply.hasError(),
                  apply.error().toString().toUtf8().constData());
         QCoreApplication::processEvents();
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("pendingWindowSkip").toInt() < 0, 10000);
         QVERIFY2(timeline->property("rowWindowSkip").toInt() > 0,
                  "no window was established, so the bug is unreachable here");
 
@@ -2224,6 +2312,8 @@ private Q_SLOTS:
         QVERIFY2(!apply.hasError(),
                  apply.error().toString().toUtf8().constData());
         QCoreApplication::processEvents();
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("pendingWindowSkip").toInt() < 0, 10000);
         QVERIFY(timeline->property("rowWindowSkip").toInt() > 0);
 
         // The reader's position, and a newer row (physically below) whose
@@ -2281,6 +2371,8 @@ private Q_SLOTS:
         QVERIFY2(!apply.hasError(),
                  apply.error().toString().toUtf8().constData());
         QCoreApplication::processEvents();
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("pendingWindowSkip").toInt() < 0, 10000);
 
         const int skip = timeline->property("rowWindowSkip").toInt();
         const int exposed = timeline->property("count").toInt();
@@ -9241,6 +9333,8 @@ private Q_SLOTS:
         QVERIFY2(!apply.hasError(),
                  apply.error().toString().toUtf8().constData());
         QCoreApplication::processEvents();
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("pendingWindowSkip").toInt() < 0, 10000);
         const int skip = timeline->property("rowWindowSkip").toInt();
         QVERIFY2(skip > 0,
                  "no window was established, so the synthetic newest edge "
@@ -9312,6 +9406,8 @@ private Q_SLOTS:
         QVERIFY2(!apply.hasError(),
                  apply.error().toString().toUtf8().constData());
         QCoreApplication::processEvents();
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("pendingWindowSkip").toInt() < 0, 10000);
         QCOMPARE(timeline->property("rowWindowSkip").toInt(), 0);
     }
 
@@ -10738,6 +10834,8 @@ private Q_SLOTS:
         QVERIFY2(!apply.hasError(),
                  apply.error().toString().toUtf8().constData());
         QCoreApplication::processEvents();
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("pendingWindowSkip").toInt() < 0, 10000);
         QVERIFY2(timeline->property("rowWindowSkip").toInt() > 0,
                  "no window established");
 
@@ -10824,6 +10922,8 @@ private Q_SLOTS:
         QVERIFY2(!apply.hasError(),
                  apply.error().toString().toUtf8().constData());
         QCoreApplication::processEvents();
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("pendingWindowSkip").toInt() < 0, 10000);
 
         // The precondition is only that the target is not exposed.
         QQmlExpression exposed(
@@ -10882,6 +10982,8 @@ private Q_SLOTS:
         QVERIFY2(!apply.hasError(),
                  apply.error().toString().toUtf8().constData());
         QCoreApplication::processEvents();
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("pendingWindowSkip").toInt() < 0, 10000);
 
         const int abandoned0 =
             timeline->property("diagNavigationAbandoned").toInt();
@@ -10980,6 +11082,8 @@ private Q_SLOTS:
         QVERIFY2(!apply.hasError(),
                  apply.error().toString().toUtf8().constData());
         QCoreApplication::processEvents();
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("pendingWindowSkip").toInt() < 0, 10000);
         QVERIFY2(timeline->property("diagScrollIncidents").toInt() == before,
                  qPrintable(QStringLiteral("a row-window trim was reported: ")
                             + controller.timelineScroll()
@@ -11783,6 +11887,8 @@ private Q_SLOTS:
         QVERIFY2(!apply.hasError(),
                  apply.error().toString().toUtf8().constData());
         QCoreApplication::processEvents();
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("pendingWindowSkip").toInt() < 0, 10000);
         QVERIFY2(timeline->property("rowWindowSkip").toInt() > 0,
                  "no window was established, so the case is unreachable here");
         auto *pill = root->findChild<QQuickItem *>(
@@ -11819,6 +11925,8 @@ private Q_SLOTS:
         QVERIFY2(!apply.hasError(),
                  apply.error().toString().toUtf8().constData());
         QCoreApplication::processEvents();
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("pendingWindowSkip").toInt() < 0, 10000);
         const int skip = timeline->property("rowWindowSkip").toInt();
         QVERIFY2(skip > 100,
                  qPrintable(QStringLiteral(

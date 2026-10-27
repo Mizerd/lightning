@@ -13,6 +13,7 @@
 #include <QtTest/QtTest>
 
 #include <QTemporaryDir>
+#include <QImage>
 
 
 #include <QQmlApplicationEngine>
@@ -213,6 +214,36 @@ private Q_SLOTS:
         QVERIFY(qAbs(skeleton->width() - 360.0) < 1.0);
         QVERIFY(qAbs(skeleton->height() - 270.0) < 1.0);
         QCOMPARE(d.warnings, QStringList{});
+    }
+
+    void imageReleasesItsSourceOutsideTheRetentionBandWithoutChangingGeometry()
+    {
+        AppController controller(AppController::MockBackend);
+        QTemporaryDir pictures;
+        QVERIFY(pictures.isValid());
+        const QString path = pictures.filePath(QStringLiteral("picture.png"));
+        QImage pixels(4, 4, QImage::Format_ARGB32_Premultiplied);
+        pixels.fill(Qt::red);
+        QVERIFY(pixels.save(path));
+        QVariantMap fixture = baseFixture(controller);
+        fixture.insert(QStringLiteral("isImage"), true);
+        fixture.insert(QStringLiteral("mediaWidth"), 320);
+        fixture.insert(QStringLiteral("mediaHeight"), 200);
+        fixture.insert(QStringLiteral("mediaUrl"), QUrl::fromLocalFile(path));
+        Delegate d;
+        QVERIFY(createDelegate(controller, fixture, d));
+        auto *image = d.root->findChild<QQuickItem *>(
+            QStringLiteral("messageStillImage"));
+        QVERIFY(image != nullptr);
+        QTRY_VERIFY(!image->property("source").toUrl().isEmpty());
+        const QUrl source = image->property("source").toUrl();
+        const qreal height = d.root->height();
+        QVERIFY(d.root->setProperty("mediaPixmapRetained", false));
+        QTRY_VERIFY(image->property("source").toUrl().isEmpty());
+        QCOMPARE(d.root->height(), height);
+        QVERIFY(d.root->setProperty("mediaPixmapRetained", true));
+        QTRY_COMPARE(image->property("source").toUrl(), source);
+        QCOMPARE(d.root->height(), height);
     }
 
     // An MSC4274 gallery renders every attachment: two pictures as equal

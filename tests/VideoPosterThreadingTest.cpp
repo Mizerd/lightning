@@ -7,6 +7,7 @@
 // not disarmed by wrong thread affinity.
 
 #include "media/VideoPosterExtractor.h"
+#include "media/ShutdownThreadJoin.h"
 
 #include <QCoreApplication>
 #include <QElapsedTimer>
@@ -18,6 +19,7 @@
 #include <QTemporaryDir>
 #include <QTest>
 #include <QThread>
+#include <QPointer>
 
 #include <atomic>
 
@@ -55,6 +57,24 @@ class VideoPosterThreadingTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
+    void aBlockedMediaWorkerJoinReturnsAtItsBudgetAndDeletesAfterFinish()
+    {
+        class SlowWorker final : public QThread {
+            void run() override { QThread::msleep(350); }
+        };
+        auto *worker = new SlowWorker;
+        QPointer<QThread> guard(worker);
+        worker->start();
+        QElapsedTimer timer;
+        timer.start();
+        QVERIFY(!lightning::media::quitAndJoinWorkerForShutdown(worker, 40));
+        QVERIFY2(timer.elapsed() < 250,
+                 "a blocked worker held the calling thread past its budget");
+        // The timeout path leaves a running QThread intact and reclaims its
+        // QObject only after finished; deleting it on timeout would crash.
+        QTRY_VERIFY_WITH_TIMEOUT(guard.isNull(), 1500);
+    }
+
     void initTestCase()
     {
         QVERIFY(m_dir.isValid());

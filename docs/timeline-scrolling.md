@@ -217,6 +217,21 @@ scroll itself. Also open: which stall category (`row-reveal`,
 `writePlayableFile` still writes up to 32 MiB synchronously on the GUI
 thread (unmeasured).
 
+*2026-10-27 big-room follow-up (unmeasured worktree).* A return from a deep
+trip built 60 newest-end delegates in one wheel handler, with 500–900 ms
+stalls; the bottom settle removed a large slice in one operation. The pane now
+adds at most three newest rows per operation and replenishes a three-viewport
+runway on 16 ms timer turns. A settled window move now removes or inserts at
+most eight rows at each end per turn; every turn remeasures the reader's anchor
+and keeps the same positive-only anchoring machinery. A new gesture cancels a
+pending trim. The media fetch band still stays open toward the live edge, but
+decoded pictures have a separate symmetric 2.5-viewport retention range and
+uncached `Image` sources are cleared outside it. `LIGHTNING_SCROLL_MEMORY_TRACE=1`
+logs RSS, bridge byte-cache use, Qt's public pixmap-cache limit, and row counts
+every five seconds. Qt Quick's internal pixmap-cache occupancy is not exposed
+by public API; RSS is the outcome measure. None of these changes have been
+built or live measured in this worktree yet.
+
 *The positive-only anchor guard: do not "fix" it.* The timeline is a
 rotated `Flickable` + `Column` (`qml/TimelinePane.qml`), not a ListView:
 `contentHeight` is the exact sum of real rows and `originY` can never

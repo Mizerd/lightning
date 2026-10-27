@@ -1,4 +1,5 @@
 #include "media/VideoPosterExtractor.h"
+#include "media/ShutdownThreadJoin.h"
 
 #include <QBuffer>
 #include <QImage>
@@ -94,8 +95,10 @@ VideoPosterExtractor::~VideoPosterExtractor()
         return;
     // Process exit: wait, bounded by the longest worker call (~1 s backend
     // init), rather than tear down around a half-destroyed decoder.
-    m_thread->quit();
-    m_thread->wait();
+    if (!lightning::media::quitAndJoinWorkerForShutdown(m_thread, 2000)) {
+        qWarning("quit: poster worker exceeded 2000 ms; detaching thread");
+        return;
+    }
     delete m_thread;
 }
 
