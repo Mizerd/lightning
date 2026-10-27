@@ -366,8 +366,14 @@ private Q_SLOTS:
         QCOMPARE(fnBody.count(QStringLiteral("function() { root.timelineModel.redactEvent(")),
                  redactions);
         QCOMPARE(fnBody.count(QStringLiteral("confirmDestructive(")), redactions);
+        // In bulk selection the hotkey only toggles the row; it never redacts
+        // there, and outside it the one path is deleteThisMessage().
         QVERIFY2(src.contains(QStringLiteral(
-                     "case \"timeline.deleteMessage\": deleteThisMessage()")),
+                     "case \"timeline.deleteMessage\":\n"
+                     "            if (root.bulkSelectionMode)\n"
+                     "                app.bulkRedaction.toggle(root.menuEventId, root.canRedactOthers)\n"
+                     "            else\n"
+                     "                deleteThisMessage()")),
                  "the Delete hotkey no longer goes through deleteThisMessage()");
         QVERIFY2(!src.contains(QStringLiteral("case \"timeline.deleteMessage\": root.timelineModel.redactEvent")),
                  "the Delete hotkey redacts without asking");

@@ -595,7 +595,7 @@ private Q_SLOTS:
         const QString grantCall = QStringLiteral(
             "canRedactEvent(\n                             root.menuEventId, "
             "root.canRedactOthers)");
-        QCOMPARE(block.count(grantCall), 2);   // the separator and Delete
+        QCOMPARE(block.count(grantCall), 3);   // the separator, Select messages to delete, and Delete
         QVERIFY2(delegate.contains(QStringLiteral(
                      "enabled: root.timelineModel.canRedactEvent(\n"
                      "                             root.menuEventId, "

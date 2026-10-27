@@ -793,8 +793,11 @@ private Q_SLOTS:
     void theSelectionCircleFollowsTheCountAndOwnsTheGutter()
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
-        QVERIFY2(delegate.contains(QStringLiteral("&& app.forward.selectedCount > 0\n"
-                                                  "        && app.forward.isSelected(")),
+        QVERIFY2(delegate.contains(QStringLiteral("? app.bulkRedaction.selectedCount > 0\n"
+                                                  "              && app.bulkRedaction.isSelected(")),
+                 "rowSelected must name a NOTIFYing property: isSelected() is a plain call");
+        QVERIFY2(delegate.contains(QStringLiteral(": app.forward.selectedCount > 0\n"
+                                                  "              && app.forward.isSelected(")),
                  "rowSelected must name a NOTIFYing property: isSelected() is a plain call");
         const int loader = delegate.indexOf(
             QStringLiteral("active: !root.showsIdentity && rowHover.hovered"));
