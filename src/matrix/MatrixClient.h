@@ -214,6 +214,10 @@ public:
     // same diff signals and model code as a room timeline. The id embeds a unit
     // separator, which never appears in Matrix ids, so it cannot collide with a
     // real room id.
+    /// Translated text for a redactionFinished() failure category. Unknown
+    /// categories get the generic wording.
+    static QString redactionFailureText(const QString &category);
+
     static QString threadTimelineId(const QString &roomId,
                                     const QString &rootEventId)
     {
@@ -2009,8 +2013,12 @@ Q_SIGNALS:
     void eventEdited(const QString &roomId, const QString &eventId);
     void eventRedacted(const QString &roomId, const QString &eventId);
     // Result of a redaction request, separate from the later timeline diff.
+    // `category` is empty on success and otherwise one of a fixed vocabulary
+    // (rate_limited, forbidden, not_found, invalid, unrecognized, network,
+    // not_ready, rejected), never server or SDK error text; the UI shows
+    // redactionFailureText(category).
     void redactionFinished(const QString &roomId, const QString &eventId,
-                           bool ok, const QString &error);
+                           bool ok, const QString &category);
     void reactionsChanged(const QString &roomId, const QString &eventId);
     void eventsPrepended(const QString &roomId, const QList<TimelineEvent> &events);
     void paginationStateChanged(const QString &roomId);

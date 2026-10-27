@@ -2625,17 +2625,18 @@ impl TimelineRegistry {
             let reason = if reason.is_empty() { None } else { Some(reason.as_str()) };
             let result = room.redact(&event_id, reason, None).await;
             if registry.lifecycle_current(lifecycle) {
+                let category = result.as_ref().err().map(|err| {
+                    redaction_error_category(err.client_api_error_kind(), &err.to_string())
+                });
                 enqueue(
                     &events,
-                    json!({
-                        "type": "timeline_redaction_finished",
-                        "room_id": room_id,
-                        "event_id": event_id.as_str(),
-                        "room_generation": room_gen,
-                        "lifecycle": lifecycle,
-                        "ok": result.is_ok(),
-                        "error": result.err().map(|e| e.to_string()).unwrap_or_default(),
-                    }),
+                    redaction_finished_payload(
+                        &room_id,
+                        event_id.as_str(),
+                        room_gen,
+                        lifecycle,
+                        category,
+                    ),
                 );
             }
         });
@@ -6671,6 +6672,44 @@ fn utd_sessions_in<'a>(
     out
 }
 
+/// The non-secret category of a failed redaction. The structured errcode
+/// decides when the server sent one; the text is only a fallback through
+/// `classify_room_error`, because raw SDK error text can carry server detail
+/// and request URLs and must never reach the UI. `rate_limited` is what a bulk
+/// deletion stops on.
+pub(crate) fn redaction_error_category(
+    kind: Option<&matrix_sdk::ruma::api::error::ErrorKind>,
+    text: &str,
+) -> &'static str {
+    use matrix_sdk::ruma::api::error::ErrorKind;
+    match kind {
+        Some(ErrorKind::LimitExceeded(_)) => "rate_limited",
+        Some(ErrorKind::Forbidden) => "forbidden",
+        Some(ErrorKind::NotFound) => "not_found",
+        _ => crate::rooms::classify_room_error(text),
+    }
+}
+
+/// The `timeline_redaction_finished` event: a category on failure, never the
+/// error text. `category` is `None` on success.
+pub(crate) fn redaction_finished_payload(
+    room_id: &str,
+    event_id: &str,
+    room_generation: u64,
+    lifecycle: u64,
+    category: Option<&'static str>,
+) -> serde_json::Value {
+    json!({
+        "type": "timeline_redaction_finished",
+        "room_id": room_id,
+        "event_id": event_id,
+        "room_generation": room_generation,
+        "lifecycle": lifecycle,
+        "ok": category.is_none(),
+        "category": category.unwrap_or_default(),
+    })
+}
+
 /// What a failed `download_room_key` established, from the structured
 /// error rather than its text.
 ///
@@ -7006,9 +7045,48 @@ mod tests {
         sessions_by_room_from_import, state_row_text, substitute_emoticons,
         attachment_config, parse_reply_target, TimelineRegistry, MAX_BACKUP_ATTEMPTS,
         still_undecryptable, SDK_KEY_RECOVERY_GRACE,
+        redaction_error_category, redaction_finished_payload,
     };
     use matrix_sdk::ruma::events::AnySyncTimelineEvent;
     use std::collections::{BTreeMap, BTreeSet, VecDeque};
+
+    /// A failed redaction reaches C++ as a category, never as SDK error text
+    /// (review S2): the errcode decides when present, the text only as a
+    /// fallback, and a rate limit is `rate_limited` either way, since a bulk
+    /// deletion stops on that category.
+    #[test]
+    fn a_failed_redaction_is_reported_as_a_category_never_as_text() {
+        use matrix_sdk::ruma::api::error::{ErrorKind, LimitExceededErrorData};
+        let limited = ErrorKind::LimitExceeded(LimitExceededErrorData::new());
+        assert_eq!(redaction_error_category(Some(&limited), "anything"), "rate_limited");
+        assert_eq!(redaction_error_category(Some(&ErrorKind::Forbidden), "x"), "forbidden");
+        assert_eq!(redaction_error_category(Some(&ErrorKind::NotFound), "x"), "not_found");
+        // No errcode (a proxy's bare 429): the text fallback still says so.
+        assert_eq!(
+            redaction_error_category(None, "the server returned an error: [429 / ] Too Many Requests"),
+            "rate_limited");
+        assert_eq!(redaction_error_category(None, "connection reset by peer"), "network");
+
+        let secret = "https://matrix.example.org/_matrix/client/v3/rooms/!r/redact/$e?token=abc";
+        let failed = redaction_finished_payload(
+            "!r:example.org",
+            "$e:example.org",
+            7,
+            3,
+            Some(redaction_error_category(None, secret)),
+        );
+        assert_eq!(failed["type"], "timeline_redaction_finished");
+        assert_eq!(failed["ok"], false);
+        assert_eq!(failed["category"], "network");
+        assert!(failed.get("error").is_none());
+        assert!(!failed.to_string().contains("token=abc"));
+        assert!(!failed.to_string().contains("matrix.example.org"));
+
+        let ok = redaction_finished_payload("!r:example.org", "$e:example.org", 7, 3, None);
+        assert_eq!(ok["ok"], true);
+        assert_eq!(ok["category"], "");
+        assert_eq!(ok["lifecycle"], 3);
+    }
 
     /// "If I reply to a text with an image it just sends the image": both
     /// attachment sends built their config with `in_reply_to: None` and had no

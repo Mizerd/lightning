@@ -4153,9 +4153,8 @@ void RustSdkMatrixClient::redactEvent(const QString &roomId,
         refuseUntilTimelineReady("redactEvent");
         // Every request gets exactly one result: a bulk deletion waits for it
         // before sending the next, and a refusal with no result stalled it.
-        Q_EMIT redactionFinished(
-            realRoom, eventId, false,
-            tr("This room is still loading. Try that again in a moment."));
+        Q_EMIT redactionFinished(realRoom, eventId, false,
+                                 QStringLiteral("not_ready"));
         return;
     }
     const QByteArray roomBytes = realRoom.toUtf8();
@@ -4165,10 +4164,12 @@ void RustSdkMatrixClient::redactEvent(const QString &roomId,
         m_rustHandle, roomBytes.constData(), targetBytes.constData(),
         reasonBytes.constData()));
     if (!result.isEmpty()) {
-        const QString error = result.startsWith(QLatin1String("error: "))
-                                  ? result.mid(7) : result;
-        Q_EMIT errorOccurred(error);
-        Q_EMIT redactionFinished(realRoom, eventId, false, error);
+        // Refused before any request (no session, not joined, a malformed
+        // id): Rust's own wording, logged here and never shown.
+        qCWarning(lcRust) << "redaction refused before sending:" << result;
+        const QString category = QStringLiteral("rejected");
+        Q_EMIT errorOccurred(redactionFailureText(category));
+        Q_EMIT redactionFinished(realRoom, eventId, false, category);
     }
 }
 
@@ -7748,12 +7749,17 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         if (roomId.isEmpty() || eventId.isEmpty())
             return;
         const bool ok = event.value(QStringLiteral("ok")).toBool();
-        const QString error = event.value(QStringLiteral("error")).toString();
-        if (!ok)
-            Q_EMIT errorOccurred(error.isEmpty()
-                                     ? tr("The message could not be deleted.")
-                                     : error);
-        Q_EMIT redactionFinished(roomId, eventId, ok, error);
+        // A category from a fixed vocabulary; the SDK's error text never
+        // crosses the bridge (review S2).
+        const QString category =
+            ok ? QString()
+               : event.value(QStringLiteral("category")).toString(
+                     QStringLiteral("rejected"));
+        if (!ok) {
+            qCWarning(lcRust) << "redaction failed category=" << category;
+            Q_EMIT errorOccurred(redactionFailureText(category));
+        }
+        Q_EMIT redactionFinished(roomId, eventId, ok, category);
         return;
     }
     if (type == QLatin1String("timeline_send_failed")) {

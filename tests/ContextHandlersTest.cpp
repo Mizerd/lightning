@@ -98,12 +98,55 @@ private Q_SLOTS:
         QCOMPARE(finished.at(0).at(1).toString(),
                  QStringLiteral("$e:example.org"));
         QCOMPARE(finished.at(0).at(2).toBool(), false);
+        QCOMPARE(finished.at(0).at(3).toString(), QStringLiteral("not_ready"));
 
         const QString thread = MatrixClient::threadTimelineId(
             room, QStringLiteral("$root:example.org"));
         client.redactEvent(thread, QStringLiteral("$t:example.org"), QString());
         QCOMPARE(finished.count(), 2);
         QCOMPARE(finished.at(1).at(0).toString(), room);
+    }
+
+    // The redaction result crosses the bridge as a category; whatever text a
+    // payload carries is never re-emitted or shown, and the user sees the
+    // translated wording for the category (review S2).
+    void aRedactionResultIsACategoryAndItsTextIsNeverShown()
+    {
+        SettingsManager settings;
+        RustSdkMatrixClient client(&settings);
+        QSignalSpy finished(&client, &MatrixClient::redactionFinished);
+        QSignalSpy errors(&client, &MatrixClient::errorOccurred);
+        client.handleRustEventForTest(QJsonObject{
+            { QStringLiteral("type"),
+              QStringLiteral("timeline_redaction_finished") },
+            { QStringLiteral("room_id"), QStringLiteral("!r:example.org") },
+            { QStringLiteral("event_id"), QStringLiteral("$e:example.org") },
+            { QStringLiteral("ok"), false },
+            { QStringLiteral("category"), QStringLiteral("rate_limited") },
+            { QStringLiteral("error"),
+              QStringLiteral("secret https://matrix.example.org/x") },
+        });
+        QCOMPARE(finished.count(), 1);
+        QCOMPARE(finished.at(0).at(2).toBool(), false);
+        QCOMPARE(finished.at(0).at(3).toString(), QStringLiteral("rate_limited"));
+        QCOMPARE(errors.count(), 1);
+        const QString shown = errors.at(0).at(0).toString();
+        QCOMPARE(shown, MatrixClient::redactionFailureText(
+                            QStringLiteral("rate_limited")));
+        QVERIFY(!shown.contains(QStringLiteral("secret")));
+
+        // Success: no category, no error.
+        client.handleRustEventForTest(QJsonObject{
+            { QStringLiteral("type"),
+              QStringLiteral("timeline_redaction_finished") },
+            { QStringLiteral("room_id"), QStringLiteral("!r:example.org") },
+            { QStringLiteral("event_id"), QStringLiteral("$f:example.org") },
+            { QStringLiteral("ok"), true },
+            { QStringLiteral("category"), QString() },
+        });
+        QCOMPARE(finished.count(), 2);
+        QVERIFY(finished.at(1).at(3).toString().isEmpty());
+        QCOMPARE(errors.count(), 1);
     }
 
     // GitHub #48: the classic-sync repair's "a view opened during the clear"

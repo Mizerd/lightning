@@ -247,7 +247,7 @@ void BulkRedactionController::onRequestTimeout()
 
 void BulkRedactionController::onResult(const QString &roomId,
                                        const QString &eventId, bool ok,
-                                       const QString &error)
+                                       const QString &category)
 {
     pruneAbandoned();
     const auto abandoned = m_abandonedRequests.constFind(requestKey(roomId, eventId));
@@ -258,8 +258,7 @@ void BulkRedactionController::onResult(const QString &roomId,
             ++m_completed;
             if (!ok) {
                 ++m_failed;
-                m_error = error.isEmpty()
-                              ? tr("The server refused a redaction.") : error;
+                m_error = MatrixClient::redactionFailureText(category);
             } else {
                 m_error.clear();
             }
@@ -274,12 +273,11 @@ void BulkRedactionController::onResult(const QString &roomId,
     ++m_completed;
     if (!ok) {
         ++m_failed;
-        m_error = error.isEmpty() ? tr("The server refused a redaction.") : error;
+        m_error = MatrixClient::redactionFailureText(category);
         // Do not continue flooding a room after a 429. A retry belongs to a
         // later, deliberate batch once the homeserver's limit has passed.
-        if (error.contains(QLatin1String("M_LIMIT_EXCEEDED"))
-            || error.contains(QLatin1String("rate limit"), Qt::CaseInsensitive)
-            || error.contains(QLatin1String("429"))) {
+        // Keyed on the category, never on error text (review S2).
+        if (category == QLatin1String("rate_limited")) {
             m_cancelled = true;
             m_queue.clear();
         }

@@ -1310,7 +1310,8 @@ void CppHttpMatrixClient::redactByHttp(const QString &roomId,
     if (!m_loggedIn) {
         const QString error = tr("Not signed in.");
         Q_EMIT errorOccurred(error);
-        Q_EMIT redactionFinished(roomId, eventId, false, error);
+        Q_EMIT redactionFinished(roomId, eventId, false,
+                                 QStringLiteral("rejected"));
         return;
     }
     const QString txnId = nextTxnId();
@@ -1332,7 +1333,15 @@ void CppHttpMatrixClient::redactByHttp(const QString &roomId,
             const QString error = tr("Redaction failed: %1").arg(
                 extractMatrixError(reply->readAll(), reply->errorString()));
             Q_EMIT errorOccurred(error);
-            Q_EMIT redactionFinished(roomId, eventId, false, error);
+            // The result carries a category, never the server's text.
+            const int status = reply->attribute(
+                QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            const QString category = status == 429 ? QStringLiteral("rate_limited")
+                : status == 403 ? QStringLiteral("forbidden")
+                : status == 404 ? QStringLiteral("not_found")
+                : status == 0   ? QStringLiteral("network")
+                                : QStringLiteral("rejected");
+            Q_EMIT redactionFinished(roomId, eventId, false, category);
         } else {
             Q_EMIT redactionFinished(roomId, eventId, true, {});
         }

@@ -1058,7 +1058,7 @@ void MockMatrixClient::redactEvent(const QString &roomId,
     auto *ev = findEvent(roomId, eventId);
     if (!ev) {
         Q_EMIT redactionFinished(roomId, eventId, false,
-                                 tr("Message not found."));
+                                 QStringLiteral("not_found"));
         return;
     }
     ev->redacted = true;

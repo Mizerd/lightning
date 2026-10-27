@@ -61,7 +61,7 @@ private:
     void sendNext();
     void finish();
     void onResult(const QString &roomId, const QString &eventId,
-                  bool ok, const QString &error);
+                  bool ok, const QString &category);
     void onRequestTimeout();
     void abandon(const QString &key, bool alreadyCounted);
     bool isAbandoned(const QString &key);

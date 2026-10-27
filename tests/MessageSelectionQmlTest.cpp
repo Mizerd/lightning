@@ -396,10 +396,11 @@ ApplicationWindow {
         QCOMPARE(client.requestedIds.size(), 1);
         QCOMPARE(bulk.completed(), 0);
         Q_EMIT client.redactionFinished(room, client.requestedIds.first(),
-                                        false, QStringLiteral("M_FORBIDDEN"));
+                                        false, QStringLiteral("forbidden"));
         QCOMPARE(bulk.completed(), 1);
         QCOMPARE(bulk.failed(), 1);
-        QCOMPARE(bulk.error(), QStringLiteral("M_FORBIDDEN"));
+        QCOMPARE(bulk.error(), MatrixClient::redactionFailureText(
+                                   QStringLiteral("forbidden")));
         QTRY_COMPARE(client.requestedIds.size(), 2);
         Q_EMIT client.redactionFinished(room, client.requestedIds.at(1), true, {});
         QTRY_COMPARE(client.requestedIds.size(), 3);
@@ -415,7 +416,7 @@ ApplicationWindow {
         bulk.start({});
         QCOMPARE(client.requestedIds.size(), 1);
         Q_EMIT client.redactionFinished(room, client.requestedIds.first(),
-                                        false, QStringLiteral("M_LIMIT_EXCEEDED"));
+                                        false, QStringLiteral("rate_limited"));
         QTRY_VERIFY(!bulk.running());
         QVERIFY(bulk.cancelled());
         QCOMPARE(bulk.completed(), 1);
@@ -486,6 +487,51 @@ ApplicationWindow {
                                         {});
         QCOMPARE(bulk.completed(), 2);
         QCOMPARE(bulk.failed(), 1);
+    }
+
+    // A failure reaches the user as translated wording for its category, and
+    // the run stops on the rate_limited CATEGORY, never on text: a string that
+    // merely contains "M_LIMIT_EXCEEDED" or "429" is not a category, shows the
+    // generic wording and does not stop the run (review S2).
+    void bulkDeletionShowsCategoryWordingAndStopsOnlyOnTheRateLimitCategory()
+    {
+        DeferredRedactionClient client;
+        TimelineModel model;
+        const QString room = QStringLiteral("!bulkcat:example.org");
+        QList<TimelineEvent> events;
+        for (int i = 0; i < 2; ++i) {
+            TimelineEvent event;
+            event.eventId = QStringLiteral("$cat-%1:example.org").arg(i);
+            event.roomId = room;
+            event.sender = QStringLiteral("@peer:example.org");
+            event.body = QStringLiteral("Fixture");
+            event.type = TimelineEvent::TextMessage;
+            events.append(event);
+        }
+        client.resetTimelineForTest(room, events, 0);
+        model.setClient(&client);
+        model.setRoomId(room);
+        BulkRedactionController bulk;
+        bulk.setClient(&client);
+        bulk.begin(&model);
+        bulk.selectRange(events.first().eventId, events.last().eventId, true);
+        bulk.start({});
+        QCOMPARE(client.requestedIds.size(), 1);
+        const QString rawText = QStringLiteral(
+            "M_LIMIT_EXCEEDED 429 https://matrix.example.org/redact?secret");
+        Q_EMIT client.redactionFinished(room, client.requestedIds.first(),
+                                        false, rawText);
+        QVERIFY2(!bulk.error().contains(QStringLiteral("secret"))
+                     && !bulk.error().contains(QStringLiteral("example.org")),
+                 qPrintable(bulk.error()));
+        QCOMPARE(bulk.error(), MatrixClient::redactionFailureText(QString()));
+        QVERIFY2(!bulk.cancelled(), "text that looks like a 429 stopped the run");
+        QTRY_COMPARE(client.requestedIds.size(), 2);
+        Q_EMIT client.redactionFinished(room, client.requestedIds.at(1), false,
+                                        QStringLiteral("rate_limited"));
+        QCOMPARE(bulk.error(), MatrixClient::redactionFailureText(
+                                   QStringLiteral("rate_limited")));
+        QTRY_VERIFY(!bulk.running());
     }
 
     // A request abandoned on the wire blocks re-selecting its message only for
