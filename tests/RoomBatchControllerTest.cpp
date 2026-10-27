@@ -9,6 +9,39 @@ class BatchClient final : public MatrixClient
     Q_OBJECT
 public:
     using MatrixClient::MatrixClient;
+    void login(const QString &, const QString &, const QString &) override {}
+    void logout() override {}
+    bool restoreSession() override { return false; }
+    bool isLoggedIn() const override { return true; }
+    QString currentUserId() const override
+    { return QStringLiteral("@me:example.org"); }
+    QString homeserverUrl() const override { return {}; }
+    void startSync() override {}
+    void stopSync() override {}
+    ConnectionState connectionState() const override { return Syncing; }
+    QList<TimelineEvent> timeline(const QString &) const override { return {}; }
+    QString displayNameFor(const QString &, const QString &id) const override
+    { return id; }
+    QString avatarMxcFor(const QString &, const QString &) const override
+    { return {}; }
+    QStringList typingUsersFor(const QString &) const override { return {}; }
+    QUrl mediaDownloadUrl(const QString &) const override { return {}; }
+    QUrl mediaThumbnailUrl(const QString &, int, int, bool) const override
+    { return {}; }
+    void sendTextMessage(const QString &, const QString &) override {}
+    void sendReply(const QString &, const QString &, const QString &) override {}
+    void editMessage(const QString &, const QString &, const QString &) override {}
+    void redactEvent(const QString &, const QString &, const QString &) override {}
+    void toggleReaction(const QString &, const QString &,
+                        const QString &) override {}
+    void sendTyping(const QString &, bool, int) override {}
+    void sendReadReceipt(const QString &, const QString &) override {}
+    void sendImage(const QString &, const QString &) override {}
+    void sendFile(const QString &, const QString &) override {}
+    void loadOlderMessages(const QString &) override {}
+    bool canPaginate(const QString &) const override { return false; }
+    bool paginating(const QString &) const override { return false; }
+
     QList<RoomInfo> rows;
     QStringList readRequests;
     QStringList favouriteRequests;

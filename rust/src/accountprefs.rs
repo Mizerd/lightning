@@ -361,9 +361,10 @@ pub(crate) fn install_change_handlers(
             }
         },
     );
+    let unstable_events = Arc::clone(&events);
     let unstable = client.add_event_handler(
         move |_ev: GlobalAccountDataEvent<UnstableInvitePermissionEventContent>| {
-            let events = Arc::clone(&events);
+            let events = Arc::clone(&unstable_events);
             async move {
                 enqueue(&events, change_payload(INVITE_PERMISSION_UNSTABLE_TYPE));
             }
