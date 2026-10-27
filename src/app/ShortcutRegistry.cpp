@@ -223,7 +223,8 @@ void ShortcutRegistry::buildTables()
           tr("Open the Activity Center"), QStringLiteral("Ctrl+Shift+I"),
           GlobalContext },
         { QStringLiteral("nav.savedMessages"), navCat,
-          tr("Open saved messages"), {}, GlobalContext },
+          tr("Open saved messages"), QStringLiteral("Ctrl+Alt+S"),
+          GlobalContext },
 
         // ── View / shell ────────────────────────────────────────────────
         { QStringLiteral("dialog.previousItem"), dialogCat,

@@ -767,15 +767,16 @@ void StateActivityGroupingTest::hiddenRoutineActivityLeavesItsDividerWithNothing
                                             QStringLiteral("call event"),
                                             QString{}));
     Q_EMIT m_client->eventAppended(kRoom, m_client->mirror.last());
-    QCOMPARE(m_model->data(m_model->index(0),
-                           TimelineModel::DividerIntroducesVisibleContentRole)
-                 .toBool(),
-             false);
-    // ... but only when it LEADS a group: this one joins the existing run,
-    // whose hidden leader draws the summary, so nothing new appears.
+    // It joins the existing run rather than leading one; the run's leader is
+    // a hidden routine row, but the leader now draws the run's FILTERED
+    // entries, so the call row shows under it and the date stays.
     QCOMPARE(m_model->data(m_model->index(4),
                            TimelineModel::StateGroupLeaderRole).toBool(),
              false);
+    QCOMPARE(m_model->data(m_model->index(0),
+                           TimelineModel::DividerIntroducesVisibleContentRole)
+                 .toBool(),
+             true);
 }
 
 void StateActivityGroupingTest::showRoomActivityFlipReAnnouncesTheDividerRows()

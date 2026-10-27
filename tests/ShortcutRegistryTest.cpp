@@ -166,7 +166,7 @@ private Q_SLOTS:
                 == ShortcutRegistry::MessageSelectionContext)
                 selection.append(id);
         }
-        QCOMPARE(selection.size(), 9);
+        QCOMPARE(selection.size(), 10);
         for (const QString &id : selection) {
             const QString seq = registry.sequenceFor(id);
             QCOMPARE(bySequence.value(seq).size(), 1);
@@ -509,7 +509,7 @@ private Q_SLOTS:
                                     .arg(id, seq)));
         }
         QVERIFY2(checkedRows > 0, "no rows at all — the sweep is inert");
-        QCOMPARE(selectionRows, 9);
+        QCOMPARE(selectionRows, 10);
     }
 
     // The named additions ship on exactly these ids and keys: the rule sweeps

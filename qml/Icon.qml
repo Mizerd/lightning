@@ -143,6 +143,7 @@ Text {
         "folder_zip": "\ueb2c",
         "draft": "\ue66d",
         "hard_drive": "\uf80e",
+        "bookmark": "\ue8e7",
     })
 
     text: _codepoints[name] !== undefined ? _codepoints[name] : ""

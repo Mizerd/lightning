@@ -26,7 +26,7 @@ emoji_symbols flag explore travel_explore \
 mic_off call_end videocam_off screen_share stop_screen_share front_hand \
 headset_mic headset_off grid_view \
 folder arrow_upward create_new_folder desktop_windows audio_file movie \
-picture_as_pdf folder_zip draft hard_drive"
+picture_as_pdf folder_zip draft hard_drive bookmark"
 
 work=$(mktemp -d); trap 'rm -rf "$work"' EXIT
 base="https://github.com/google/material-design-icons/raw/master/variablefont"

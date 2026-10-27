@@ -217,6 +217,7 @@ Dialog {
                             Label {
                                 text: Qt.locale(AppLocale.name).toString(
                                     new Date(modelData.savedAtMs), Locale.ShortFormat)
+                                textFormat: Text.PlainText
                                 color: AppTheme.stormTextMuted
                                 font.pixelSize: AppTheme.textMeta
                             }
@@ -263,7 +264,7 @@ Dialog {
                     }
                     IconButton {
                         storm: true
-                        iconName: "meeting_room"
+                        iconName: "forum"
                         size: "sm"
                         Accessible.name: qsTr("Open room")
                         onClicked: {
