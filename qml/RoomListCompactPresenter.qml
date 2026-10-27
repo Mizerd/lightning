@@ -83,6 +83,8 @@ Item {
                 return kind === "room"
                        && app.settings.roomNotificationMode(model.roomId) === 2
             }
+            onHoveredChanged: if (kind === "room")
+                app.spaceChannels.setRoomHovered(model.roomId, hovered)
             onClicked: {
                 if (kind === "room") {
                     if (model.isInvite) root.expandRequested()

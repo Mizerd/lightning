@@ -1858,6 +1858,7 @@ void SettingsManager::forgetDeviceGlobalAccountResidue()
     // Room ids and user labels; the bare keys are migration sources only.
     m_store->remove(QLatin1String(kRailLayoutKey));
     m_store->remove(QLatin1String(kChannelCollapsedKey));
+    m_store->remove(QStringLiteral("roomList/keepImportantInCollapsed"));
     // Raw room ids; with no accounts left there is nothing to fall back for.
     m_store->remove(QStringLiteral("notifications/room-mode"));
     m_store->remove(QStringLiteral("notifications/room-mode-unsynced"));

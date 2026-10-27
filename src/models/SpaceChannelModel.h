@@ -100,6 +100,9 @@ class SpaceChannelModel : public QAbstractListModel
     /// value reads as Activity. AppController follows the setting.
     Q_PROPERTY(int sortMode READ sortMode WRITE setSortMode
                    NOTIFY sortModeChanged)
+    Q_PROPERTY(bool keepImportantRoomsVisible READ keepImportantRoomsVisible
+                   WRITE setKeepImportantRoomsVisible
+                   NOTIFY keepImportantRoomsVisibleChanged)
 
 public:
     enum Kind {
@@ -191,10 +194,15 @@ public:
     int sortMode() const { return m_sortMode; }
     /// Applies at once and drops any held order, as on the Classic list.
     void setSortMode(int mode);
+    bool keepImportantRoomsVisible() const;
+    void setKeepImportantRoomsVisible(bool enabled);
     /// Apply the held order now. A no-op when nothing is held.
     Q_INVOKABLE void releaseOrder();
     /// The open room, which an old stamp must not move (RecencyHold).
     void setOpenRoomId(const QString &roomId);
+    /// A retained row stays put while the pointer is on it, even if reading
+    /// clears its unread status. Cleared on view/account changes.
+    Q_INVOKABLE void setRoomHovered(const QString &roomId, bool hovered);
     /// How long a held order may stay stale, in ms (60 s in use).
     static constexpr int kHoldCapMs = 0; // 0 = no cap; tests set one
     void setHoldCapMs(int ms);
@@ -263,6 +271,7 @@ Q_SIGNALS:
     void deferReorderingChanged();
     void orderHeldChanged();
     void sortModeChanged();
+    void keepImportantRoomsVisibleChanged();
 
 private:
     struct Row {
@@ -373,6 +382,7 @@ private:
     mutable conversation::RecencyHold m_hold;
     bool m_orderHeld = false;
     QString m_callRoomId;
+    QString m_hoveredRoomId;
     int m_sortMode = conversation::SortByActivity;
     /// Set by sortGroup() during one rebuild.
     bool m_sortPending = false;

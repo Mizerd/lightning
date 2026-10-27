@@ -16,7 +16,7 @@ AppMenu {
     id: root
     objectName: "roomListSortMenu"
 
-    menuWidth: 200
+    menuWidth: 280
 
     // The values mirror conversation::SortMode (models/ConversationOrder.h).
     readonly property int sortActivity: 0
@@ -67,5 +67,18 @@ AppMenu {
         radioSelected: root.currentSort === root.sortUnread
         text: qsTr("Unread first")
         onTriggered: app.settings.roomListSort = root.sortUnread
+    }
+
+    MenuSectionLabel {
+        visible: app.settings.roomNavigationLayout === 1
+        text: qsTr("Collapsed groups")
+    }
+    AppMenuItem {
+        objectName: "keepImportantRoomsItem"
+        visible: app.settings.roomNavigationLayout === 1
+        radio: true
+        radioSelected: app.spaceChannels.keepImportantRoomsVisible
+        text: qsTr("Keep important rooms visible")
+        onTriggered: app.spaceChannels.keepImportantRoomsVisible = !app.spaceChannels.keepImportantRoomsVisible
     }
 }

@@ -880,6 +880,65 @@ private Q_SLOTS:
                               SpaceChannelModel::HiddenUnreadRole).toInt(), 0);
     }
 
+    void importantRoomsRemainReachableInACollapsedGroup()
+    {
+        Fixture f;
+        f.build(workspace());
+        f.selectSpace(QStringLiteral("!work:x"));
+        f.model.setOpenRoomId(QStringLiteral("!general:x"));
+        f.model.setCallRoomId(QStringLiteral("!random:x"));
+        f.model.toggleCollapsed(QStringLiteral("!work:x"));
+
+        QVERIFY(!f.model.keepImportantRoomsVisible());
+        QCOMPARE(f.model.rowForRoom(QStringLiteral("!general:x")), -1);
+        f.model.setKeepImportantRoomsVisible(true);
+        const QStringList names = namesOf(f.model);
+        QVERIFY(names.contains(QStringLiteral("general")));
+        QVERIFY(names.contains(QStringLiteral("random")));
+        QVERIFY(names.contains(QStringLiteral("backend")));
+        QVERIFY(names.contains(QStringLiteral("frontend")));
+        QCOMPARE(names.count(QStringLiteral("general")), 1);
+        const int header = rowOfName(f.model, QStringLiteral("Work"));
+        QVERIFY(f.model.data(f.model.index(header, 0),
+                             SpaceChannelModel::CollapsedRole).toBool());
+        QCOMPARE(f.model.data(f.model.index(header, 0),
+                              SpaceChannelModel::HiddenUnreadRole).toInt(), 0);
+        QCOMPARE(f.model.data(f.model.index(header, 0),
+                              SpaceChannelModel::HiddenHighlightRole).toInt(), 0);
+
+        f.model.setRoomHovered(QStringLiteral("!random:x"), true);
+        f.model.setCallRoomId(QString());
+        QVERIFY(f.model.rowForRoom(QStringLiteral("!random:x")) >= 0);
+        f.model.setRoomHovered(QStringLiteral("!random:x"), false);
+        QCoreApplication::processEvents();
+        QCOMPARE(f.model.rowForRoom(QStringLiteral("!random:x")), -1);
+        f.selectHome();
+        f.selectSpace(QStringLiteral("!work:x"));
+        QVERIFY(f.model.rowForRoom(QStringLiteral("!general:x")) >= 0);
+
+        f.model.setKeepImportantRoomsVisible(false);
+        QCOMPARE(f.model.rowForRoom(QStringLiteral("!general:x")), -1);
+        QVERIFY(f.model.isCollapsed(QStringLiteral("!work:x")));
+    }
+
+    void importantRoomChoiceIsAccountScoped()
+    {
+        Fixture f;
+        const QString alice = QStringLiteral("@alice:example.org");
+        const QString bob = QStringLiteral("@bob:example.org");
+        f.settings.saveSession(QStringLiteral("https://example.org"), alice,
+                               QStringLiteral("Alice"), QStringLiteral("test-token-a"));
+        f.settings.saveSession(QStringLiteral("https://example.org"), bob,
+                               QStringLiteral("Bob"), QStringLiteral("test-token-b"));
+        f.settings.setActiveAccountUserId(alice);
+        f.build(workspace());
+        f.model.setKeepImportantRoomsVisible(true);
+        f.settings.setActiveAccountUserId(bob);
+        QVERIFY(!f.model.keepImportantRoomsVisible());
+        f.settings.setActiveAccountUserId(alice);
+        QVERIFY(f.model.keepImportantRoomsVisible());
+    }
+
     // Q3 in the Channels list: the off-screen locator finds the nearest room
     // with activity in either direction, prefers a mention when asked, and
     // points at a COLLAPSED folder hiding activity rather than at nothing.

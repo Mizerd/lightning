@@ -13,11 +13,13 @@
 #include <QVariantMap>
 
 #include <algorithm>
+#include <utility>
 
 namespace {
 // Shared with SettingsManager::forgetDeviceGlobalAccountResidue, which clears
 // the device-global copy when the last account goes.
 constexpr auto kCollapsedKey = SettingsManager::kChannelCollapsedKey;
+constexpr auto kKeepImportantKey = "roomList/keepImportantInCollapsed";
 
 // Every Material Symbols glyph this model names. The bundled icon font is a
 // subset, and names chosen in C++ have no QML literal for IconChromeTest to
@@ -153,8 +155,36 @@ void SpaceChannelModel::setOpenRoomId(const QString &roomId)
     const bool hadHold = m_hold.enabled();
     m_hold.release();
     m_hold.setOpenRoom(roomId, liveNow);
-    if (hadHold)
+    if (hadHold || keepImportantRoomsVisible())
         scheduleRebuild();
+}
+
+void SpaceChannelModel::setRoomHovered(const QString &roomId, bool hovered)
+{
+    if (!hovered && m_hoveredRoomId != roomId)
+        return;
+    const QString next = hovered ? roomId : QString();
+    if (m_hoveredRoomId == next)
+        return;
+    m_hoveredRoomId = next;
+    if (keepImportantRoomsVisible())
+        scheduleRebuild();
+}
+
+bool SpaceChannelModel::keepImportantRoomsVisible() const
+{
+    return m_settings
+           && m_settings->accountScopedValue(kKeepImportantKey,
+                                              false).toBool();
+}
+
+void SpaceChannelModel::setKeepImportantRoomsVisible(bool enabled)
+{
+    if (!m_settings || keepImportantRoomsVisible() == enabled)
+        return;
+    m_settings->setAccountScopedValue(kKeepImportantKey, enabled);
+    rebuild();
+    Q_EMIT keepImportantRoomsVisibleChanged();
 }
 
 void SpaceChannelModel::setOrderHeld(bool held)
@@ -276,6 +306,7 @@ void SpaceChannelModel::setSources(MatrixClient *client, SpaceManager *spaces,
     m_client = client;
     // Another client's rooms are not these rooms: nothing to hold.
     m_hold.release();
+    m_hoveredRoomId.clear();
     m_directAvatars->setClient(client);
     m_spaces = spaces;
     m_layout = layout;
@@ -309,6 +340,7 @@ void SpaceChannelModel::setSources(MatrixClient *client, SpaceManager *spaces,
         connect(m_client, &MatrixClient::loggedOut, this, [this] {
             m_collapsed.clear();
             m_collapsedLoaded = false;
+            m_hoveredRoomId.clear();
             m_hold.release();
             rebuild();
         });
@@ -349,7 +381,9 @@ void SpaceChannelModel::setSettings(SettingsManager *settings)
         connect(m_settings, &SettingsManager::sessionChanged, this, [this] {
             m_collapsedLoaded = false;
             m_collapsed.clear();
+            m_hoveredRoomId.clear();
             rebuild();
+            Q_EMIT keepImportantRoomsVisibleChanged();
         });
     }
     m_collapsedLoaded = false;
@@ -412,6 +446,7 @@ void SpaceChannelModel::setScopeSpaceId(const QString &spaceId)
     if (m_selection == spaceId)
         return;
     m_selection = spaceId;
+    m_hoveredRoomId.clear();
     // The selection is kept verbatim and the view derived from it: a room id
     // ('!') is a Space, peopleViewId() is the Direct Messages tab, and any
     // other pseudo id ("" for Home, "@orphans") is Home.
@@ -723,11 +758,20 @@ int SpaceChannelModel::appendGroup(QVector<Row> &rows, Row header,
     // untouched and clearing the search restores it.
     const bool searching = !m_searchQuery.trimmed().isEmpty();
     const bool collapsed = !searching && isCollapsed(header.id);
+    const bool keepImportant = collapsed && keepImportantRoomsVisible();
 
     QVector<Row> kept;
     int hiddenUnread = 0;
     int hiddenHighlight = 0;
-    bool anyUnread = false;
+    bool anyHiddenUnread = false;
+    QVector<Row> visible;
+    QSet<QString> visibleRoomIds;
+    if (keepImportant) {
+        for (const Row &row : std::as_const(rows)) {
+            if (row.kind == RoomKind)
+                visibleRoomIds.insert(row.id);
+        }
+    }
     for (Row &room : rooms) {
         if (!matchesQuery(room.name))
             continue;
@@ -738,11 +782,24 @@ int SpaceChannelModel::appendGroup(QVector<Row> &rows, Row header,
                                                 || room.highlight > 0)) {
             continue;
         }
-        hiddenUnread += room.unread;
-        hiddenHighlight += room.highlight;
-        anyUnread = anyUnread || room.hasUnread;
         room.depth = 1;
         kept.append(room);
+        const bool retained = keepImportant
+            && (room.id == m_hold.openRoomId() || room.id == m_callRoomId
+                || room.id == m_hoveredRoomId || room.hasUnread
+                || room.unread > 0 || room.highlight > 0);
+        if (retained) {
+            // A multi-parent room can be in two Space folders. Retain it only
+            // once in this view, while preserving each folder's original order.
+            if (!visibleRoomIds.contains(room.id)) {
+                visible.append(room);
+                visibleRoomIds.insert(room.id);
+            }
+        } else if (collapsed) {
+            hiddenUnread += room.unread;
+            hiddenHighlight += room.highlight;
+            anyHiddenUnread = anyHiddenUnread || room.hasUnread;
+        }
     }
     if (kept.isEmpty())
         return 0;
@@ -752,12 +809,11 @@ int SpaceChannelModel::appendGroup(QVector<Row> &rows, Row header,
         // make it non-zero, or collapsing a group would hide that something is
         // waiting.
         header.hiddenUnread =
-            hiddenUnread > 0 ? hiddenUnread : (anyUnread ? 1 : 0);
+            hiddenUnread > 0 ? hiddenUnread : (anyHiddenUnread ? 1 : 0);
         header.hiddenHighlight = hiddenHighlight;
     }
     rows.append(header);
-    if (!collapsed)
-        rows.append(kept);
+    rows.append(collapsed ? visible : kept);
     return kept.size();
 }
 

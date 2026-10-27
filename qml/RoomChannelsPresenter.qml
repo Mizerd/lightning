@@ -199,6 +199,8 @@ Item {
                     isFavourite: rowLoader.model.isFavourite
                     depth: rowLoader.model.depth
                     active: rowLoader.model.roomId === root.currentRoomId
+                    onHoveredChanged: app.spaceChannels.setRoomHovered(
+                        rowLoader.model.roomId, hovered)
                     onClicked: {
                         const byPointer = pointerActivation
                         pointerActivation = false
