@@ -1035,10 +1035,17 @@ void SfuCallController::fallBackToDeviceCamera(const QString &category,
     ++m_deviceFallbackToken;
     m_deviceFallbackBusyRetries = 0;
     m_deviceFallbackDeadlineMs = 0;
-    m_waitingPortalReleaseCid = retiredCid;
+    // SfuMediaEngine::unpublish() reports a capture with nothing in flight
+    // as released SYNCHRONOUSLY, inside the caller's unpublishTrack(), i.e.
+    // before this wait existed. That release must count, or the wait is armed
+    // with nothing left to end it and the camera stays "on" with no picture.
+    const bool alreadyReleased =
+        !retiredCid.isEmpty() && retiredCid == m_releasedPortalCid;
+    m_waitingPortalReleaseCid = alreadyReleased ? QString() : retiredCid;
     qCWarning(lcSfuCall) << "camera portal gave no picture; waiting for "
                             "capture teardown before direct device category="
-                         << category << "retiredCid=" << retiredCid;
+                         << category << "retiredCid=" << retiredCid
+                         << "alreadyReleased=" << alreadyReleased;
     // Whatever the portal route declared is gone (unpublished by the caller,
     // or never declared): tell the SFU before the replacement is declared,
     // exactly as turning the camera off and on again would.
@@ -1048,13 +1055,37 @@ void SfuCallController::fallBackToDeviceCamera(const QString &category,
     m_cameraViaPortal = false;
     // unpublish() detaches a silent pipewiresrc and closes its remote on a
     // worker. Opening V4L2 here races that close and gets EBUSY.
-    if (retiredCid.isEmpty())
+    if (m_waitingPortalReleaseCid.isEmpty()) {
         publishDeviceFallback(m_deviceFallbackToken);
+    } else {
+        // Bounded: a release that never arrives (a worker that hangs, a
+        // signal lost to a teardown race) must not leave the camera on with
+        // no picture for ever. After the fallback window the direct open is
+        // tried anyway, still under the token and generation checks; a busy
+        // device there takes the ordinary bounded busy retry.
+        const quint64 token = m_deviceFallbackToken;
+        const quint64 generation = m_generation;
+        const QString waitingFor = m_waitingPortalReleaseCid;
+        QTimer::singleShot(m_deviceFallbackWindowMs, this,
+                           [this, token, generation, waitingFor] {
+            if (token != m_deviceFallbackToken || generation != m_generation
+                || m_waitingPortalReleaseCid != waitingFor)
+                return;
+            qCWarning(lcSfuCall) << "portal camera release not reported "
+                                    "within the fallback window; opening the "
+                                    "device anyway";
+            m_waitingPortalReleaseCid.clear();
+            publishDeviceFallback(token);
+        });
+    }
     Q_EMIT mediaStateChanged();
 }
 
 void SfuCallController::onCameraPortalReleased(const QString &cid)
 {
+    // Remembered whether or not anything waits yet: the engine can report it
+    // from inside the unpublish that precedes fallBackToDeviceCamera().
+    m_releasedPortalCid = cid;
     if (cid != m_waitingPortalReleaseCid
         || m_deviceFallbackGeneration != m_generation)
         return;
@@ -2059,6 +2090,7 @@ bool SfuCallController::join(const QString &roomId, bool withVideo)
     ++m_generation;
     ++m_deviceFallbackToken;
     m_waitingPortalReleaseCid.clear();
+    m_releasedPortalCid.clear();
     stopReconnect();
     m_shareSourceReusable = false;
     m_transportEverConnected = false;
@@ -4613,6 +4645,7 @@ void SfuCallController::teardown(State finalState, const QString &error)
     ++m_generation;
     ++m_deviceFallbackToken;
     m_waitingPortalReleaseCid.clear();
+    m_releasedPortalCid.clear();
     // A Leave pressed while reconnecting ends here, at once: no attempt is
     // launched after this and none in flight can revive the call.
     stopReconnect();
@@ -5819,6 +5852,14 @@ void SfuCallController::applyVideoState()
 
 void SfuCallController::unpublishTrack(QString &cid)
 {
+    // Test-only stand-in for the engine's synchronous release branches
+    // (SfuMediaEngine::unpublish: no bin/pipeline, or no src pad and nothing
+    // in flight), which report the portal capture released before returning.
+    if (m_releaseCameraPortalOnUnpublishForTest && !cid.isEmpty()
+        && m_engine.isNull()) {
+        const QString released = cid;
+        onCameraPortalReleased(released);
+    }
 #ifdef HAVE_LIGHTNING_WEBRTC
     if (cid.isEmpty() || m_engine.isNull())
         return;

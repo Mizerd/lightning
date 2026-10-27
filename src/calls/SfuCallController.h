@@ -858,6 +858,11 @@ public:
     { m_holdCameraPortalReleaseForTest = hold; }
     void releaseCameraPortalForTest(const QString &cid)
     { onCameraPortalReleased(cid); }
+    /// Test-only: with no engine, unpublishing a track reports its portal
+    /// capture released synchronously, as SfuMediaEngine::unpublish() does
+    /// when nothing is in flight.
+    void releaseCameraPortalOnUnpublishForTest(bool on)
+    { m_releaseCameraPortalOnUnpublishForTest = on; }
     /// Test-only: the camera fell back from the portal to the device node.
     bool cameraFellBackForTest() const { return m_cameraFellBack; }
     /// Test-only: the cid of the running camera track.
@@ -1301,6 +1306,10 @@ private:
     /// portal once. Cleared wherever m_cameraFellBack is.
     bool m_cameraFellBackToPortal = false;
     QString m_waitingPortalReleaseCid;
+    /// The last portal capture the engine reported released, waited for or
+    /// not (a synchronous release lands before the wait is armed).
+    QString m_releasedPortalCid;
+    bool m_releaseCameraPortalOnUnpublishForTest = false;
     qint64 m_deviceFallbackDeadlineMs = 0;
     int m_deviceFallbackBusyRetries = 0;
     quint64 m_deviceFallbackGeneration = 0;

@@ -6217,6 +6217,90 @@ private Q_SLOTS:
         QCOMPARE(opened.size(), 1);
     }
 
+    // SfuMediaEngine::unpublish() reports a portal capture with nothing in
+    // flight as released SYNCHRONOUSLY, inside the unpublish that
+    // onEnginePublishFailed() runs before it arms the wait. That release must
+    // still start the direct device open, or the camera stays "on" with no
+    // picture and nothing left to end the wait (review M1).
+    void portalFallbackHonoursAReleaseReportedDuringTheUnpublish()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        call.setMembershipForTest(QStringLiteral("!room:x"), QString());
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        QList<int> opened;
+        call.setCameraPathForTest([&opened](int fd) { opened.append(fd); },
+                                  [] {}, true, true);
+        call.holdCameraPortalReleaseForTest(true);
+        call.releaseCameraPortalOnUnpublishForTest(true);
+        call.setCameraCidForTest(QStringLiteral("portal-sync"));
+        call.setCameraRouteForTest(true, true, true);
+        QVERIFY(QMetaObject::invokeMethod(
+            &call, "onEnginePublishFailed", Qt::DirectConnection,
+            Q_ARG(QString, QStringLiteral("portal-sync")),
+            Q_ARG(QString, QStringLiteral("camera_no_frames"))));
+        QVERIFY(call.cameraOn());
+        QVERIFY(call.cameraFellBackForTest());
+        QCOMPARE(opened, QList<int>{-1});
+        call.leave();
+    }
+
+    // A release that is never reported must not hold the camera "on" with no
+    // picture for ever: after the fallback window the direct open is tried
+    // anyway. A hang-up inside the window still cancels it.
+    void portalFallbackOpensTheDeviceAfterTheWindowWithoutARelease()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        call.setMembershipForTest(QStringLiteral("!room:x"), QString());
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        call.setCameraFallbackWindowForTest(200);
+        QList<int> opened;
+        call.setCameraPathForTest([&opened](int fd) { opened.append(fd); },
+                                  [] {}, true, true);
+        call.holdCameraPortalReleaseForTest(true);
+        call.setCameraCidForTest(QStringLiteral("portal-silent"));
+        call.setCameraRouteForTest(true, true, true);
+        QVERIFY(QMetaObject::invokeMethod(
+            &call, "onEnginePublishFailed", Qt::DirectConnection,
+            Q_ARG(QString, QStringLiteral("portal-silent")),
+            Q_ARG(QString, QStringLiteral("camera_no_frames"))));
+        QVERIFY(opened.isEmpty());
+        QTRY_COMPARE_WITH_TIMEOUT(opened, QList<int>{-1}, 3000);
+        QVERIFY(call.cameraOn());
+        // A late release for the same capture opens nothing a second time.
+        call.releaseCameraPortalForTest(QStringLiteral("portal-silent"));
+        QCOMPARE(opened.size(), 1);
+
+        call.leave();
+
+        // Hang-up inside the window: the bounded open never happens.
+        SfuCallController second;
+        second.setClient(&client);
+        second.setMembershipForTest(QStringLiteral("!room:x"), QString());
+        second.setCallStateForTest(SfuCallController::State::Connected);
+        second.setCameraFallbackWindowForTest(200);
+        QList<int> secondOpened;
+        second.setCameraPathForTest(
+            [&secondOpened](int fd) { secondOpened.append(fd); }, [] {}, true,
+            true);
+        second.holdCameraPortalReleaseForTest(true);
+        second.setCameraCidForTest(QStringLiteral("portal-silent-2"));
+        second.setCameraRouteForTest(true, true, true);
+        QVERIFY(QMetaObject::invokeMethod(
+            &second, "onEnginePublishFailed", Qt::DirectConnection,
+            Q_ARG(QString, QStringLiteral("portal-silent-2")),
+            Q_ARG(QString, QStringLiteral("camera_no_frames"))));
+        QVERIFY2(second.cameraFellBackForTest(),
+                 "premise: the second call did not start a device fallback");
+        second.leave();
+        QTest::qWait(500);
+        QVERIFY2(secondOpened.isEmpty(),
+                 "the bounded device open ran after the hang-up");
+    }
+
     void portalFallbackRetriesBusyThenPublishesAgain()
     {
         RecordingCallClient client;
