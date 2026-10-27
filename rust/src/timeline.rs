@@ -2604,9 +2604,12 @@ impl TimelineRegistry {
         // redaction is addressed by event id, and the `m.room.redaction` returns
         // through sync to whichever timeline holds the event.
         let room = crate::rooms::joined_room(&client, &room_id)?;
-        // Generations still come from the room's open timeline, so a failure after
-        // a room change or sign-out is dropped as stale. With no timeline open the
-        // failure is not reportable.
+        // The result is gated on the ACCOUNT lifecycle only. A bulk deletion
+        // waits for each result before sending the next, so a result dropped
+        // because the room's timeline was reset (a same-room reload, a
+        // jump-to-latest trim) stalled the whole run. The room generation is
+        // still stamped for the C++ side's diagnostics; only a sign-out drops
+        // the result.
         let (room_gen, lifecycle) = match self.timeline_for(&room_id) {
             Some((_, gen, lc)) => (gen, lc),
             None => (
@@ -2621,7 +2624,7 @@ impl TimelineRegistry {
         runtime.spawn(async move {
             let reason = if reason.is_empty() { None } else { Some(reason.as_str()) };
             let result = room.redact(&event_id, reason, None).await;
-            if registry.is_current(room_gen, lifecycle) {
+            if registry.lifecycle_current(lifecycle) {
                 enqueue(
                     &events,
                     json!({

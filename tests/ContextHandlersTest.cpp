@@ -82,6 +82,30 @@ private Q_SLOTS:
         QCOMPARE(resets.count(), 0);
     }
 
+    // A redaction refused because the room's timeline is not live yet still
+    // gets its one result: a bulk deletion waits for it before sending the
+    // next, and a silent refusal stalled the run (review S1). The real room is
+    // reported, never the composite thread id.
+    void aRedactionRefusedBeforeTheTimelineIsLiveStillReportsAResult()
+    {
+        SettingsManager settings;
+        RustSdkMatrixClient client(&settings);
+        QSignalSpy finished(&client, &MatrixClient::redactionFinished);
+        const QString room = QStringLiteral("!r:example.org");
+        client.redactEvent(room, QStringLiteral("$e:example.org"), QString());
+        QCOMPARE(finished.count(), 1);
+        QCOMPARE(finished.at(0).at(0).toString(), room);
+        QCOMPARE(finished.at(0).at(1).toString(),
+                 QStringLiteral("$e:example.org"));
+        QCOMPARE(finished.at(0).at(2).toBool(), false);
+
+        const QString thread = MatrixClient::threadTimelineId(
+            room, QStringLiteral("$root:example.org"));
+        client.redactEvent(thread, QStringLiteral("$t:example.org"), QString());
+        QCOMPARE(finished.count(), 2);
+        QCOMPARE(finished.at(1).at(0).toString(), room);
+    }
+
     // GitHub #48: the classic-sync repair's "a view opened during the clear"
     // reaches the client as a signal (AppController reopens the views on it).
     // Lives here because this suite already drives RustSdkMatrixClient's

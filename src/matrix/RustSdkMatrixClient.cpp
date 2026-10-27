@@ -4144,15 +4144,20 @@ void RustSdkMatrixClient::redactEvent(const QString &roomId,
                                       const QString &eventId,
                                       const QString &reason)
 {
-    if (!timelineActiveFor(roomId)) {
-        refuseUntilTimelineReady("redactEvent");
-        return;
-    }
     // The composite id never crosses the FFI. Redaction is addressed by event
     // id through the room, so the real room is all Rust needs; the live room
     // timeline would not find a thread reply.
     const QString realRoom = isThreadTimelineId(roomId)
         ? threadTimelineRoomId(roomId) : roomId;
+    if (!timelineActiveFor(roomId)) {
+        refuseUntilTimelineReady("redactEvent");
+        // Every request gets exactly one result: a bulk deletion waits for it
+        // before sending the next, and a refusal with no result stalled it.
+        Q_EMIT redactionFinished(
+            realRoom, eventId, false,
+            tr("This room is still loading. Try that again in a moment."));
+        return;
+    }
     const QByteArray roomBytes = realRoom.toUtf8();
     const QByteArray targetBytes = eventId.toUtf8();
     const QByteArray reasonBytes = reason.toUtf8();

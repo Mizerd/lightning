@@ -1,9 +1,10 @@
 #pragma once
 
+#include <QHash>
 #include <QObject>
 #include <QPointer>
-#include <QSet>
 #include <QStringList>
+#include <QTimer>
 
 class MatrixClient;
 class TimelineModel;
@@ -45,6 +46,13 @@ public:
     Q_INVOKABLE void start(const QString &reason);
     Q_INVOKABLE void cancel();
 
+    /// A request with no result within this window counts as failed and the
+    /// run moves on; its late result is ignored. Default 60 s.
+    void setRequestTimeoutForTest(int ms) { m_requestTimeoutMs = ms; }
+    /// How long an abandoned request (cancelled or timed out while on the
+    /// wire) keeps blocking a re-selection of its message. Default 10 min.
+    void setAbandonedExpiryForTest(qint64 ms) { m_abandonedExpiryMs = ms; }
+
 signals:
     void changed();
 
@@ -54,6 +62,10 @@ private:
     void finish();
     void onResult(const QString &roomId, const QString &eventId,
                   bool ok, const QString &error);
+    void onRequestTimeout();
+    void abandon(const QString &key, bool alreadyCounted);
+    bool isAbandoned(const QString &key);
+    void pruneAbandoned();
 
     QPointer<MatrixClient> m_client;
     QPointer<TimelineModel> m_model;
@@ -65,7 +77,19 @@ private:
     QString m_reason;
     QString m_anchor;
     QString m_error;
-    QSet<QString> m_abandonedRequests;
+    /// Request key -> when it was abandoned (ms since epoch). Expired by
+    /// pruneAbandoned(): a result that never comes must not block that
+    /// message for the rest of the session.
+    struct Abandoned {
+        qint64 atMs = 0;
+        /// A timed-out request was already counted as failed; its late
+        /// result must not be counted again.
+        bool counted = false;
+    };
+    QHash<QString, Abandoned> m_abandonedRequests;
+    QTimer m_requestTimer;
+    int m_requestTimeoutMs = 60000;
+    qint64 m_abandonedExpiryMs = 10 * 60 * 1000;
     bool m_selecting = false;
     bool m_running = false;
     bool m_cancelled = false;

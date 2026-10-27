@@ -3,6 +3,7 @@
 #include "matrix/MatrixClient.h"
 #include "models/TimelineModel.h"
 
+#include <QDateTime>
 #include <QTimer>
 #include <QGuiApplication>
 
@@ -15,7 +16,35 @@ QString requestKey(const QString &roomId, const QString &eventId)
 
 BulkRedactionController::BulkRedactionController(QObject *parent)
     : QObject(parent)
-{}
+{
+    m_requestTimer.setSingleShot(true);
+    connect(&m_requestTimer, &QTimer::timeout, this,
+            &BulkRedactionController::onRequestTimeout);
+}
+
+void BulkRedactionController::abandon(const QString &key, bool alreadyCounted)
+{
+    m_abandonedRequests.insert(
+        key, Abandoned{QDateTime::currentMSecsSinceEpoch(), alreadyCounted});
+}
+
+void BulkRedactionController::pruneAbandoned()
+{
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    for (auto it = m_abandonedRequests.begin();
+         it != m_abandonedRequests.end();) {
+        if (now - it.value().atMs >= m_abandonedExpiryMs)
+            it = m_abandonedRequests.erase(it);
+        else
+            ++it;
+    }
+}
+
+bool BulkRedactionController::isAbandoned(const QString &key)
+{
+    pruneAbandoned();
+    return m_abandonedRequests.contains(key);
+}
 
 void BulkRedactionController::setClient(MatrixClient *client)
 {
@@ -37,6 +66,7 @@ void BulkRedactionController::setClient(MatrixClient *client)
     m_completed = m_total = m_failed = 0;
     m_error.clear();
     m_abandonedRequests.clear();
+    m_requestTimer.stop();
     if (client)
         connect(client, &MatrixClient::redactionFinished, this,
                 &BulkRedactionController::onResult);
@@ -74,7 +104,7 @@ void BulkRedactionController::add(const QString &eventId,
     const QString roomId = m_model->realRoomIdForEvent(eventId);
     if (roomId.isEmpty() || (!m_roomId.isEmpty() && roomId != m_roomId))
         return;
-    if (m_abandonedRequests.contains(requestKey(roomId, eventId))) {
+    if (isAbandoned(requestKey(roomId, eventId))) {
         m_error = tr("A previous deletion of this message is still in progress.");
         return;
     }
@@ -187,17 +217,44 @@ void BulkRedactionController::sendNext()
         return;
     }
     m_inFlight = m_queue.takeFirst();
+    // Bounded: a result the client never delivers (dropped by a reset, lost
+    // to a refusal) must not hold the run and its "running" state for ever.
+    // Armed before the call, which may answer synchronously and stop it.
+    m_requestTimer.start(m_requestTimeoutMs);
     // The selected model knows whether this is a thread; MatrixClient's
     // redaction path translates the composite id before the SDK call.
     m_client->redactEvent(m_timelineId, m_inFlight, m_reason);
+}
+
+void BulkRedactionController::onRequestTimeout()
+{
+    if (!m_running || m_inFlight.isEmpty())
+        return;
+    // The request may still land; its result must not be counted twice or
+    // finish a later batch, so it is abandoned like a cancelled one.
+    abandon(requestKey(m_roomId, m_inFlight), /*alreadyCounted=*/true);
+    m_inFlight.clear();
+    ++m_completed;
+    ++m_failed;
+    m_error = tr("A deletion got no answer from the server; its result is unknown.");
+    Q_EMIT changed();
+    const quint64 generation = m_generation;
+    QTimer::singleShot(300, this, [this, generation] {
+        if (generation == m_generation)
+            sendNext();
+    });
 }
 
 void BulkRedactionController::onResult(const QString &roomId,
                                        const QString &eventId, bool ok,
                                        const QString &error)
 {
-    if (m_abandonedRequests.remove(requestKey(roomId, eventId))) {
-        if (m_cancelled && !m_running && roomId == m_roomId) {
+    pruneAbandoned();
+    const auto abandoned = m_abandonedRequests.constFind(requestKey(roomId, eventId));
+    if (abandoned != m_abandonedRequests.cend()) {
+        const bool counted = abandoned->counted;
+        m_abandonedRequests.erase(abandoned);
+        if (!counted && m_cancelled && !m_running && roomId == m_roomId) {
             ++m_completed;
             if (!ok) {
                 ++m_failed;
@@ -212,6 +269,7 @@ void BulkRedactionController::onResult(const QString &roomId,
     }
     if (!m_running || roomId != m_roomId || eventId != m_inFlight)
         return;
+    m_requestTimer.stop();
     m_inFlight.clear();
     ++m_completed;
     if (!ok) {
@@ -236,6 +294,7 @@ void BulkRedactionController::onResult(const QString &roomId,
 
 void BulkRedactionController::finish()
 {
+    m_requestTimer.stop();
     m_running = false;
     m_queue.clear();
     m_inFlight.clear();
@@ -251,7 +310,7 @@ void BulkRedactionController::cancel()
         m_cancelled = true;
         m_queue.clear();
         if (!m_inFlight.isEmpty()) {
-            m_abandonedRequests.insert(requestKey(m_roomId, m_inFlight));
+            abandon(requestKey(m_roomId, m_inFlight), /*alreadyCounted=*/false);
             m_error = tr("One redaction was already in progress; its result is unknown.");
         }
         finish();

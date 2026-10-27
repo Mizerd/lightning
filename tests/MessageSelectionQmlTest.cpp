@@ -440,6 +440,87 @@ ApplicationWindow {
         QCOMPARE(bulk.completed(), 1);
     }
 
+    // A result the client never delivers (a timeline reset dropped it, a
+    // refusal never answered) must not stall the run: the request times out,
+    // counts as failed, and the next one goes. Its late result counts nothing
+    // (review S1).
+    void bulkDeletionRecoversFromADroppedResult()
+    {
+        DeferredRedactionClient client;
+        TimelineModel model;
+        const QString room = QStringLiteral("!bulkdrop:example.org");
+        QList<TimelineEvent> events;
+        for (int i = 0; i < 2; ++i) {
+            TimelineEvent event;
+            event.eventId = QStringLiteral("$drop-%1:example.org").arg(i);
+            event.roomId = room;
+            event.sender = QStringLiteral("@peer:example.org");
+            event.body = QStringLiteral("Fixture");
+            event.type = TimelineEvent::TextMessage;
+            events.append(event);
+        }
+        client.resetTimelineForTest(room, events, 0);
+        model.setClient(&client);
+        model.setRoomId(room);
+        BulkRedactionController bulk;
+        bulk.setRequestTimeoutForTest(200);
+        bulk.setClient(&client);
+        bulk.begin(&model);
+        bulk.selectRange(events.first().eventId, events.last().eventId, true);
+        QCOMPARE(bulk.selectedCount(), 2);
+        bulk.start({});
+        QCOMPARE(client.requestedIds.size(), 1);
+        // No result for the first request, ever.
+        QTRY_COMPARE_WITH_TIMEOUT(client.requestedIds.size(), 2, 3000);
+        QVERIFY(bulk.running());
+        QCOMPARE(bulk.completed(), 1);
+        QCOMPARE(bulk.failed(), 1);
+        QVERIFY(!bulk.error().isEmpty());
+        Q_EMIT client.redactionFinished(room, client.requestedIds.at(1), true,
+                                        {});
+        QTRY_VERIFY(!bulk.running());
+        QCOMPARE(bulk.completed(), 2);
+        QCOMPARE(bulk.failed(), 1);
+        // The first request's late result is not counted a second time.
+        Q_EMIT client.redactionFinished(room, client.requestedIds.first(), true,
+                                        {});
+        QCOMPARE(bulk.completed(), 2);
+        QCOMPARE(bulk.failed(), 1);
+    }
+
+    // A request abandoned on the wire blocks re-selecting its message only for
+    // a bound: a result that never comes must not block it for the session.
+    void anAbandonedRequestStopsBlockingItsMessageAfterTheBound()
+    {
+        DeferredRedactionClient client;
+        TimelineModel model;
+        const QString room = QStringLiteral("!bulkexp:example.org");
+        TimelineEvent event;
+        event.eventId = QStringLiteral("$exp:example.org");
+        event.roomId = room;
+        event.sender = QStringLiteral("@peer:example.org");
+        event.body = QStringLiteral("Fixture");
+        event.type = TimelineEvent::TextMessage;
+        client.resetTimelineForTest(room, {event}, 0);
+        model.setClient(&client);
+        model.setRoomId(room);
+        BulkRedactionController bulk;
+        bulk.setAbandonedExpiryForTest(150);
+        bulk.setClient(&client);
+        bulk.begin(&model);
+        bulk.toggle(event.eventId, true);
+        bulk.start({});
+        QCOMPARE(client.requestedIds.size(), 1);
+        bulk.cancel(); // On the wire: abandoned, result unknown.
+        bulk.cancel(); // Leave the finished run.
+        bulk.begin(&model);
+        bulk.toggle(event.eventId, true);
+        QCOMPARE(bulk.selectedCount(), 0); // Still in progress: refused.
+        QTest::qWait(250);
+        bulk.toggle(event.eventId, true);
+        QCOMPARE(bulk.selectedCount(), 1);
+    }
+
     void rowFocusCannotReplyToHiddenSelection()
     {
         openJoinedRoom();
