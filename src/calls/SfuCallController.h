@@ -509,8 +509,8 @@ public:
                                              bool directDeviceVisible,
                                              bool cameraChosen = false);
 
-    /// A DIRECT camera that could not open its device (`camera_busy`: the
-    /// capture element's resource error, e.g. another app holds the camera)
+    /// A DIRECT camera that could not open its device (`camera_busy` or
+    /// `camera_resource`: the capture element's resource error)
     /// retries ONCE through the camera portal, which shares the device. Never
     /// from a portal camera, never twice, and only with a portal wired.
     static bool directCameraFallsBackToPortal(const QString &category,
@@ -852,6 +852,12 @@ public:
     /// Test-only: camera publishes handed to the setCameraPathForTest()
     /// stand-in.
     int cameraPublishesForTest() const { return m_cameraPublishesForTest; }
+    void setCameraFallbackWindowForTest(int ms)
+    { m_deviceFallbackWindowMs = ms; }
+    void holdCameraPortalReleaseForTest(bool hold)
+    { m_holdCameraPortalReleaseForTest = hold; }
+    void releaseCameraPortalForTest(const QString &cid)
+    { onCameraPortalReleased(cid); }
     /// Test-only: the camera fell back from the portal to the device node.
     bool cameraFellBackForTest() const { return m_cameraFellBack; }
     /// Test-only: the cid of the running camera track.
@@ -1260,7 +1266,10 @@ private:
     /// The portal camera produced nothing and the device node is reachable:
     /// retire the portal track and publish the camera directly. See
     /// cameraFailureStep().
-    void fallBackToDeviceCamera(const QString &category);
+    void fallBackToDeviceCamera(const QString &category,
+                                const QString &retiredCid = {});
+    void publishDeviceFallback(quint64 token);
+    void onCameraPortalReleased(const QString &cid);
     /// Hand a local self-view surface an empty frame; see the definition.
     void clearLocalVideoSurface(const QString &streamId);
     QString userFacingError(const QString &category) const;
@@ -1291,6 +1300,13 @@ private:
     /// The reverse hop: a direct camera that could not open fell back to the
     /// portal once. Cleared wherever m_cameraFellBack is.
     bool m_cameraFellBackToPortal = false;
+    QString m_waitingPortalReleaseCid;
+    qint64 m_deviceFallbackDeadlineMs = 0;
+    int m_deviceFallbackBusyRetries = 0;
+    quint64 m_deviceFallbackGeneration = 0;
+    quint64 m_deviceFallbackToken = 0;
+    int m_deviceFallbackWindowMs = 8000;
+    bool m_holdCameraPortalReleaseForTest = false;
     /// setCameraChosenForTest(): -1 asks the engine.
     int m_cameraChosenForTest = -1;
     /// -1: scan /dev; 0/1: setCameraRouteForTest()'s answer.

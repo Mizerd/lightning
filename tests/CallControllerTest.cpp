@@ -6183,6 +6183,98 @@ private Q_SLOTS:
         QVERIFY(!call.cameraOn());
     }
 
+    void portalFallbackWaitsForRemoteCloseAndCancelsOnHangup()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        call.setMembershipForTest(QStringLiteral("!room:x"), QString());
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        QList<int> opened;
+        call.setCameraPathForTest([&opened](int fd) { opened.append(fd); },
+                                  [] {}, true, true);
+        call.holdCameraPortalReleaseForTest(true);
+        call.setCameraCidForTest(QStringLiteral("portal-1"));
+        call.setCameraRouteForTest(true, true, true);
+        QVERIFY(QMetaObject::invokeMethod(
+            &call, "onEnginePublishFailed", Qt::DirectConnection,
+            Q_ARG(QString, QStringLiteral("portal-1")),
+            Q_ARG(QString, QStringLiteral("camera_no_frames"))));
+        QVERIFY(opened.isEmpty());
+        call.releaseCameraPortalForTest(QStringLiteral("wrong-cid"));
+        QVERIFY(opened.isEmpty());
+        call.releaseCameraPortalForTest(QStringLiteral("portal-1"));
+        QCOMPARE(opened, QList<int>{-1});
+
+        call.setCameraCidForTest(QStringLiteral("portal-2"));
+        call.setCameraRouteForTest(true, true, true);
+        QVERIFY(QMetaObject::invokeMethod(
+            &call, "onEnginePublishFailed", Qt::DirectConnection,
+            Q_ARG(QString, QStringLiteral("portal-2")),
+            Q_ARG(QString, QStringLiteral("camera_no_frames"))));
+        call.leave();
+        call.releaseCameraPortalForTest(QStringLiteral("portal-2"));
+        QCOMPARE(opened.size(), 1);
+    }
+
+    void portalFallbackRetriesBusyThenPublishesAgain()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        call.setMembershipForTest(QStringLiteral("!room:x"), QString());
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        QList<int> opened;
+        call.setCameraPathForTest([&opened](int fd) { opened.append(fd); },
+                                  [] {}, true, true);
+        call.setCameraCidForTest(QStringLiteral("portal"));
+        call.setCameraRouteForTest(true, true, true);
+        QVERIFY(QMetaObject::invokeMethod(
+            &call, "onEnginePublishFailed", Qt::DirectConnection,
+            Q_ARG(QString, QStringLiteral("portal")),
+            Q_ARG(QString, QStringLiteral("camera_no_frames"))));
+        QCOMPARE(opened.size(), 1);
+        const QString busyCid = call.cameraCidForTest();
+        QVERIFY(QMetaObject::invokeMethod(
+            &call, "onEnginePublishFailed", Qt::DirectConnection,
+            Q_ARG(QString, busyCid),
+            Q_ARG(QString, QStringLiteral("camera_busy"))));
+        QCOMPARE(opened.size(), 1);
+        QTRY_COMPARE_WITH_TIMEOUT(opened.size(), 2, 1000);
+        QVERIFY(call.cameraOn());
+        call.leave();
+    }
+
+    void portalFallbackPersistentBusyReportsOnce()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        call.setMembershipForTest(QStringLiteral("!room:x"), QString());
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        call.setCameraFallbackWindowForTest(300);
+        call.setCameraPathForTest([](int) {}, [] {}, true, true);
+        QSignalSpy failed(&call, &SfuCallController::callFailed);
+        call.setCameraCidForTest(QStringLiteral("portal"));
+        call.setCameraRouteForTest(true, true, true);
+        QVERIFY(QMetaObject::invokeMethod(
+            &call, "onEnginePublishFailed", Qt::DirectConnection,
+            Q_ARG(QString, QStringLiteral("portal")),
+            Q_ARG(QString, QStringLiteral("camera_no_frames"))));
+        for (int attempt = 1; attempt <= 5 && failed.isEmpty(); ++attempt) {
+            QTRY_COMPARE_WITH_TIMEOUT(call.cameraPublishesForTest(), attempt,
+                                      1000);
+            const QString cid = call.cameraCidForTest();
+            QVERIFY(QMetaObject::invokeMethod(
+                &call, "onEnginePublishFailed", Qt::DirectConnection,
+                Q_ARG(QString, cid),
+                Q_ARG(QString, QStringLiteral("camera_busy"))));
+        }
+        QCOMPARE(failed.size(), 1);
+        QVERIFY(!call.cameraOn());
+        call.leave();
+    }
+
     // Without device access the portal camera has nowhere else to go, and
     // the notice says what the portal did (offered no camera, or a camera
     // that sent nothing) instead of the generic "isn't available". Fails on
@@ -6448,6 +6540,8 @@ private Q_SLOTS:
         using C = SfuCallController;
         QVERIFY(C::directCameraFallsBackToPortal(
             QStringLiteral("camera_busy"), false, true, false));
+        QVERIFY(C::directCameraFallsBackToPortal(
+            QStringLiteral("camera_resource"), false, true, false));
         QVERIFY(!C::directCameraFallsBackToPortal(
             QStringLiteral("camera_busy"), true, true, false));
         QVERIFY(!C::directCameraFallsBackToPortal(

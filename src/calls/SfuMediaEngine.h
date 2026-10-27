@@ -163,10 +163,11 @@ public:
     static QString cameraIoMode(quint32 capabilities);
     static bool isDirectCameraSource(GstObject *source);
     /// The category a publish that errored before its first buffer is
-    /// reported as: `camera_busy` for a direct V4L2 source's resource error on a
-    /// camera, else `camera_failed` (`screen_share_failed` for a share).
+    /// reported as: `camera_busy` for an actual busy V4L2 error, else
+    /// `camera_failed` (`screen_share_failed` for a share). Other V4L2
+    /// resource errors are reported as `camera_resource` by the caller.
     static QString cameraPublishErrorCategory(bool screenShare,
-                                              bool resourceError);
+                                              bool busyError);
     /// Whether the GPU share path should be attempted (default yes;
     /// `LIGHTNING_SHARE_GPU=0` forces the CPU). Intent only; availability is
     /// checked separately so the log can tell them apart.
@@ -1044,6 +1045,10 @@ public:
     void clearKeys();
 
 Q_SIGNALS:
+    /// A retired portal capture has reached NULL and its remote fd is closed.
+    void cameraPortalReleased(const QString &cid);
+    /// The first-frame watchdog observed capture buffers for this camera.
+    void cameraCaptureReady(const QString &cid);
     /// A local description to hand the SFU.
     void localDescription(int target, const QString &kind, const QString &sdp);
     /// A local ICE candidate to trickle, already in LiveKit's JSON form.
@@ -1186,7 +1191,8 @@ public Q_SLOTS:
     ///
     /// `resourceError`: the failing element was the direct V4L2 source and the
     /// error was in GST_RESOURCE_ERROR (busy, open, allocation, settings).
-    void handlePublishError(const QString &cid, bool resourceError = false);
+    void handlePublishError(const QString &cid, bool resourceError = false,
+                            bool busyError = false);
     /// The camera first-frame watchdog, armed by publishVideo(). Reports
     /// `camera_no_frames` once when the publish `cid` of this engine run is
     /// still registered, unreported, and its capture has delivered zero

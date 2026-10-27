@@ -1367,6 +1367,9 @@ GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
         && error->domain == GST_RESOURCE_ERROR
         && element.startsWith(QLatin1String("capsrc"))
         && SfuMediaEngine::isDirectCameraSource(GST_MESSAGE_SRC(message));
+    const bool captureBusyError = captureResourceError
+        && (error->code == GST_RESOURCE_ERROR_BUSY
+            || reason.contains(QLatin1String("busy"), Qt::CaseInsensitive));
     if (error)
         g_error_free(error);
     if (debug)
@@ -1430,10 +1433,11 @@ GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
                     gst_object_unref(up);
             }
             marshal(engine, [engine, publishCid, captureSource, front,
-                             captureResourceError] {
+                             captureResourceError, captureBusyError] {
                 if (captureSource)
                     engine->handleCaptureError(publishCid, front);
-                engine->handlePublishError(publishCid, captureResourceError);
+                engine->handlePublishError(publishCid, captureResourceError,
+                                           captureBusyError);
             });
         }
     }
@@ -4499,6 +4503,11 @@ GstCaps *SfuMediaEngine::preferredCameraCaps(const GstCaps *advertised,
                     if (!reachesPublishRate)
                         gst_structure_fixate_field_nearest_fraction(
                             st, "framerate", 30, 1);
+                    gst_structure_fixate_field_nearest_fraction(
+                        st, "pixel-aspect-ratio", 1, 1);
+                    // A V4L2 source can reject a caps structure whose format
+                    // is still a list, even when width and rate are fixed.
+                    candidate.caps = gst_caps_fixate(candidate.caps);
                     ordered.append(candidate);
                 }
                 gst_caps_unref(modes);
@@ -4595,18 +4604,18 @@ QString SfuMediaEngine::captureCameraEntry(GstElement *bin, bool jpegAvailable,
     const QString entry = selected
         ? (capsOfferJpeg(selected) ? cameraJpegEntry(selected)
                                    : directCameraRawEntry(selected))
-        : (jpegAvailable ? cameraJpegEntry() : directCameraRawEntry());
+        : directCameraRawEntry();
     if (selected)
         gst_caps_unref(selected);
     return entry;
 }
 
 QString SfuMediaEngine::cameraPublishErrorCategory(bool screenShare,
-                                                   bool resourceError)
+                                                   bool busyError)
 {
     if (screenShare)
         return QStringLiteral("screen_share_failed");
-    return resourceError ? QStringLiteral("camera_busy")
+    return busyError ? QStringLiteral("camera_busy")
                          : QStringLiteral("camera_failed");
 }
 
@@ -5471,18 +5480,6 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
                          : portalCamera ? portalCameraEntry()
                          : !screenShare ? directCameraRawEntry()
                                         : captureEntryFilter(useGpu);
-    if (!screenShare) {
-        // Log which chain the camera is on; the negotiated caps line alone
-        // cannot say why a camera ended up at a low rate.
-        qCInfo(lcSfuMedia) << "camera chain="
-                           << (tryJpeg        ? "mjpg"
-                               : portalCamera ? "portal-raw-range"
-                                              : "raw")
-                           << "(jpeg elements"
-                           << (jpegCameraChainAvailable() ? "present"
-                                                          : "absent")
-                           << ")";
-    }
     QString description = videoPipelineDescription(
         source, screenShare ? videoRateStage(true) : cameraRateStage(portalCamera),
             limits, encoder, selfView,
@@ -5573,6 +5570,14 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
     const QString selectedEntry = kProbeCameraFormats && !screenShare && !portalCamera
         ? captureCameraEntry(bin, tryJpeg && entryInUse == cameraJpegEntry(), &ioMode)
         : entryInUse;
+    if (!screenShare)
+        qCInfo(lcSfuMedia) << "camera chain="
+                           << (portalCamera ? "portal-raw-range"
+                               : selectedEntry.contains(QLatin1String("jpegdec"))
+                                   ? "mjpg" : "raw")
+                           << "(jpeg elements"
+                           << (jpegCameraChainAvailable() ? "present" : "absent")
+                           << ")";
     if (selectedEntry != entryInUse || ioMode != QLatin1String("auto")) {
         gst_object_unref(bin);
         entryInUse = selectedEntry;
@@ -5906,9 +5911,12 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
 
 namespace {
 /// A portal camera bin detached while still starting; finished on a pool
-/// thread. Holds no engine pointer: the engine may be gone by then.
+/// thread. The pointer is used only through marshal(), which checks that the
+/// engine still exists before posting the release notification.
 struct AbandonedStart {
     int fd = -1;
+    SfuMediaEngine *engine = nullptr;
+    QString cid;
 };
 
 void finishAbandonedStart(GstElement *bin, gpointer data)
@@ -5924,6 +5932,13 @@ void finishAbandonedStart(GstElement *bin, gpointer data)
     if (ctx && ctx->fd > 0) {
         ::close(ctx->fd);
         ctx->fd = -1;
+    }
+    if (ctx && !ctx->cid.isEmpty()) {
+        SfuMediaEngine *engine = ctx->engine;
+        const QString cid = ctx->cid;
+        marshal(engine, [engine, cid] {
+            Q_EMIT engine->cameraPortalReleased(cid);
+        });
     }
 }
 
@@ -5961,7 +5976,7 @@ bool SfuMediaEngine::detachPendingStart(const QString &cid, GstElement *bin,
     gst_bin_remove(GST_BIN(m_publisher.pipeline), bin);
     if (stateLocked)
         GST_STATE_UNLOCK(bin);
-    auto *ctx = new AbandonedStart{m_publishedFds.take(cid)};
+    auto *ctx = new AbandonedStart{m_publishedFds.take(cid), this, cid};
     if (ctx->fd == 0)
         ctx->fd = -1;
     gst_element_call_async(bin, finishAbandonedStart, ctx,
@@ -6147,7 +6162,10 @@ void SfuMediaEngine::unpublish(const QString &cid)
     }
     if (!bin || !m_publisher.pipeline) {
         detachPendingStart(cid, nullptr);
+        const bool portal = m_publishedFds.contains(cid);
         releasePublishedFd(cid);
+        if (portal)
+            Q_EMIT cameraPortalReleased(cid);
         return;
     }
     // Accounting is synchronous; only the GStreamer wind-down is deferred.
@@ -6167,7 +6185,10 @@ void SfuMediaEngine::unpublish(const QString &cid)
         // No src pad, nothing in flight: the direct path is safe.
         gst_element_set_state(bin, GST_STATE_NULL);
         gst_bin_remove(GST_BIN(m_publisher.pipeline), bin);
+        const bool portal = m_publishedFds.contains(cid);
         releasePublishedFd(cid);
+        if (portal)
+            Q_EMIT cameraPortalReleased(cid);
         renegotiatePublisher();
         return;
     }
@@ -6282,7 +6303,10 @@ void SfuMediaEngine::noteTeardownComplete(const QString &cid,
             << "publish teardown completed for a closed session; dropped";
         return;
     }
+    const bool portal = m_publishedFds.contains(cid);
     releasePublishedFd(cid);
+    if (portal)
+        Q_EMIT cameraPortalReleased(cid);
     // Only now; offering while the bin was attached would describe a track on
     // its way out.
     renegotiatePublisher();
@@ -8493,7 +8517,7 @@ void SfuMediaEngine::restartMicrophone(const QString &cid, quint64 generation)
 }
 
 void SfuMediaEngine::handlePublishError(const QString &cid,
-                                        bool resourceError)
+                                        bool resourceError, bool busyError)
 {
     // Runs on the GUI thread, where the state is safe to read.
     if (!m_active)
@@ -8516,7 +8540,9 @@ void SfuMediaEngine::handlePublishError(const QString &cid,
         << "publish produced no capture buffers and errored; reporting it"
         << "screenShare=" << screenShare;
     Q_EMIT publishFailed(cid,
-                         cameraPublishErrorCategory(screenShare, resourceError));
+        resourceError && !busyError && !screenShare
+            ? QStringLiteral("camera_resource")
+            : cameraPublishErrorCategory(screenShare, busyError));
 }
 
 void SfuMediaEngine::checkCameraFirstFrame(const QString &cid,
@@ -8531,8 +8557,10 @@ void SfuMediaEngine::checkCameraFirstFrame(const QString &cid,
     if (watch == m_publishWatch.cend() || !watch->state || watch->reported
         || watch->state->screenShare)
         return;
-    if (watch->state->captured.load() > 0)
+    if (watch->state->captured.load() > 0) {
+        Q_EMIT cameraCaptureReady(cid);
         return;
+    }
     // Whatever state the bin reached, no picture is no picture: a portal
     // camera whose start never completes (see publishVideo()) is still short
     // of PLAYING here. The state is logged only to tell those apart.
@@ -8547,6 +8575,41 @@ void SfuMediaEngine::checkCameraFirstFrame(const QString &cid,
                                   : m_cameraFirstFrameTimeoutMs)
                           << "portal=" << m_publishedFds.contains(cid)
                           << "state=" << gst_element_state_get_name(current);
+    if (GstElement *bin = m_publishedBins.value(cid)) {
+        if (GstElement *source = gst_bin_get_by_name(GST_BIN(bin), "capsrc")) {
+            if (GstPad *pad = gst_element_get_static_pad(source, "src")) {
+                GstCaps *offered = gst_pad_query_caps(pad, nullptr);
+                GstCaps *requested = gst_pad_peer_query_caps(pad, nullptr);
+                GstCaps *negotiated = gst_pad_get_current_caps(pad);
+                gchar *offeredText = offered ? gst_caps_to_string(offered) : nullptr;
+                gchar *requestedText = requested
+                    ? gst_caps_to_string(requested) : nullptr;
+                gchar *negotiatedText = negotiated
+                    ? gst_caps_to_string(negotiated) : nullptr;
+                qCWarning(lcSfuMedia)
+                    << "camera no-frames source caps offered="
+                    << (offeredText ? offeredText : "<unavailable>")
+                    << "negotiated="
+                    << (negotiatedText ? negotiatedText : "<none>")
+                    << "requestedSource="
+                    << (requestedText ? requestedText : "<unavailable>")
+                    << "requestedOutput="
+                    << cameraLimitsCaps(m_publishedFds.contains(cid),
+                                        m_cameraMaxHeight);
+                g_free(offeredText);
+                g_free(requestedText);
+                g_free(negotiatedText);
+                if (offered)
+                    gst_caps_unref(offered);
+                if (requested)
+                    gst_caps_unref(requested);
+                if (negotiated)
+                    gst_caps_unref(negotiated);
+                gst_object_unref(pad);
+            }
+            gst_object_unref(source);
+        }
+    }
     Q_EMIT publishFailed(cid, QStringLiteral("camera_no_frames"));
 }
 

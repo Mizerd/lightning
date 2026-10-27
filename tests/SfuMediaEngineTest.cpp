@@ -6227,6 +6227,40 @@ private slots:
         QVERIFY(entry.contains(QStringLiteral("video/x-raw")));
     }
 
+    void aYuy2OnlyCameraSelectsAFullyFixedRawEntry()
+    {
+        GError *error = nullptr;
+        GstElement *bin = gst_parse_bin_from_description(
+            "videotestsrc name=capsrc ! capsfilter "
+            "caps=video/x-raw,format=YUY2,width=1280,height=720,"
+            "framerate=30/1", TRUE, &error);
+        QVERIFY2(bin, error ? error->message : "camera probe bin failed");
+        g_clear_error(&error);
+        QString ioMode;
+        const QString probedEntry = SfuMediaEngine::captureCameraEntry(
+            bin, true, &ioMode);
+        QVERIFY(probedEntry.contains(QStringLiteral("video/x-raw")));
+        QVERIFY(!probedEntry.contains(QStringLiteral("jpegdec")));
+        gst_object_unref(bin);
+
+        GstCaps *offered = gst_caps_from_string(
+            "video/x-raw,format=(string){YUY2,NV12},width=(int)1280,"
+            "height=(int)720,framerate=(fraction){15/1,30/1},"
+            "pixel-aspect-ratio=(fraction)1/1");
+        QVERIFY(offered);
+        GstCaps *chosen = SfuMediaEngine::preferredCameraCaps(offered, true);
+        QVERIFY(chosen);
+        QVERIFY(!SfuMediaEngine::capsOfferJpeg(chosen));
+        QVERIFY(gst_caps_is_fixed(chosen));
+        const QString entry = SfuMediaEngine::directCameraRawEntry(chosen);
+        QVERIFY(entry.contains(QStringLiteral("video/x-raw")));
+        QVERIFY(entry.contains(QStringLiteral("format=(string)")));
+        QVERIFY(!entry.contains(QStringLiteral("{YUY2,NV12}")));
+        QVERIFY(!entry.contains(QStringLiteral("jpegdec")));
+        gst_caps_unref(chosen);
+        gst_caps_unref(offered);
+    }
+
     // publishShareAudio itself, not a pipeline the test composed: when no
     // capture can leave Lightning out, "the whole system" fails with
     // share_audio_unavailable and registers no bin, and "chosen apps" fails

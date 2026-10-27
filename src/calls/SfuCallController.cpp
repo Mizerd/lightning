@@ -497,6 +497,15 @@ void SfuCallController::setMediaEngine(SfuMediaEngine *engine)
     // device must not.
     connect(m_engine, &SfuMediaEngine::publishFailed, this,
             &SfuCallController::onEnginePublishFailed);
+    connect(m_engine, &SfuMediaEngine::cameraPortalReleased, this,
+            &SfuCallController::onCameraPortalReleased);
+    connect(m_engine, &SfuMediaEngine::cameraCaptureReady, this,
+            [this](const QString &cid) {
+                if (cid == m_cameraCid && m_cameraFellBack
+                    && !m_cameraViaPortal && m_deviceFallbackBusyRetries > 0)
+                    qCInfo(lcSfuCall) << "direct camera busy retry outcome=frames"
+                                      << "retries=" << m_deviceFallbackBusyRetries;
+            });
     // The microphone came back on the engine's slow retry: its notice is no
     // longer true (only withdrawn if it is still the one showing).
     connect(m_engine, &SfuMediaEngine::microphoneRecovered, this,
@@ -881,7 +890,8 @@ bool SfuCallController::directCameraFallsBackToPortal(const QString &category,
                                                       bool alreadyFellBack)
 {
     return !viaPortal && portalWired && !alreadyFellBack
-        && category == QLatin1String("camera_busy");
+        && (category == QLatin1String("camera_busy")
+            || category == QLatin1String("camera_resource"));
 }
 
 SfuCallController::CameraFailureStep SfuCallController::cameraFailureStep(
@@ -921,6 +931,8 @@ QString SfuCallController::cameraNoticeCategory(const QString &category,
         || category == QLatin1String("timeout")
         || category == QLatin1String("busy"))
         return QStringLiteral("camera_failed");
+    if (category == QLatin1String("camera_resource"))
+        return QStringLiteral("camera_busy");
     if (viaPortal
         && (category == QLatin1String("camera_no_frames")
             || category == QLatin1String("camera_failed"))) {
@@ -1015,12 +1027,18 @@ void SfuCallController::requestCameraAccess()
         m_cameraPortal->requestAccess();
 }
 
-void SfuCallController::fallBackToDeviceCamera(const QString &category)
+void SfuCallController::fallBackToDeviceCamera(const QString &category,
+                                               const QString &retiredCid)
 {
     m_cameraFellBack = true;
-    qCWarning(lcSfuCall) << "camera portal gave no picture; opening the "
-                            "device node directly category="
-                         << category;
+    m_deviceFallbackGeneration = m_generation;
+    ++m_deviceFallbackToken;
+    m_deviceFallbackBusyRetries = 0;
+    m_deviceFallbackDeadlineMs = 0;
+    m_waitingPortalReleaseCid = retiredCid;
+    qCWarning(lcSfuCall) << "camera portal gave no picture; waiting for "
+                            "capture teardown before direct device category="
+                         << category << "retiredCid=" << retiredCid;
     // Whatever the portal route declared is gone (unpublished by the caller,
     // or never declared): tell the SFU before the replacement is declared,
     // exactly as turning the camera off and on again would.
@@ -1028,8 +1046,36 @@ void SfuCallController::fallBackToDeviceCamera(const QString &category)
     applyVideoState();
     m_cameraOn = true;
     m_cameraViaPortal = false;
-    publishCameraTrack(/*pipewireFd=*/-1);
+    // unpublish() detaches a silent pipewiresrc and closes its remote on a
+    // worker. Opening V4L2 here races that close and gets EBUSY.
+    if (retiredCid.isEmpty())
+        publishDeviceFallback(m_deviceFallbackToken);
     Q_EMIT mediaStateChanged();
+}
+
+void SfuCallController::onCameraPortalReleased(const QString &cid)
+{
+    if (cid != m_waitingPortalReleaseCid
+        || m_deviceFallbackGeneration != m_generation)
+        return;
+    m_waitingPortalReleaseCid.clear();
+    qCInfo(lcSfuCall) << "portal camera remote closed; direct fallback may start";
+    publishDeviceFallback(m_deviceFallbackToken);
+}
+
+void SfuCallController::publishDeviceFallback(quint64 token)
+{
+    if (token != m_deviceFallbackToken
+        || m_deviceFallbackGeneration != m_generation || !active() || !m_cameraOn
+        || !m_cameraFellBack || !m_waitingPortalReleaseCid.isEmpty()
+        || !cameraEngineReady())
+        return;
+    if (m_deviceFallbackDeadlineMs == 0)
+        m_deviceFallbackDeadlineMs = QDateTime::currentMSecsSinceEpoch()
+            + m_deviceFallbackWindowMs;
+    qCInfo(lcSfuCall) << "direct camera fallback attempt="
+                      << (m_deviceFallbackBusyRetries + 1);
+    publishCameraTrack(/*pipewireFd=*/-1);
 }
 
 void SfuCallController::fallBackToPortalCamera(const QString &category)
@@ -2011,6 +2057,8 @@ bool SfuCallController::join(const QString &roomId, bool withVideo)
                                       ? QStringLiteral("<none>")
                                       : QStringLiteral("<set>"));
     ++m_generation;
+    ++m_deviceFallbackToken;
+    m_waitingPortalReleaseCid.clear();
     stopReconnect();
     m_shareSourceReusable = false;
     m_transportEverConnected = false;
@@ -3253,19 +3301,43 @@ void SfuCallController::onEnginePublishFailed(const QString &cid,
     QString noticeCategory = category;
     if (camera) {
         const bool viaPortal = m_cameraViaPortal;
+        const bool retryingDevice = m_cameraFellBack && !viaPortal;
         m_cameraOn = false;
         unpublishTrack(m_cameraCid);
 #ifdef HAVE_LIGHTNING_WEBRTC
         clearLocalVideoSurface(SfuMediaEngine::localCameraStreamId());
 #endif
-        // A portal camera that gave nothing gets one retry on the device
-        // node the user granted; see cameraFailureStep(). Either hop is one
-        // per press, so the two together are bounded at two attempts.
+        if (retryingDevice && category == QLatin1String("camera_busy")) {
+            const qint64 remaining = m_deviceFallbackDeadlineMs
+                - QDateTime::currentMSecsSinceEpoch();
+            if (remaining > 0) {
+                ++m_deviceFallbackBusyRetries;
+                const int delay = int(std::min<qint64>(
+                    remaining, std::min(2000, 250 << std::min(3, m_deviceFallbackBusyRetries - 1))));
+                qCWarning(lcSfuCall) << "direct camera busy; retry="
+                                      << m_deviceFallbackBusyRetries
+                                      << "delayMs=" << delay;
+                m_cameraOn = true;
+                const quint64 token = m_deviceFallbackToken;
+                QTimer::singleShot(delay, this, [this, token] {
+                    publishDeviceFallback(token);
+                });
+                return;
+            }
+            qCWarning(lcSfuCall) << "direct camera still busy after retries="
+                                  << m_deviceFallbackBusyRetries
+                                  << "outcome=camera_busy";
+        }
+        // A portal camera that gave nothing gets one route change to the
+        // granted device node. Busy on that route is retried for a bounded
+        // window after the portal capture is fully released.
         const bool hopped = m_cameraFellBack || m_cameraFellBackToPortal;
         if (cameraFailureStep(category, viaPortal, cameraDeviceNodeVisible(),
                               hopped)
             == CameraFailureStep::OpenDeviceNode) {
-            fallBackToDeviceCamera(category);
+            fallBackToDeviceCamera(category,
+                (m_engine.isNull() && !m_holdCameraPortalReleaseForTest)
+                    ? QString() : cid);
             return;
         }
         // A device node held by another app: the portal shares it.
@@ -4539,6 +4611,8 @@ void SfuCallController::teardown(State finalState, const QString &error)
                       << "error=" << (error.isEmpty()
                                       ? QStringLiteral("<none>") : error);
     ++m_generation;
+    ++m_deviceFallbackToken;
+    m_waitingPortalReleaseCid.clear();
     // A Leave pressed while reconnecting ends here, at once: no attempt is
     // launched after this and none in flight can revive the call.
     stopReconnect();
@@ -4978,6 +5052,8 @@ void SfuCallController::setCameraOn(bool on)
     }
     m_cameraOn = on;
     if (on) {
+        ++m_deviceFallbackToken;
+        m_waitingPortalReleaseCid.clear();
         // A fresh press tries the preferred route again.
         m_cameraFellBack = false;
         m_cameraFellBackToPortal = false;
@@ -4985,6 +5061,8 @@ void SfuCallController::setCameraOn(bool on)
         // already true so the control responds immediately.
         startCameraCapture();
     } else {
+        ++m_deviceFallbackToken;
+        m_waitingPortalReleaseCid.clear();
         // A grant still in flight must stop being wanted, or it would publish
         // a camera the user already switched off.
         m_cameraAwaitingPortal = false;
