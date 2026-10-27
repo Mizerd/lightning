@@ -2139,7 +2139,13 @@ private slots:
         QCOMPARE(preview->property("rowGap").toInt(), 10);
         settings->resetLayoutPresetOverrides();
         QCoreApplication::processEvents();
-        QCOMPARE(preview->property("rowGap").toInt(), 3);
+        // Back to whatever spacing the preset itself carries.
+        QVERIFY(settings->messageSpacing() != SettingsManager::kSpacingRoomy);
+        QCOMPARE(preview->property("messageSpacing").toInt(),
+                 settings->messageSpacing());
+        QCOMPARE(preview->property("rowGap").toInt(),
+                 settings->messageSpacing() == SettingsManager::kSpacingCompact
+                     ? 3 : 6);
         settings->setLayoutPreset(previousPreset);
         openSection(QStringLiteral("appearance"));
     }

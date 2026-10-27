@@ -21,7 +21,7 @@ Rectangle {
     border.color: AppTheme.stormBorder
     border.width: 1
     clip: true
-    Accessible.role: Accessible.Image
+    Accessible.role: Accessible.Graphic
     Accessible.name: qsTr("Layout preview: room rail, message grouping and composer")
 
     RowLayout {

@@ -157,7 +157,7 @@ Popup {
                    : qsTr("Move thread to main view"),
             subtitle: app.thread.active ? qsTr("Current thread")
                                         : qsTr("Open a thread first"),
-            iconName: "view_sidebar", keywords: "thread move main side view",
+            iconName: "open_in_full", keywords: "thread move main side view",
             enabled: app.thread.active,
             run: function() {
                 app.settings.threadPlacement = app.settings.threadPlacement === 1 ? 0 : 1
@@ -177,7 +177,7 @@ Popup {
             label: qsTr("Open thread root in room"),
             subtitle: app.thread.active ? qsTr("Jump to the original message")
                                         : qsTr("Open a thread first"),
-            iconName: "open_in_new", keywords: "thread root context room original",
+            iconName: "forum", keywords: "thread root context room original",
             enabled: app.thread.active && app.thread.rootEventId !== "",
             run: function() { app.pagination.jumpToEvent(app.thread.rootEventId) }
         })

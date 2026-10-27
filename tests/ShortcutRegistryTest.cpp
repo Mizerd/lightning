@@ -1230,6 +1230,8 @@ private Q_SLOTS:
             const QString seq =
                 registry.data(idx, ShortcutRegistry::CurrentSequenceRole)
                     .toString();
+            if (seq.isEmpty() && paletteOnly(id))
+                continue;   // unbound until the user picks a key
             const QKeySequence parsed =
                 QKeySequence::fromString(seq, QKeySequence::PortableText);
             QVERIFY2(parsed.count() == 1,
