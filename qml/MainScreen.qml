@@ -554,6 +554,8 @@ Item {
         // width.
         handle: Item {
             id: splitHandle
+            // Tests find the room-list divider by name; the rail's is unnamed.
+            objectName: roomHandle ? "roomListDivider" : ""
             implicitWidth: 1
             readonly property bool roomHandle:
                 Math.abs(x - (roomsPanel.x + roomsPanel.width)) < 3
@@ -586,11 +588,46 @@ Item {
                     event.accepted = true
                 }
             }
-            TapHandler {
-                onTapped: if (splitHandle.roomHandle && roomsPanel.compact)
+            // Click to restore a compact list, double-click to collapse an
+            // expanded one. Not a TapHandler or a MouseArea: SplitView filters
+            // its handles' pointer events and, while a handle is pressed,
+            // returns true from childMouseEventFilter, so nothing inside the
+            // handle ever sees the press (qquicksplitview.cpp,
+            // QQuickSplitView::childMouseEventFilter). The TapHandler that was
+            // here never fired. SplitHandle.pressed is set by that same
+            // filter, so the gesture is read from it: a press and release
+            // that did not move the divider is a click; a drag moves it and
+            // is left to SplitView and the width saver.
+            property real pressWidth: -1
+            property double lastClickMs: 0
+            SplitHandle.onPressedChanged: {
+                if (!splitHandle.roomHandle)
+                    return
+                if (SplitHandle.pressed) {
+                    splitHandle.pressWidth = roomsPanel.width
+                    return
+                }
+                const moved = splitHandle.pressWidth < 0
+                    || Math.abs(roomsPanel.width - splitHandle.pressWidth) >= 2
+                splitHandle.pressWidth = -1
+                if (moved) {
+                    splitHandle.lastClickMs = 0
+                    return
+                }
+                // Released before SplitView ends `resizing`, so the width
+                // saver does not record this click as a drag.
+                widthSaver.dragged = false
+                const now = Date.now()
+                if (roomsPanel.compact) {
+                    splitHandle.lastClickMs = 0
                     roomsPanel.expand()
-                onDoubleTapped: if (splitHandle.roomHandle && !roomsPanel.compact)
+                } else if (now - splitHandle.lastClickMs
+                           <= Qt.styleHints.mouseDoubleClickInterval) {
+                    splitHandle.lastClickMs = 0
                     roomsPanel.collapse()
+                } else {
+                    splitHandle.lastClickMs = now
+                }
             }
 
             // Every handle is live; the rail is resizable too.
@@ -608,6 +645,16 @@ Item {
                      : splitHandle.SplitHandle.hovered ? AppTheme.borderStrong
                                                        : AppTheme.border
                 Behavior on color { ColorAnimation { duration: 90 } }
+            }
+            // Keyboard focus: the 1px rule alone could not show it, so a
+            // Tab onto the divider looked like focus had vanished.
+            Rectangle {
+                objectName: "roomListDividerFocusRing"
+                visible: splitHandle.activeFocus
+                x: -1
+                width: 3
+                height: parent.height
+                color: AppTheme.focusRing
             }
         }
 

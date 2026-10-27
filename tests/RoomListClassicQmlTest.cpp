@@ -22,6 +22,7 @@
 #include <QQuickWindow>
 #include <QSet>
 #include <QSignalSpy>
+#include <QStyleHints>
 #include <QTemporaryDir>
 
 #include <QScopeGuard>
@@ -586,6 +587,117 @@ RoomsPanel { width: 64; height: 700 }
         auto *fullSearch = byName(f.item.get(), QStringLiteral("roomSearchCard"));
         QVERIFY(fullSearch);
         QVERIFY(!fullSearch->isVisible());
+    }
+
+    // The real room-list divider in the real shell (live, 2026-10-27: a click
+    // on the compact divider and a double-click on the expanded one did
+    // nothing, and a Tab onto it showed no focus). SplitView filters its
+    // handles' pointer events and swallows the press, so the TapHandler that
+    // was inside the handle never fired; the gesture is now read from
+    // SplitHandle.pressed. Old code: the double-click leaves the list
+    // expanded, and there is no focus ring to find.
+    void theRoomListDividerClicksDoubleClicksTabsAndKeys()
+    {
+        auto controller = std::make_unique<AppController>(AppController::MockBackend);
+        QSignalSpy loginSpy(controller->auth(), &AuthManager::loginSucceeded);
+        controller->auth()->login(QStringLiteral("https://mock.local"),
+                                  QStringLiteral("alice"), QStringLiteral("unused"));
+        QVERIFY(loginSpy.wait(kTimeoutMs));
+        SettingsManager *settings = controller->settings();
+        const int widthBefore = settings->roomListWidth();
+        const int expandedBefore = settings->roomListExpandedWidth();
+        const auto restore = qScopeGuard([&] {
+            settings->setRoomListExpandedWidth(expandedBefore);
+            settings->setRoomListWidth(widthBefore);
+        });
+        settings->setRoomListExpandedWidth(320);
+        settings->setRoomListWidth(320);
+
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty(QStringLiteral("app"), controller.get());
+        QQmlComponent component(&engine);
+        component.setData(R"QML(
+import QtQuick
+import QtQuick.Controls
+import MatrixClient
+ApplicationWindow {
+    width: 1100; height: 720; visible: true
+    MainScreen { anchors.fill: parent }
+}
+)QML", QUrl(QStringLiteral("qrc:/roomlistdivider.qml")));
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.get());
+        QVERIFY(window);
+        window->requestActivate();
+        QVERIFY(QTest::qWaitForWindowActive(window));
+
+        QQuickItem *rooms = nullptr;
+        QQuickItem *divider = nullptr;
+        QTRY_VERIFY_WITH_TIMEOUT(
+            (rooms = byName(window->contentItem(), QStringLiteral("roomsPanel")))
+                && (divider = byName(window->contentItem(),
+                                     QStringLiteral("roomListDivider"))),
+            kTimeoutMs);
+        QTRY_COMPARE_WITH_TIMEOUT(rooms->width(), 320.0, kTimeoutMs);
+        const int interval = QGuiApplication::styleHints()->mouseDoubleClickInterval();
+        const auto at = [&] {
+            return divider->mapToScene(QPointF(divider->width() / 2,
+                                               divider->height() / 2)).toPoint();
+        };
+        const auto click = [&] {
+            QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, at());
+        };
+
+        // Double-click on the expanded divider collapses it.
+        click();
+        QTest::qWait(qMin(60, interval / 4));
+        click();
+        QTRY_VERIFY_WITH_TIMEOUT(rooms->property("compact").toBool(), kTimeoutMs);
+        QCOMPARE(settings->roomListWidth(), settings->roomListMinWidth());
+
+        // One click on the compact divider restores the remembered width.
+        QTest::qWait(interval + 100);
+        click();
+        QTRY_VERIFY_WITH_TIMEOUT(!rooms->property("compact").toBool(), kTimeoutMs);
+        QTRY_COMPARE_WITH_TIMEOUT(settings->roomListWidth(), 320, kTimeoutMs);
+
+        // One click on the expanded divider is not a double-click: nothing.
+        QTest::qWait(interval + 100);
+        click();
+        QTest::qWait(interval + 300);
+        QVERIFY(!rooms->property("compact").toBool());
+        QCOMPARE(settings->roomListWidth(), 320);
+
+        // A real drag still resizes, and is not read as a click.
+        const QPoint from = at();
+        QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, from);
+        for (int dx = 8; dx <= 48; dx += 8)
+            QTest::mouseMove(window, from + QPoint(dx, 0));
+        QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, from + QPoint(48, 0));
+        QTRY_VERIFY_WITH_TIMEOUT(settings->roomListWidth() >= 350, kTimeoutMs);
+        QVERIFY(!rooms->property("compact").toBool());
+
+        // Tab reaches the divider, and it shows that it has the focus.
+        rooms->forceActiveFocus();
+        bool reached = false;
+        for (int i = 0; i < 200 && !reached; ++i) {
+            QTest::keyClick(window, Qt::Key_Tab);
+            reached = divider->hasActiveFocus();
+        }
+        QVERIFY2(reached, "Tab never reached the room-list divider");
+        QQuickItem *ring = byName(divider, QStringLiteral("roomListDividerFocusRing"));
+        QVERIFY2(ring && ring->isVisible(), "the focused divider draws no focus ring");
+
+        // Home collapses, End restores, Return toggles.
+        QTest::keyClick(window, Qt::Key_Home);
+        QTRY_VERIFY_WITH_TIMEOUT(rooms->property("compact").toBool(), kTimeoutMs);
+        QTest::keyClick(window, Qt::Key_End);
+        QTRY_VERIFY_WITH_TIMEOUT(!rooms->property("compact").toBool(), kTimeoutMs);
+        QTest::keyClick(window, Qt::Key_Return);
+        QTRY_VERIFY_WITH_TIMEOUT(rooms->property("compact").toBool(), kTimeoutMs);
+        QTest::keyClick(window, Qt::Key_Return);
+        QTRY_VERIFY_WITH_TIMEOUT(!rooms->property("compact").toBool(), kTimeoutMs);
     }
 };
 
