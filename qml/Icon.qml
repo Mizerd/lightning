@@ -144,6 +144,7 @@ Text {
         "draft": "\ue66d",
         "hard_drive": "\uf80e",
         "bookmark": "\ue8e7",
+        "unfold_less": "\ue5d6",
     })
 
     text: _codepoints[name] !== undefined ? _codepoints[name] : ""
