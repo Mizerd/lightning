@@ -2275,6 +2275,8 @@ if(BUILD_TESTING)
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     qt_add_executable(emoji-catalog-test
+        src/app/GuiStallTracer.h
+        src/app/GuiStallTracer.cpp
         tests/EmojiCatalogTest.cpp
         src/models/EmojiCatalog.h
         src/models/EmojiCatalog.cpp
@@ -2293,6 +2295,8 @@ if(BUILD_TESTING)
 
     # An exact shortcode or alias ranks first, ahead of tier and recents (B066).
     qt_add_executable(emoji-catalog-exact-match-test
+        src/app/GuiStallTracer.h
+        src/app/GuiStallTracer.cpp
         tests/EmojiCatalogExactMatchTest.cpp
         src/models/EmojiCatalog.h
         src/models/EmojiCatalog.cpp
@@ -2430,6 +2434,8 @@ if(BUILD_TESTING)
 
     # The recentEmoji property feeding the quick-react strip.
     qt_add_executable(emoji-catalog-recent-emoji-test
+        src/app/GuiStallTracer.h
+        src/app/GuiStallTracer.cpp
         tests/EmojiCatalogRecentEmojiTest.cpp
         src/models/EmojiCatalog.h
         src/models/EmojiCatalog.cpp
@@ -3732,6 +3738,8 @@ if(BUILD_TESTING)
     # selection rules, canSave (plain mxc only), send destination and thread
     # rule, bounded emoticon lookup, sign-out isolation.
     qt_add_executable(sticker-packs-test
+        src/app/GuiStallTracer.h
+        src/app/GuiStallTracer.cpp
         tests/StickerPacksTest.cpp
         src/stickers/StickerPack.h
         src/stickers/StickerPack.cpp
@@ -4557,6 +4565,8 @@ if(BUILD_TESTING)
 
     # MSC4278 media-preview config and Element's m.recent_emoji.
     qt_add_executable(account-prefs-test
+        src/app/GuiStallTracer.h
+        src/app/GuiStallTracer.cpp
         tests/AccountPrefsTest.cpp
         src/privacy/AccountPrefs.h
         src/privacy/AccountPrefs.cpp

@@ -725,6 +725,9 @@ private Q_SLOTS:
         engine.globalObject().setProperty(QStringLiteral("app"), app);
         QJSValue context = engine.newObject();
         context.setProperty(QStringLiteral("customEmojiOffered"), true);
+        // The binding builds its rows only while the full picker is open.
+        context.setProperty(QStringLiteral("visible"), true);
+        context.setProperty(QStringLiteral("compact"), false);
         engine.globalObject().setProperty(QStringLiteral("picker"), context);
         const QJSValue result = engine.evaluate(
             QStringLiteral("(function() {%1\n})()")
