@@ -1315,13 +1315,14 @@ Item {
                       + AppTheme.spacingXS)
         : 0
 
-    // Own Bubbles messages give the sent check or reader faces a measured
-    // footer. Use the model roles here, not readReceiptStrip.visible: the
-    // latter reads naturalImplicitHeight, which includes this footer.
+    // Every own Bubbles body reserves the same footer, including when its
+    // receipt is empty. Both the sent check and reader chips are 18px tall;
+    // receipt state must never change this row's measured height.
     readonly property bool ownBubbleReceiptFooter:
         root.bubbleMode && model.isOwn === true && !model.redacted
-        && (model.sentReceipt === true
-            || (model.readReceipts || []).length > 0)
+        && !root.isVirtualRow && !root.isStateActivity && !root.isCallEvent
+        && !root.isThreadKeyWait
+    readonly property real ownBubbleReceiptBandHeight: 18
 
     // Incoming Bubbles rows still use the side rail; leave its width clear.
     // Own Bubbles rows have a footer and need no horizontal inset.
@@ -1744,7 +1745,8 @@ Item {
             implicitHeight: Math.max(avatarSlot.implicitHeight,
                                      bubble.implicitHeight)
                             + (root.ownBubbleReceiptFooter
-                               ? AppTheme.spacingXS + receiptRow.height : 0)
+                               ? AppTheme.spacingXS
+                                 + root.ownBubbleReceiptBandHeight : 0)
 
             HoverHandler {
                 id: rowHover

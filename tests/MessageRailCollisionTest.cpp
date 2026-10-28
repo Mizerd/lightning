@@ -1897,6 +1897,60 @@ private Q_SLOTS:
                  "the receipt overlaps the hover action bar on a short row");
     }
 
+    // Receipt updates on one existing delegate must not move later timeline
+    // rows. The footer is reserved even before the check or faces appear.
+    void anOwnBubbleKeepsItsHeightAsReceiptsChange()
+    {
+        AppController app(AppController::MockBackend);
+        QVERIFY(app.settings());
+        app.settings()->setMessageLayout(1);   // Bubbles
+
+        QVariantMap f = baseFixture();
+        f.insert(QStringLiteral("isOwn"), true);
+        f.insert(QStringLiteral("showSenderIdentity"), false);
+        f.insert(QStringLiteral("body"), QStringLiteral("ok"));
+        Delegate d;
+        QVERIFY(build(app, f, d, kRowWidth, true));
+        QVERIFY(d.root->property("bubbleMode").toBool());
+
+        auto *row = d.root->findChild<QQuickItem *>(
+            QStringLiteral("messagePresentationRow"));
+        auto *strip = d.root->findChild<QQuickItem *>(
+            QStringLiteral("readReceiptStrip"));
+        auto *check = d.root->findChild<QQuickItem *>(
+            QStringLiteral("sentReceiptCheck"));
+        QVERIFY(row && strip && check);
+        const qreal initialHeight = row->implicitHeight();
+        const qreal initialDelegateHeight = d.root->implicitHeight();
+        QVERIFY(initialHeight > 0);
+        QVERIFY(!strip->isVisible());
+
+        auto verifyHeight = [&](const char *state) {
+            QCoreApplication::processEvents();
+            QVERIFY2(qAbs(row->implicitHeight() - initialHeight) <= 0.5, state);
+            QVERIFY2(qAbs(d.root->implicitHeight() - initialDelegateHeight) <= 0.5,
+                     state);
+        };
+
+        f.insert(QStringLiteral("sentReceipt"), true);
+        d.engine->rootContext()->setContextProperty("model", f);
+        verifyHeight("sent check changed the row height");
+        QVERIFY(strip->isVisible() && check->isVisible());
+
+        f.insert(QStringLiteral("readReceipts"), receipts(3));
+        f.insert(QStringLiteral("readReceiptsTotal"), 3);
+        d.engine->rootContext()->setContextProperty("model", f);
+        verifyHeight("reader faces changed the row height");
+        QVERIFY(strip->isVisible() && !check->isVisible());
+
+        f.insert(QStringLiteral("sentReceipt"), false);
+        f.insert(QStringLiteral("readReceipts"), QVariantList{});
+        f.insert(QStringLiteral("readReceiptsTotal"), 0);
+        d.engine->rootContext()->setContextProperty("model", f);
+        verifyHeight("removing receipts changed the row height");
+        QVERIFY(!strip->isVisible());
+    }
+
     // O:2370: in Bubbles the hover bar sat at the row's top-right, exactly
     // where a short own bubble is right-aligned, and hid it. Fails on the old
     // code: the bar's rect and the bubble's rect intersect.
