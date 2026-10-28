@@ -7451,6 +7451,10 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
 
     if (type == QLatin1String("room_action_error")) {
         const QString action = event.value(QStringLiteral("action")).toString();
+        if (action == QLatin1String("favourite")
+            || action == QLatin1String("low_priority"))
+            Q_EMIT roomActionFailed(action,
+                event.value(QStringLiteral("room_id")).toString());
         if (action == QLatin1String("mark_read"))
             Q_EMIT markRoomReadFailed(event.value(QStringLiteral("room_id")).toString());
         if (action == QLatin1String("read_receipt")) {
@@ -10502,14 +10506,18 @@ quint64 RustSdkMatrixClient::requestBackupProgress()
 
 void RustSdkMatrixClient::readAccountPref(const QString &prefType)
 {
-    if (!m_rustHandle)
+    if (!m_rustHandle) {
+        Q_EMIT accountPrefReadFailed(prefType, QStringLiteral("signed_out"));
         return;
+    }
     const QByteArray type = prefType.toUtf8();
     const QString refused = takeRustString(
         mx_rust_account_pref_read(m_rustHandle, type.constData()));
-    if (!refused.isEmpty())
+    if (!refused.isEmpty()) {
         qCWarning(lcRust) << "account preference read refused:"
                           << refused.left(80);
+        Q_EMIT accountPrefReadFailed(prefType, QStringLiteral("read_refused"));
+    }
 }
 
 void RustSdkMatrixClient::writeAccountPref(const QString &prefType,

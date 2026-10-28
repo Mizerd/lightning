@@ -7,6 +7,7 @@
 #include "matrix/PresentableName.h"
 #include "media/SvgRasterJob.h"
 #include "media/VideoPosterExtractor.h"
+#include "storage/ScratchFile.h"
 
 #include <QCoreApplication>
 #include <QDir>
@@ -17,7 +18,6 @@
 #include <QBuffer>
 #include <QPainter>
 #include <QPainterPath>
-#include <QSaveFile>
 #include <QTransform>
 #include <QMimeData>
 #include <QMimeDatabase>
@@ -827,12 +827,16 @@ QVariantMap AttachmentQueueModel::renderImageEdit(
     if (base.isEmpty())
         base = QStringLiteral("image");
     const QString path = QDir(workDir).filePath(base + QStringLiteral(".png"));
-    QSaveFile file(path);
-    if (!file.open(QIODevice::WriteOnly))
+    QByteArray encoded;
+    QBuffer buffer(&encoded);
+    if (!buffer.open(QIODevice::WriteOnly))
         return fail(tr("The image edit could not be saved."));
-    QImageWriter writer(&file, "png");
-    if (!writer.write(output) || !file.commit()) {
-        file.cancelWriting();
+    QImageWriter writer(&buffer, "png");
+    if (!writer.write(output))
+        return fail(tr("The image edit could not be saved."));
+    lightning::scratch::ScratchFile file(path);
+    if (!file.open() || file.write(encoded) != encoded.size()
+        || !file.commit()) {
         return fail(tr("The image edit could not be saved."));
     }
     if (exceedsUploadLimit(QFileInfo(path).size())) {

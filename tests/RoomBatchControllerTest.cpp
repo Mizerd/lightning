@@ -64,6 +64,36 @@ private:
         RoomInfo r; r.id = id; r.name = id; r.membership = RoomInfo::Joined; return r;
     }
 private Q_SLOTS:
+    void refusedTagsFailImmediatelyForTheActiveRoomAndAction()
+    {
+        BatchClient client;
+        client.rows = {room(QStringLiteral("!a:x")), room(QStringLiteral("!b:x"))};
+        RoomListModel rooms; rooms.setClient(&client);
+        RoomInfoController info; info.setClient(&client);
+        RoomBatchController batch;
+        batch.configure(&client, &rooms, &info, [](const QString &, int) {});
+        batch.setAccount(QStringLiteral("@alice:x"));
+        batch.select(QStringLiteral("!a:x"));
+        batch.select(QStringLiteral("!b:x"));
+        batch.run(QStringLiteral("favourite"), 1);
+        Q_EMIT client.roomActionFailed(QStringLiteral("low_priority"), QStringLiteral("!a:x"));
+        Q_EMIT client.roomActionFailed(QStringLiteral("favourite"), QStringLiteral("!b:x"));
+        QCOMPARE(batch.pending(), 2);
+        Q_EMIT client.roomActionFailed(QStringLiteral("favourite"), QStringLiteral("!a:x"));
+        QCOMPARE(batch.failed(), 1);
+        QTRY_COMPARE(client.favouriteRequests.size(), 2);
+        Q_EMIT client.roomActionFailed(QStringLiteral("favourite"), QStringLiteral("!b:x"));
+        QCOMPARE(batch.failed(), 2);
+        batch.run(QStringLiteral("low_priority"), 1);
+        Q_EMIT client.roomActionFailed(QStringLiteral("favourite"), QStringLiteral("!a:x"));
+        QCOMPARE(batch.pending(), 2);
+        Q_EMIT client.roomActionFailed(QStringLiteral("low_priority"), QStringLiteral("!a:x"));
+        QCOMPARE(batch.failed(), 1);
+        batch.setAccount(QStringLiteral("@bob:x"));
+        Q_EMIT client.roomActionFailed(QStringLiteral("low_priority"), QStringLiteral("!b:x"));
+        QCOMPARE(batch.pending(), 0);
+    }
+
     void outcomesAreCorrelatedAndPartialFailureIsVisible()
     {
         BatchClient client;

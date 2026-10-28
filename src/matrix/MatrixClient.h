@@ -2349,6 +2349,7 @@ Q_SIGNALS:
     void accountPrefReadFailed(const QString &prefType, const QString &category);
     void accountPrefWritten(const QString &prefType, bool ok,
                             const QString &category);
+    void roomActionFailed(const QString &action, const QString &roomId);
     // `ok` false: /versions could not be read (offline), not "unsupported".
     void invitePolicySupportReceived(bool ok, bool stable, bool unstable);
     // `revisions` is [{eventId, sender, timestamp(QDateTime), body,

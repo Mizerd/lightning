@@ -70,6 +70,7 @@ void RoomBatchController::setAccount(const QString &id)
 void RoomBatchController::clear()
 {
     ++m_generation;
+    disconnect(m_tagFailureConnection);
     m_selected.clear(); m_order.clear(); m_results.clear(); m_queue.clear();
     m_active.clear(); m_action.clear(); m_mode = -1;
     m_selecting = false; m_confirmLeave = false;
@@ -186,6 +187,18 @@ void RoomBatchController::advance()
                 return;
             }
     }
+    if (m_action == QLatin1String("favourite")
+        || m_action == QLatin1String("low_priority")) {
+        const auto generation = m_generation;
+        const QString action = m_action;
+        m_tagFailureConnection = connect(m_client, &MatrixClient::roomActionFailed,
+            this, [this, generation, id, action](const QString &failedAction,
+                                                  const QString &failedRoom) {
+                if (generation == m_generation && id == m_active
+                    && failedAction == action && failedRoom == id)
+                    finish(id, false);
+            });
+    }
     if (m_action == QLatin1String("read")) m_rooms->markRoomRead(id);
     else if (m_action == QLatin1String("favourite")) m_rooms->setRoomFavourite(id, m_mode == 1);
     else if (m_action == QLatin1String("low_priority")) m_rooms->setRoomLowPriority(id, m_mode == 1);
@@ -210,6 +223,7 @@ void RoomBatchController::advance()
 void RoomBatchController::finish(const QString &id, bool ok)
 {
     if (id != m_active || m_active.isEmpty()) return;
+    disconnect(m_tagFailureConnection);
     m_results[id] = ok ? QStringLiteral("succeeded") : QStringLiteral("failed");
     m_active.clear();
     emit changed();

@@ -6,6 +6,7 @@
 
 #include "matrix/MockMatrixClient.h"
 #include "models/AttachmentQueueModel.h"
+#include "media/StagedImageStore.h"
 #include "models/PaginationController.h"
 #include "models/TimelineModel.h"
 #include "threads/ThreadController.h"
@@ -126,6 +127,35 @@ private:
     }
 
 private Q_SLOTS:
+    void completedUploadInParkedThreadReleasesItsStagedImage()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        ThreadController controller;
+        StagedImageStore staged;
+        controller.setClient(&client);
+        controller.attachments()->setStagedImages(&staged);
+        const QString firstRoot = firstThreadRootId(client, kGeneral);
+        const QString secondRoot = firstThreadRootId(client, kDevs);
+        QVERIFY(!firstRoot.isEmpty());
+        QVERIFY(!secondRoot.isEmpty());
+        controller.openThread(kGeneral, firstRoot);
+        QVERIFY(controller.attachments()->addImageData("image-bytes", QStringLiteral("image/png"),
+                                                        1, 1).isEmpty());
+        QCOMPARE(staged.count(), 1);
+        auto &entry = controller.attachments()->entries()[0];
+        entry.committed = true;
+        entry.opId = 991;
+        entry.state = QStringLiteral("dispatching");
+        entry.threadRootId = firstRoot;
+        controller.openThread(kDevs, secondRoot);
+        QCOMPARE(controller.attachments()->rowCount(), 0);
+        Q_EMIT client.attachmentQueueFinished(991, kGeneral, true, {});
+        QCOMPARE(staged.count(), 0);
+        controller.openThread(kGeneral, firstRoot);
+        QCOMPARE(controller.attachments()->rowCount(), 0);
+    }
+
     void optInTraceDistinguishesFailureAndStaleResultsWithoutContent()
     {
         QStringList lines;

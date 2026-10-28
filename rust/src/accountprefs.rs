@@ -163,6 +163,17 @@ pub(crate) fn failed_payload(event_type: &str, category: &str) -> Value {
     json!({ "type": "account_pref_failed", "pref_type": event_type, "category": category })
 }
 
+fn fetched_payload(event_type: &str, raw: Option<&str>) -> Value {
+    let Some(raw) = raw else { return read_payload(event_type, None) };
+    match serde_json::from_str::<Value>(raw) {
+        Ok(content) if content.is_object()
+            && (event_type != SAVED_MESSAGES_TYPE
+                || check_saved_content(&content).is_ok()) =>
+            read_payload(event_type, Some(content)),
+        _ => failed_payload(event_type, "invalid_content"),
+    }
+}
+
 /// Read one type: from the state store, or from the server for the types in
 /// `reads_from_server`.
 pub(crate) fn read(bridge: &RustClient, event_type: String) -> Result<(), String> {
@@ -195,12 +206,9 @@ pub(crate) fn read(bridge: &RustClient, event_type: String) -> Result<(), String
             return;
         }
         let mut payload = match fetched {
-            Ok(raw) => read_payload(
-                event_type,
-                raw.and_then(|raw| serde_json::from_str::<Value>(raw.json().get()).ok())
-                    // Both calls answer with the event's CONTENT.
-                    .filter(Value::is_object),
-            ),
+            // A malformed saved list must never masquerade as absent: a
+            // subsequent write would replace it with an empty baseline.
+            Ok(raw) => fetched_payload(event_type, raw.as_ref().map(|r| r.json().get())),
             Err(category) => failed_payload(event_type, category),
         };
         payload["lifecycle"] = json!(lifecycle);
@@ -399,6 +407,15 @@ mod tests {
         let mut composite = reference;
         composite["room_id"] = json!("!room:example.org\u{1f}thread\u{1f}$root");
         assert!(check_saved_content(&json!({"version":1,"entries":[composite]})).is_err());
+    }
+
+    #[test]
+    fn malformed_fetched_saved_list_is_a_failure_not_absence() {
+        let failed = fetched_payload(SAVED_MESSAGES_TYPE,
+            Some(r#"{"version":1,"entries":[{"body":"private"}]}"#));
+        assert_eq!(failed["type"], json!("account_pref_failed"));
+        assert_eq!(failed["category"], json!("invalid_content"));
+        assert_eq!(fetched_payload(SAVED_MESSAGES_TYPE, None)["present"], json!(false));
     }
 
     #[test]

@@ -76,6 +76,8 @@ void SavedMessagesController::reset()
     m_undoValid = false;
     m_loaded = false;
     m_busy = false;
+    m_fetchingForWrite = false;
+    m_pendingReads = 0;
     m_reloadOwed = false;
     m_error.clear();
     m_resolving.clear();
@@ -117,13 +119,82 @@ void SavedMessagesController::setClient(MatrixClient *client)
     });
     connect(client, &MatrixClient::accountPrefRead, this,
             [this](const QString &type, bool present, const QVariantMap &content) {
-        if (type == kType && !m_busy)
-            receive(present ? content : QVariantMap{});
+        if (type != kType) return;
+        if (m_pendingReads > 0) --m_pendingReads;
+        if (m_busy && !m_fetchingForWrite) {
+            if (m_pendingReads == 0) {
+                m_fetchingForWrite = true;
+                ++m_pendingReads;
+                m_client->readAccountPref(kType);
+            }
+            return;
+        }
+        const QVariantMap current = present ? content : QVariantMap{};
+        if (!m_fetchingForWrite) {
+            if (!m_busy) receive(current, present);
+            return;
+        }
+        m_fetchingForWrite = false;
+        QVector<Ref> remote;
+        if (!parseRefs(current, present, remote)) {
+            failWrite(tr("Saved messages data is unavailable."));
+            return;
+        }
+        // The operation's local removals win over the server snapshot. All
+        // other remote references survive, including another device's saves.
+        QSet<QString> locallyRemoved;
+        QSet<QString> desired;
+        for (const Ref &ref : std::as_const(m_refs))
+            desired.insert(key(ref.roomId, ref.eventId));
+        for (const Ref &ref : std::as_const(m_beforeWrite)) {
+            const QString id = key(ref.roomId, ref.eventId);
+            if (!desired.contains(id)) locallyRemoved.insert(id);
+        }
+        QVector<Ref> merged;
+        QSet<QString> seen;
+        for (const Ref &ref : std::as_const(remote)) {
+            const QString id = key(ref.roomId, ref.eventId);
+            if (!locallyRemoved.contains(id) && !seen.contains(id)) {
+                merged.append(ref);
+                seen.insert(id);
+            }
+        }
+        for (const Ref &ref : std::as_const(m_refs)) {
+            const QString id = key(ref.roomId, ref.eventId);
+            if (!seen.contains(id)) {
+                merged.append(ref);
+                seen.insert(id);
+            }
+        }
+        if (merged.size() > kMaxRefs) {
+            failWrite(tr("Saved messages are full. Remove an older item first."));
+            return;
+        }
+        std::sort(merged.begin(), merged.end(), [](const Ref &a, const Ref &b) {
+            return a.savedAtMs > b.savedAtMs;
+        });
+        m_refs = std::move(merged);
+        sendWrite();
     });
     connect(client, &MatrixClient::accountPrefReadFailed, this,
             [this](const QString &type, const QString &) {
-        if (type != kType || m_busy)
+        if (type != kType)
             return;
+        if (m_pendingReads > 0) --m_pendingReads;
+        if (m_busy && !m_fetchingForWrite) {
+            if (m_pendingReads == 0) {
+                m_fetchingForWrite = true;
+                ++m_pendingReads;
+                m_client->readAccountPref(kType);
+            }
+            return;
+        }
+        if (m_fetchingForWrite) {
+            m_fetchingForWrite = false;
+            failWrite(tr("Saved messages could not be updated. Retry."));
+            return;
+        }
+        if (m_busy) return;
         m_error = tr("Saved messages could not be loaded. Retry.");
         emitChanged();
     });
@@ -181,56 +252,23 @@ void SavedMessagesController::refresh()
     if (!m_client || !m_client->supportsAccountPrefs()
         || m_userId.isEmpty() || m_client->currentUserId() != m_userId)
         return;
+    ++m_pendingReads;
     m_client->readAccountPref(kType);
     emitChanged();
 }
 
-void SavedMessagesController::receive(const QVariantMap &content)
+void SavedMessagesController::receive(const QVariantMap &content, bool present)
 {
     if (!m_client || m_userId.isEmpty()
         || m_client->currentUserId() != m_userId)
         return;
     QVector<Ref> next;
-    const QVariantList raw = content.value(QStringLiteral("entries")).toList();
-    if (!content.isEmpty()
-        && (content.size() != 2
-            || !content.value(QStringLiteral("entries")).canConvert<QVariantList>()
-            || content.value(QStringLiteral("version")).toInt() != 1
-            || raw.size() > kMaxRefs)) {
+    if (!parseRefs(content, present, next)) {
         m_loaded = false;
         m_error = tr("Saved messages data is unavailable.");
         emitChanged();
         return;
     }
-    QSet<QString> seen;
-    for (const QVariant &v : raw) {
-        const QVariantMap item = v.toMap();
-        if (item.size() != 4) {
-            m_loaded = false;
-            m_error = tr("Saved messages data is unavailable.");
-            emitChanged();
-            return;
-        }
-        Ref ref;
-        ref.roomId = item.value(QStringLiteral("room_id")).toString();
-        ref.eventId = item.value(QStringLiteral("event_id")).toString();
-        ref.rootId = item.value(QStringLiteral("thread_root_id")).toString();
-        ref.savedAtMs = item.value(QStringLiteral("saved_at_ms")).toLongLong();
-        if (!validRef(ref)) {
-            m_loaded = false;
-            m_error = tr("Saved messages data is unavailable.");
-            emitChanged();
-            return;
-        }
-        const QString id = key(ref.roomId, ref.eventId);
-        if (!seen.contains(id)) {
-            next.append(ref);
-            seen.insert(id);
-        }
-    }
-    std::sort(next.begin(), next.end(), [](const Ref &a, const Ref &b) {
-        return a.savedAtMs > b.savedAtMs;
-    });
     m_refs = std::move(next);
     m_loaded = true;
     m_error.clear();
@@ -247,6 +285,44 @@ void SavedMessagesController::receive(const QVariantMap &content)
     emitChanged();
 }
 
+bool SavedMessagesController::parseRefs(const QVariantMap &content, bool present,
+                                        QVector<Ref> &next) const
+{
+    if (present && content.isEmpty()) return false;
+    const QVariantList raw = content.value(QStringLiteral("entries")).toList();
+    if (!content.isEmpty()
+        && (content.size() != 2
+            || !content.value(QStringLiteral("entries")).canConvert<QVariantList>()
+            || content.value(QStringLiteral("version")).toInt() != 1
+            || raw.size() > kMaxRefs)) {
+        return false;
+    }
+    QSet<QString> seen;
+    for (const QVariant &v : raw) {
+        const QVariantMap item = v.toMap();
+        if (item.size() != 4) {
+            return false;
+        }
+        Ref ref;
+        ref.roomId = item.value(QStringLiteral("room_id")).toString();
+        ref.eventId = item.value(QStringLiteral("event_id")).toString();
+        ref.rootId = item.value(QStringLiteral("thread_root_id")).toString();
+        ref.savedAtMs = item.value(QStringLiteral("saved_at_ms")).toLongLong();
+        if (!validRef(ref)) {
+            return false;
+        }
+        const QString id = key(ref.roomId, ref.eventId);
+        if (!seen.contains(id)) {
+            next.append(ref);
+            seen.insert(id);
+        }
+    }
+    std::sort(next.begin(), next.end(), [](const Ref &a, const Ref &b) {
+        return a.savedAtMs > b.savedAtMs;
+    });
+    return true;
+}
+
 bool SavedMessagesController::isSaved(const QString &roomId, const QString &eventId) const
 { return indexOf(roomId, eventId) >= 0; }
 
@@ -255,6 +331,30 @@ void SavedMessagesController::write()
     if (!m_client || m_userId.isEmpty()
         || m_client->currentUserId() != m_userId)
         return;
+    m_busy = true;
+    m_fetchingForWrite = m_pendingReads == 0;
+    m_error.clear();
+    emitChanged();
+    if (m_fetchingForWrite) {
+        ++m_pendingReads;
+        m_client->readAccountPref(kType);
+    }
+}
+
+void SavedMessagesController::failWrite(const QString &message)
+{
+    m_busy = false;
+    m_fetchingForWrite = false;
+    m_refs = std::move(m_beforeWrite);
+    m_beforeWrite.clear();
+    m_undoValid = false;
+    m_error = message;
+    Q_EMIT actionFailed(m_error);
+    emitChanged();
+}
+
+void SavedMessagesController::sendWrite()
+{
     QVariantList entries;
     for (const Ref &ref : std::as_const(m_refs))
         entries.append(QVariantMap{
@@ -269,16 +369,9 @@ void SavedMessagesController::write()
     };
     if (QJsonDocument(QJsonObject::fromVariantMap(content))
             .toJson(QJsonDocument::Compact).size() > kMaxBytes) {
-        m_refs = std::move(m_beforeWrite);
-        m_undoValid = false;
-        m_error = tr("Saved messages are full. Remove an older item first.");
-        Q_EMIT actionFailed(m_error);
-        emitChanged();
+        failWrite(tr("Saved messages are full. Remove an older item first."));
         return;
     }
-    m_busy = true;
-    m_error.clear();
-    emitChanged();
     m_client->writeAccountPref(kType, content);
 }
 

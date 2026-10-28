@@ -67,6 +67,7 @@ private:
     std::function<int(const QString &)> m_notificationRead;
     QString m_account;
     quint64 m_generation = 0;
+    QMetaObject::Connection m_tagFailureConnection;
     QSet<QString> m_selected;
     QStringList m_order;
     QHash<QString, QString> m_results;

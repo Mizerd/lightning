@@ -964,15 +964,23 @@ void ThreadController::onAttachmentQueueFinished(quint64 opId,
     }
     for (auto it = m_committedAttachments.begin();
          it != m_committedAttachments.end(); ++it) {
-        for (auto &entry : it.value()) {
+        for (int row = 0; row < it.value().size(); ++row) {
+            auto &entry = it.value()[row];
             if (entry.opId != opId
                 || (!roomId.isEmpty()
                     && MatrixClient::threadTimelineId(roomId, entry.threadRootId)
                            != it.key()))
                 continue;
-            entry.state = ok ? QStringLiteral("sent") : QStringLiteral("failed");
-            entry.error = ok ? QString() : tr("Upload failed. Retry or remove.");
-            entry.opId = 0;
+            if (ok) {
+                m_attachments->discardEntries({entry});
+                it.value().removeAt(row);
+                if (it.value().isEmpty())
+                    m_committedAttachments.erase(it);
+            } else {
+                entry.state = QStringLiteral("failed");
+                entry.error = tr("Upload failed. Retry or remove.");
+                entry.opId = 0;
+            }
             return;
         }
     }

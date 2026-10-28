@@ -59,6 +59,84 @@ class SavedMessagesControllerTest : public QObject
 {
     Q_OBJECT
 private Q_SLOTS:
+    void mergesFreshServerListAndKeepsLocalRemoval()
+    {
+        SavedFakeClient client;
+        SavedMessagesController saved;
+        saved.setClient(&client);
+        const auto ref = [](const QString &event) {
+            return QVariantMap{{QStringLiteral("room_id"), QStringLiteral("!room:example.org")},
+                {QStringLiteral("event_id"), event},
+                {QStringLiteral("thread_root_id"), QString()},
+                {QStringLiteral("saved_at_ms"), 42}};
+        };
+        const auto content = [](const QVariantList &entries) {
+            return QVariantMap{{QStringLiteral("version"), 1},
+                               {QStringLiteral("entries"), entries}};
+        };
+        Q_EMIT client.accountPrefRead(client.lastType, true,
+                                      content({ref(QStringLiteral("$old"))}));
+        saved.save(QStringLiteral("!room:example.org"), QStringLiteral("$local"), {});
+        QCOMPARE(client.reads, 2);
+        QVERIFY(client.lastWrite.isEmpty());
+        Q_EMIT client.accountPrefRead(client.lastType, true,
+            content({ref(QStringLiteral("$old")), ref(QStringLiteral("$remote"))}));
+        QCOMPARE(client.lastWrite.value(QStringLiteral("entries")).toList().size(), 3);
+        Q_EMIT client.accountPrefWritten(client.lastType, true, {});
+        Q_EMIT client.accountPrefRead(client.lastType, true,
+            content({ref(QStringLiteral("$old")), ref(QStringLiteral("$remote")),
+                     ref(QStringLiteral("$local"))}));
+        saved.remove(QStringLiteral("!room:example.org"), QStringLiteral("$old"));
+        Q_EMIT client.accountPrefRead(client.lastType, true,
+            content({ref(QStringLiteral("$old")), ref(QStringLiteral("$remote")),
+                     ref(QStringLiteral("$local")), ref(QStringLiteral("$new"))}));
+        const auto written = client.lastWrite.value(QStringLiteral("entries")).toList();
+        QCOMPARE(written.size(), 3);
+        for (const QVariant &item : written)
+            QVERIFY(item.toMap().value(QStringLiteral("event_id")) != QStringLiteral("$old"));
+        QCOMPARE(saved.count(), 3);
+    }
+
+    void invalidFreshServerListIsNeverOverwritten()
+    {
+        SavedFakeClient client;
+        SavedMessagesController saved;
+        saved.setClient(&client);
+        Q_EMIT client.accountPrefRead(client.lastType, false, {});
+        saved.save(QStringLiteral("!room:example.org"), QStringLiteral("$local"), {});
+        Q_EMIT client.accountPrefRead(client.lastType, true,
+            QVariantMap{{QStringLiteral("version"), 1},
+                        {QStringLiteral("entries"), QVariantList{QVariantMap{
+                            {QStringLiteral("body"), QStringLiteral("secret")}}}}});
+        QVERIFY(client.lastWrite.isEmpty());
+        QVERIFY(!saved.busy());
+        QCOMPARE(saved.count(), 0);
+    }
+
+    void concurrentSaveAtCapacityDoesNotEvictServerEntries()
+    {
+        SavedFakeClient client;
+        SavedMessagesController saved;
+        saved.setClient(&client);
+        Q_EMIT client.accountPrefRead(client.lastType, false, {});
+        saved.save(QStringLiteral("!room:example.org"), QStringLiteral("$local"), {});
+        QVariantList remote;
+        for (int i = 0; i < 100; ++i) {
+            remote.append(QVariantMap{
+                {QStringLiteral("room_id"), QStringLiteral("!room:example.org")},
+                {QStringLiteral("event_id"), QStringLiteral("$remote%1").arg(i)},
+                {QStringLiteral("thread_root_id"), QString()},
+                {QStringLiteral("saved_at_ms"), 42},
+            });
+        }
+        Q_EMIT client.accountPrefRead(client.lastType, true,
+            QVariantMap{{QStringLiteral("version"), 1},
+                        {QStringLiteral("entries"), remote}});
+        QVERIFY(client.lastWrite.isEmpty());
+        QVERIFY(!saved.busy());
+        QVERIFY(!saved.error().isEmpty());
+    }
+
     void onlyReferencesAreWrittenAndAccountsAreIsolated()
     {
         SavedFakeClient client;
@@ -69,6 +147,7 @@ private Q_SLOTS:
         QVERIFY(saved.loaded());
         saved.save(QStringLiteral("!room:example.org"), QStringLiteral("$reply"),
                    QStringLiteral("$root"));
+        Q_EMIT client.accountPrefRead(client.lastType, false, {});
         QCOMPARE(client.lastWrite.value(QStringLiteral("version")).toInt(), 1);
         const QVariantList refs = client.lastWrite.value(QStringLiteral("entries")).toList();
         QCOMPARE(refs.size(), 1);
@@ -105,7 +184,9 @@ private Q_SLOTS:
         saved.setClient(&client);
         Q_EMIT client.accountPrefRead(client.lastType, false, {});
         saved.save(QStringLiteral("!room:example.org"), QStringLiteral("$event"), {});
+        Q_EMIT client.accountPrefRead(client.lastType, false, {});
         Q_EMIT client.accountPrefWritten(client.lastType, true, {});
+        Q_EMIT client.accountPrefRead(client.lastType, true, client.lastWrite);
         saved.resolveVisible();
         QCOMPARE(client.requestedEvent, QStringLiteral("$event"));
         Q_EMIT client.eventSourceReceived(QStringLiteral("!room:example.org"),
@@ -119,9 +200,12 @@ private Q_SLOTS:
         QVERIFY(!redacted.value(QStringLiteral("available")).toBool());
         QVERIFY(redacted.value(QStringLiteral("preview")).toString().isEmpty());
         saved.remove(QStringLiteral("!room:example.org"), QStringLiteral("$event"));
+        Q_EMIT client.accountPrefRead(client.lastType, true, client.lastWrite);
         Q_EMIT client.accountPrefWritten(client.lastType, true, {});
         QCOMPARE(saved.count(), 0);
+        Q_EMIT client.accountPrefRead(client.lastType, true, client.lastWrite);
         saved.undoRemove();
+        Q_EMIT client.accountPrefRead(client.lastType, false, {});
         Q_EMIT client.accountPrefWritten(client.lastType, true, {});
         QCOMPARE(saved.count(), 1);
         QVERIFY(!QJsonDocument(QJsonObject::fromVariantMap(client.lastWrite))
@@ -137,6 +221,7 @@ private Q_SLOTS:
         saved.setClient(&client);
         Q_EMIT client.accountPrefRead(client.lastType, false, {});
         saved.save(QStringLiteral("!room:example.org"), QStringLiteral("$event"), {});
+        Q_EMIT client.accountPrefRead(client.lastType, false, {});
         QCOMPARE(saved.count(), 1);
         Q_EMIT client.accountPrefWritten(client.lastType, false,
                                           QStringLiteral("timeout"));
@@ -152,6 +237,7 @@ private Q_SLOTS:
         saved.setClient(&client);
         Q_EMIT client.accountPrefRead(client.lastType, false, {});
         saved.save(QStringLiteral("!room:example.org"), QStringLiteral("$event"), {});
+        Q_EMIT client.accountPrefRead(client.lastType, false, {});
         Q_EMIT client.accountPrefWritten(client.lastType, true, {});
         saved.resolveVisible();
         Q_EMIT client.eventRedacted(QStringLiteral("!room:example.org"),

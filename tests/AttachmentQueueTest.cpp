@@ -355,6 +355,17 @@ class AttachmentQueueTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
+    void imageEditUsesSessionScratchWriter()
+    {
+        const QString sourcePath = QFileInfo(QString::fromUtf8(__FILE__)).dir()
+            .absoluteFilePath(QStringLiteral("../src/models/AttachmentQueueModel.cpp"));
+        QFile source(sourcePath);
+        QVERIFY(source.open(QIODevice::ReadOnly));
+        const QByteArray code = source.readAll();
+        QVERIFY(code.contains("lightning::scratch::ScratchFile file(path)"));
+        QVERIFY(!code.contains("QSaveFile file(path)"));
+    }
+
     void editedImagePreviewIsExactlyTheSentPngAndOriginalSurvives()
     {
         FakeClient client;

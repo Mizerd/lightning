@@ -82,8 +82,11 @@ private:
     void reset();
     void emitChanged();
     void write();
+    void sendWrite();
+    bool parseRefs(const QVariantMap &content, bool present, QVector<Ref> &refs) const;
+    void failWrite(const QString &message);
     void pumpResolve();
-    void receive(const QVariantMap &content);
+    void receive(const QVariantMap &content, bool present);
     void receiveSource(const QString &roomId, const QString &eventId,
                        bool ok, const QString &json);
 
@@ -95,6 +98,8 @@ private:
     bool m_undoValid = false;
     bool m_loaded = false;
     bool m_busy = false;
+    bool m_fetchingForWrite = false;
+    int m_pendingReads = 0;
     bool m_reloadOwed = false;
     QString m_error;
     QString m_query;
