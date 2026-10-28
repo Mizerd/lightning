@@ -716,6 +716,7 @@ const CLASSES: &[(&str, EventClass)] = {
         ("reload_timeline_failed", UiOnly),
         ("report_message_result", UiOnly),
         ("room_action_error", UiOnly),
+        ("room_tag_confirmed", UiOnly),
         ("room_activity", UiOnly),
         ("room_background", UiOnly),
         ("room_background_changed", UiOnly),
