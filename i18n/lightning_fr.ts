@@ -917,7 +917,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+8314"/>
+        <location filename="../src/app/AppController.cpp" line="+8319"/>
         <source>Room invitation</source>
         <translation>Invitation au salon</translation>
     </message>
@@ -1038,7 +1038,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Appel entrant</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-6364"/>
+        <location filename="../src/app/AppController.cpp" line="-6369"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>La déconnexion a été annulée car le compte a changé. Rien n&apos;a été réinitialisé.</translation>
     </message>
@@ -1058,7 +1058,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Vous avez manqué un appel vocal dans %1</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+818"/>
+        <location filename="../src/app/AppController.cpp" line="+823"/>
         <source>The room was created, but adding it to the Space failed.</source>
         <translation>Le salon a été créé, mais son ajout à l&apos;espace a échoué.</translation>
     </message>
@@ -1194,13 +1194,13 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Utilisez des dates réelles au format YYYY-MM-DD, avec « Du » pas après « Au ».</translation>
     </message>
     <message>
-        <location line="-5567"/>
-        <location line="+3304"/>
+        <location line="-5572"/>
+        <location line="+3309"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-3303"/>
+        <location line="-3308"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>Ceci est une notification de test. Si vous pouvez la lire, les notifications du bureau fonctionnent.</translation>
     </message>
@@ -1215,7 +1215,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Appel lancé</translation>
     </message>
     <message>
-        <location line="+2198"/>
+        <location line="+2203"/>
         <source>That notification was for a different account, so nothing was sent. Switch back to that account and try again.</source>
         <translation>Cette notification concernait un autre compte, elle n&apos;a donc pas été envoyée. Revenez sur ce compte et réessayez.</translation>
     </message>
@@ -1730,12 +1730,12 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
 <context>
     <name>AttachmentQueueModel</name>
     <message>
-        <location filename="../src/models/AttachmentQueueModel.cpp" line="+80"/>
+        <location filename="../src/models/AttachmentQueueModel.cpp" line="+82"/>
         <source>The file is larger than the server&apos;s upload limit (%1).</source>
         <translation>Le fichier dépasse la limite d&apos;envoi du serveur (%1).</translation>
     </message>
     <message>
-        <location line="+297"/>
+        <location line="+311"/>
         <source>Only local files can be attached.</source>
         <translation>Seuls des fichiers locaux peuvent être joints.</translation>
     </message>
@@ -7309,7 +7309,7 @@ Taille : %3</translation>
         <translation>Utilisés récemment</translation>
     </message>
     <message>
-        <location line="+286"/>
+        <location line="+288"/>
         <source>Quick reactions</source>
         <translation>Réactions rapides</translation>
     </message>
@@ -7349,7 +7349,7 @@ Taille : %3</translation>
         <translation>Clic droit pour ajouter aux favoris ou les retirer</translation>
     </message>
     <message>
-        <location line="+319"/>
+        <location line="+321"/>
         <source>No recently used emoji</source>
         <translation>Aucun émoji utilisé récemment</translation>
     </message>
@@ -10927,7 +10927,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Lightning %1</translation>
     </message>
     <message>
-        <location line="+570"/>
+        <location line="+572"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
@@ -12543,12 +12543,12 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     <message>
         <location line="+102"/>
         <location line="+1005"/>
-        <location line="+1286"/>
+        <location line="+1316"/>
         <source>Reply</source>
         <translation>Répondre</translation>
     </message>
     <message>
-        <location line="-2273"/>
+        <location line="-2303"/>
         <source>(original message not loaded)</source>
         <translation>(message d&apos;origine non chargé)</translation>
     </message>
@@ -12649,30 +12649,30 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="+17"/>
-        <location line="+2597"/>
+        <location line="+2627"/>
         <location line="+1144"/>
         <source>Retry</source>
         <translation>Réessayer</translation>
     </message>
     <message>
-        <location line="-3711"/>
-        <location line="+1355"/>
+        <location line="-3741"/>
+        <location line="+1385"/>
         <source>Cancel</source>
         <translation>Annuler</translation>
     </message>
     <message>
-        <location line="-1350"/>
+        <location line="-1380"/>
         <source>Cancel sending this message</source>
         <translation>Annuler l&apos;envoi de ce message</translation>
     </message>
     <message>
         <location line="+167"/>
-        <location line="+1574"/>
+        <location line="+1604"/>
         <source>Hide image</source>
         <translation>Masquer l&apos;image</translation>
     </message>
     <message>
-        <location line="-1570"/>
+        <location line="-1600"/>
         <source>Hide</source>
         <translation>Masquer</translation>
     </message>
@@ -12783,24 +12783,24 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Lu par %1, %2 et %3 autres</translation>
     </message>
     <message>
-        <location line="+603"/>
+        <location line="+633"/>
         <source>Message · %1 · %2</source>
         <translation>Message · %1 · %2</translation>
     </message>
     <message>
-        <location line="-1140"/>
+        <location line="-1170"/>
         <location line="+4"/>
-        <location line="+1265"/>
+        <location line="+1295"/>
         <source>Reply in thread</source>
         <translation>Répondre dans un fil</translation>
     </message>
     <message>
-        <location line="-2285"/>
+        <location line="-2315"/>
         <source>Original message removed</source>
         <translation>Message d&apos;origine supprimé</translation>
     </message>
     <message>
-        <location line="+2298"/>
+        <location line="+2328"/>
         <source>Open in room</source>
         <translation>Ouvrir dans le salon</translation>
     </message>
@@ -12992,13 +12992,13 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Réessayer</translation>
     </message>
     <message>
-        <location line="-4159"/>
-        <location line="+1552"/>
+        <location line="-4189"/>
+        <location line="+1582"/>
         <source>Edit</source>
         <translation>Modifier</translation>
     </message>
     <message>
-        <location line="-4500"/>
+        <location line="-4530"/>
         <source>%1 B</source>
         <translation>%1 o</translation>
     </message>
@@ -13032,22 +13032,22 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     <message>
         <location line="-656"/>
         <location line="+654"/>
-        <location line="+4184"/>
+        <location line="+4214"/>
         <location line="+462"/>
         <location line="+587"/>
         <source>GIF</source>
         <translation>GIF</translation>
     </message>
     <message>
-        <location line="-5887"/>
+        <location line="-5917"/>
         <location line="+66"/>
         <location line="+587"/>
-        <location line="+4807"/>
+        <location line="+4837"/>
         <source>Image</source>
         <translation>Image</translation>
     </message>
     <message>
-        <location line="-5458"/>
+        <location line="-5488"/>
         <source>Attachment</source>
         <translation>Pièce jointe</translation>
     </message>
@@ -13113,7 +13113,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>(modifié)</translation>
     </message>
     <message>
-        <location line="+1776"/>
+        <location line="+1806"/>
         <source>Add :%1: to my emoji</source>
         <translation>Ajouter :%1: à mes emoji</translation>
     </message>
@@ -13153,13 +13153,13 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Signaler le message</translation>
     </message>
     <message>
-        <location line="-708"/>
-        <location line="+725"/>
+        <location line="-738"/>
+        <location line="+755"/>
         <source>Delete</source>
         <translation>Supprimer</translation>
     </message>
     <message>
-        <location line="-720"/>
+        <location line="-750"/>
         <source>Remove message?</source>
         <translation>Supprimer le message ?</translation>
     </message>
@@ -13174,7 +13174,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Supprimer</translation>
     </message>
     <message>
-        <location line="+760"/>
+        <location line="+790"/>
         <source>Message details</source>
         <translation>Détails du message</translation>
     </message>
@@ -13251,12 +13251,12 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Cible de la réponse</translation>
     </message>
     <message>
-        <location line="-2195"/>
+        <location line="-2225"/>
         <source>Show preview</source>
         <translation>Afficher l&apos;aperçu</translation>
     </message>
     <message>
-        <location line="+2020"/>
+        <location line="+2050"/>
         <source>Remove edits?</source>
         <translation>Supprimer les modifications ?</translation>
     </message>
@@ -13276,7 +13276,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Cela clôt le vote et publie le résultat. Un sondage ne peut pas être rouvert.</translation>
     </message>
     <message>
-        <location line="-641"/>
+        <location line="-671"/>
         <source>Delete message?</source>
         <translation>Supprimer le message ?</translation>
     </message>
@@ -13286,7 +13286,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Cela supprime le message pour tout le monde dans le salon. Cette action est irréversible.</translation>
     </message>
     <message>
-        <location line="+1002"/>
+        <location line="+1032"/>
         <source>Open link in browser</source>
         <translation>Ouvrir le lien dans le navigateur</translation>
     </message>
@@ -13378,10 +13378,10 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Échec du chargement de l&apos;autocollant — cliquez pour réessayer</translation>
     </message>
     <message>
-        <location line="-6331"/>
+        <location line="-6361"/>
         <location line="+70"/>
         <location line="+590"/>
-        <location line="+4805"/>
+        <location line="+4835"/>
         <location line="+1192"/>
         <location line="+89"/>
         <source>Video</source>
@@ -13394,9 +13394,9 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>vidéo</translation>
     </message>
     <message>
-        <location line="-6758"/>
+        <location line="-6788"/>
         <location line="+656"/>
-        <location line="+4916"/>
+        <location line="+4946"/>
         <location line="+1388"/>
         <location line="+4"/>
         <location line="+30"/>
@@ -18843,13 +18843,13 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="+1"/>
-        <location line="+697"/>
+        <location line="+709"/>
         <location line="+1"/>
         <source>Search rooms</source>
         <translation>Rechercher des salons</translation>
     </message>
     <message>
-        <location line="-640"/>
+        <location line="-652"/>
         <location line="+1"/>
         <source>Room list options</source>
         <translation>Options de la liste des salons</translation>
@@ -18887,7 +18887,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Salons</translation>
     </message>
     <message numerus="yes">
-        <location line="+238"/>
+        <location line="+244"/>
         <source>%n selected</source>
         <translation>
             <numerusform>%n sélectionné</numerusform>
@@ -18981,7 +18981,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>En attente</translation>
     </message>
     <message numerus="yes">
-        <location line="-97"/>
+        <location line="-103"/>
         <source>Leave %n room(s)?</source>
         <translation>
             <numerusform>Quitter %n salon ?</numerusform>
@@ -19009,7 +19009,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Quitter les salons</translation>
     </message>
     <message>
-        <location line="+188"/>
+        <location line="+200"/>
         <source>Expand %1 room list</source>
         <translation>Déplier la liste des salons de %1</translation>
     </message>
@@ -19024,7 +19024,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Afficher les salons non lus</translation>
     </message>
     <message>
-        <location line="-419"/>
+        <location line="-431"/>
         <location line="+2"/>
         <location line="+5"/>
         <source>Unreads</source>
@@ -19084,7 +19084,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
 <context>
     <name>RustSdkMatrixClient</name>
     <message>
-        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+658"/>
+        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+659"/>
         <source>Lightning could not create its local storage directory for this account. Check filesystem permissions and free space.</source>
         <translation>Lightning n&apos;a pas pu créer son dossier de stockage local pour ce compte. Vérifiez les permissions du système de fichiers et l&apos;espace disponible.</translation>
     </message>
@@ -25578,7 +25578,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
 <context>
     <name>SfuCallController</name>
     <message>
-        <location filename="../src/calls/SfuCallController.cpp" line="+776"/>
+        <location filename="../src/calls/SfuCallController.cpp" line="+803"/>
         <location line="+466"/>
         <location line="+131"/>
         <source>Screen sharing isn&apos;t available on this desktop.</source>
@@ -25586,12 +25586,12 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     </message>
     <message>
         <location line="-595"/>
-        <location line="+1108"/>
+        <location line="+1109"/>
         <source>Screen sharing couldn&apos;t start.</source>
         <translation>Le partage d&apos;écran n&apos;a pas pu démarrer.</translation>
     </message>
     <message>
-        <location line="-678"/>
+        <location line="-679"/>
         <source>Screen sharing on Wayland needs xdg-desktop-portal, and it isn&apos;t responding. Install or start the portal for your desktop — for example xdg-desktop-portal-kde or xdg-desktop-portal-gnome — then try again.</source>
         <translation>Le partage d&apos;écran sur Wayland nécessite xdg-desktop-portal et il ne répond pas. Installez ou démarrez le portail pour votre bureau — par exemple xdg-desktop-portal-kde ou xdg-desktop-portal-gnome — puis réessayez.</translation>
     </message>
@@ -25627,7 +25627,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Impossible de commencer à partager cet écran.</translation>
     </message>
     <message>
-        <location line="+195"/>
+        <location line="+196"/>
         <source>The calling service refused to connect you to this call.</source>
         <translation>Le service d&apos;appel a refusé de vous connecter à cet appel.</translation>
     </message>
@@ -25637,17 +25637,17 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Lightning n&apos;a pas pu ouvrir la caméra. Elle est peut-être utilisée par une autre application, ou débranchée.</translation>
     </message>
     <message>
-        <location line="+504"/>
+        <location line="+514"/>
         <source>Calling isn&apos;t available on this homeserver.</source>
         <translation>Les appels ne sont pas disponibles sur ce serveur domestique.</translation>
     </message>
     <message>
-        <location line="-612"/>
+        <location line="-622"/>
         <source>Too many attempts. Try again in a moment.</source>
         <translation>Trop de tentatives. Réessayez dans un instant.</translation>
     </message>
     <message>
-        <location line="-842"/>
+        <location line="-843"/>
         <source>Your desktop&apos;s camera portal offered Lightning no camera. If the camera works in other apps, allow Lightning to use all devices (in Flatseal: &quot;All devices&quot;), then turn the camera on again.</source>
         <translation>Le portail caméra de votre bureau n&apos;a fourni à Lightning aucune caméra. Si la caméra fonctionne dans d&apos;autres applications, autorisez Lightning à utiliser tous les périphériques (dans Flatseal : « All devices »), puis réactivez la caméra.</translation>
     </message>
@@ -25687,7 +25687,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Vous n&apos;avez pas la permission de rejoindre les appels dans ce salon. Un administrateur du salon peut augmenter votre niveau de droits ; Lightning ne peut pas modifier ce que l&apos;appartenance à l&apos;appel exige elle-même.</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+14"/>
         <source>The calling service this call uses didn&apos;t answer. It&apos;s chosen by whoever started the call, not by your homeserver.</source>
         <translation>Le service d&apos;appel utilisé par cet appel n&apos;a pas répondu. Il est choisi par la personne qui a lancé l&apos;appel, et non par votre serveur d&apos;accueil.</translation>
     </message>
@@ -25758,13 +25758,13 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     </message>
     <message>
         <location line="+11"/>
-        <location line="+546"/>
-        <location line="+90"/>
+        <location line="+556"/>
+        <location line="+380"/>
         <source>Couldn&apos;t connect to the call.</source>
         <translation>Impossible de se connecter à l&apos;appel.</translation>
     </message>
     <message>
-        <location line="-634"/>
+        <location line="-934"/>
         <source>The calling service is having trouble.</source>
         <translation>Le service appelant rencontre des problèmes.</translation>
     </message>
@@ -25877,17 +25877,17 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>L&apos;appel n&apos;est pas encore prêt.</translation>
     </message>
     <message>
-        <location line="+447"/>
+        <location line="+747"/>
         <source>You can share your screen once the call has reconnected.</source>
         <translation>Vous pourrez partager votre écran une fois l&apos;appel reconnecté.</translation>
     </message>
     <message>
-        <location line="+788"/>
+        <location line="+834"/>
         <source>Call audio stopped: this computer&apos;s sound output disconnected. It resumes when an output is available again; if it does not, leave and rejoin the call.</source>
         <translation>Le son de l&apos;appel s&apos;est arrêté : la sortie audio de cet ordinateur s&apos;est déconnectée. Il reprend lorsqu&apos;une sortie est à nouveau disponible ; sinon, quittez l&apos;appel et rejoignez-le.</translation>
     </message>
     <message>
-        <location line="+2377"/>
+        <location line="+2430"/>
         <source>Screen-share sound is off: this package lacks the audio capture plugins it needs.</source>
         <translation>Le son du partage d&apos;écran est désactivé : les modules de capture audio nécessaires sont absents de ce paquet.</translation>
     </message>
@@ -25962,17 +25962,17 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>L&apos;appel a été refusé.</translation>
     </message>
     <message>
-        <location line="-4209"/>
+        <location line="-4608"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>Cette salle est cryptée et les appels cryptés ne sont pas encore disponibles sur cette version.</translation>
     </message>
     <message>
-        <location line="+241"/>
+        <location line="+251"/>
         <source>Couldn&apos;t announce you in the call.</source>
         <translation>Je n&apos;ai pas pu vous annoncer lors de l&apos;appel.</translation>
     </message>
     <message>
-        <location line="+306"/>
+        <location line="+596"/>
         <source>The call ended because the connection was lost.</source>
         <translation>L&apos;appel a pris fin car la connexion a été perdue.</translation>
     </message>
@@ -26066,7 +26066,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Fermer Activité, le sélecteur rapide ou les paramètres</translation>
     </message>
     <message>
-        <location line="+543"/>
+        <location line="+558"/>
         <source>Use a single key combination for dialog navigation.</source>
         <translation>Utilisez une seule combinaison de touches pour naviguer dans les boîtes de dialogue.</translation>
     </message>
@@ -26091,7 +26091,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Placer le focus sur la zone de message</translation>
     </message>
     <message>
-        <location line="-162"/>
+        <location line="-177"/>
         <source>Select the latest message</source>
         <translation>Sélectionner le dernier message</translation>
     </message>
@@ -26126,7 +26126,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Répondre au message sélectionné</translation>
     </message>
     <message>
-        <location line="+470"/>
+        <location line="+485"/>
         <source>Use a single key combination for message selection.</source>
         <translation>Utilisez une seule combinaison de touches pour la sélection de messages.</translation>
     </message>
@@ -26141,7 +26141,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Tant que la chronologie a le focus, « %1 » s’exécute à la place.</translation>
     </message>
     <message>
-        <location line="-802"/>
+        <location line="-817"/>
         <source>Application</source>
         <translation>Demande</translation>
     </message>
@@ -26301,7 +26301,27 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Aller au résultat de recherche précédent</translation>
     </message>
     <message>
-        <location line="+36"/>
+        <location line="+34"/>
+        <source>Open the selected message&apos;s thread</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Edit the selected message</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>React to the selected message</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Pin or unpin the selected message</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
         <source>Forward the selected message</source>
         <translation>Transférer le message sélectionné</translation>
     </message>
@@ -26324,6 +26344,11 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <location line="+3"/>
         <source>Copy the selected message&apos;s link</source>
         <translation>Copier le lien du message sélectionné</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>View the selected message&apos;s source</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+3"/>
@@ -26597,7 +26622,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Pendant que la boîte de message a le focus, « %1 » s&apos;exécute à la place.</translation>
     </message>
     <message>
-        <location line="-811"/>
+        <location line="-826"/>
         <source>Settings navigation</source>
         <translation>Navigation dans les paramètres</translation>
     </message>
@@ -26622,7 +26647,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Aller à la sous-section suivante des paramètres</translation>
     </message>
     <message>
-        <location line="+530"/>
+        <location line="+545"/>
         <source>Use a single key combination for Settings navigation.</source>
         <translation>Utilisez une seule combinaison de touches pour naviguer dans les paramètres.</translation>
     </message>
@@ -26642,7 +26667,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Dans les paramètres, « %1 » est exécuté à la place.</translation>
     </message>
     <message>
-        <location line="-693"/>
+        <location line="-708"/>
         <source>Scroll Settings up half a page</source>
         <translation>Faire défiler les paramètres d’une demi-page vers le haut</translation>
     </message>
@@ -28691,7 +28716,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
 <context>
     <name>StickerPackManager</name>
     <message>
-        <location filename="../src/stickers/StickerPackManager.cpp" line="+1083"/>
+        <location filename="../src/stickers/StickerPackManager.cpp" line="+1118"/>
         <source>Enter a name.</source>
         <translation>Saisissez un nom.</translation>
     </message>
@@ -29166,7 +29191,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Les autocollants d&apos;une pièce sont toujours disponibles à l&apos;intérieur de cette pièce. Cela les rend également disponibles partout ailleurs.</translation>
     </message>
     <message>
-        <location line="+196"/>
+        <location line="+202"/>
         <source>Unavailable</source>
         <translation>Indisponible</translation>
     </message>
@@ -30925,18 +30950,18 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Supprimer la pièce jointe %1</translation>
     </message>
     <message>
-        <location line="+37"/>
-        <location line="+781"/>
+        <location line="+38"/>
+        <location line="+786"/>
         <source>Attach files</source>
         <translation>Joindre des fichiers</translation>
     </message>
     <message>
-        <location line="-780"/>
+        <location line="-785"/>
         <source>Attach</source>
         <translation>Joindre</translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="+13"/>
         <source>Collapse message box</source>
         <translation>Réduire la boîte de message</translation>
     </message>
@@ -30988,12 +31013,12 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Tout sélectionner</translation>
     </message>
     <message>
-        <location line="+147"/>
+        <location line="+148"/>
         <source>Insert emoji</source>
         <translation>Insérer un émoji</translation>
     </message>
     <message>
-        <location line="+23"/>
+        <location line="+24"/>
         <source>Insert a GIF or sticker</source>
         <translation>Insérer un GIF ou un autocollant</translation>
     </message>
@@ -31018,7 +31043,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Autocollant</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+20"/>
         <location line="+1"/>
         <source>Record a voice message</source>
         <translation>Enregistrer un message vocal</translation>
@@ -31070,7 +31095,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+40"/>
+        <location line="+41"/>
         <source>Send</source>
         <translation>Envoyer</translation>
     </message>
@@ -31276,12 +31301,12 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-558"/>
         <location filename="../qml/TimelinePane.qml" line="+388"/>
-        <location line="+6634"/>
+        <location line="+6639"/>
         <source>Space</source>
         <translation>Espace</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-6633"/>
+        <location filename="../qml/TimelinePane.qml" line="-6638"/>
         <source>Home</source>
         <translation>Accueil</translation>
     </message>
@@ -31367,12 +31392,12 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+4948"/>
+        <location line="+4953"/>
         <source>Room information</source>
         <translation>Informations du salon</translation>
     </message>
     <message>
-        <location line="-4932"/>
+        <location line="-4937"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation>Autres actions du salon</translation>
@@ -31593,7 +31618,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>La recherche n&apos;a pas pu aboutir.</translation>
     </message>
     <message>
-        <location line="+3770"/>
+        <location line="+3775"/>
         <location line="+501"/>
         <source>Loading older messages…</source>
         <translation>Chargement des messages plus anciens…</translation>
@@ -32031,13 +32056,13 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Annuler</translation>
     </message>
     <message>
-        <location line="-7290"/>
+        <location line="-7295"/>
         <location line="+92"/>
         <source>View profile</source>
         <translation>Voir le profil</translation>
     </message>
     <message>
-        <location line="+6420"/>
+        <location line="+6425"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
@@ -32103,12 +32128,12 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Fermer</translation>
     </message>
     <message>
-        <location line="+171"/>
+        <location line="+181"/>
         <source>Drop files to attach</source>
         <translation>Déposez des fichiers pour les joindre</translation>
     </message>
     <message>
-        <location line="-6722"/>
+        <location line="-6737"/>
         <source>Part of %1</source>
         <translation>Fait partie de %1</translation>
     </message>

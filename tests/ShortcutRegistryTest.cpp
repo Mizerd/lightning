@@ -251,11 +251,11 @@ private Q_SLOTS:
         QCOMPARE(registry.setBinding(QStringLiteral("timeline.newerMessage"),
                                      QStringLiteral("Shift+J")), QString());
         QCOMPARE(registry.setBinding(QStringLiteral("timeline.reply"),
-                                     QStringLiteral("T")), QString());
-        QCOMPARE(registry.messageSelectionActionForKey(Qt::Key_T, Qt::NoModifier),
+                                     QStringLiteral("Y")), QString());
+        QCOMPARE(registry.messageSelectionActionForKey(Qt::Key_Y, Qt::NoModifier),
                  QStringLiteral("timeline.reply"));
-        QVERIFY(registry.timelineActionForKey(Qt::Key_T, Qt::NoModifier).isEmpty());
-        QVERIFY(registry.editorActionForKey(Qt::Key_T, Qt::NoModifier).isEmpty());
+        QVERIFY(registry.timelineActionForKey(Qt::Key_Y, Qt::NoModifier).isEmpty());
+        QVERIFY(registry.editorActionForKey(Qt::Key_Y, Qt::NoModifier).isEmpty());
         QVERIFY(!registry.validationError(QStringLiteral("timeline.pageUp"),
                                            QStringLiteral("K")).isEmpty());
         QVERIFY(!registry.validationError(QStringLiteral("nav.quickSwitcher"),
@@ -304,6 +304,12 @@ private Q_SLOTS:
     {
         SettingsManager settings;
         ShortcutRegistry registry(&settings);
+        // T and E are also the thread/edit selection defaults; move those
+        // out of the way so this exercises only the menu-letter exemption.
+        QCOMPARE(registry.setBinding(QStringLiteral("timeline.replyInThread"),
+                                     QStringLiteral("Y")), QString());
+        QCOMPARE(registry.setBinding(QStringLiteral("timeline.editMessage"),
+                                     QStringLiteral("G")), QString());
         QCOMPARE(registry.setBinding(QStringLiteral("timeline.olderMessage"),
                                      QStringLiteral("T")), QString());
         QCOMPARE(registry.setBinding(QStringLiteral("timeline.newerMessage"),
