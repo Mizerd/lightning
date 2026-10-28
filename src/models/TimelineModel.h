@@ -131,6 +131,8 @@ public:
         // m.mentions metadata (SDK-parsed).
         MentionsMeRole,
         MentionsRoomRole,
+        RoomMentionHighlightedRole, // m.mentions.room with the rules' highlight tweak.
+        PushHighlightedRole,
         // Encryption metadata, so MessageDelegate can style undecryptable rows
         // without matching body strings.
         IsEncryptedRole,
@@ -528,11 +530,11 @@ public:
                                      const QString &linkColor = QString(),
                                      bool underlineLinks = false);
 
-    // Styles the literal "@room" in a body that carries m.mentions.room, for
-    // both formatted and linkified plain bodies. The caller owns the
-    // m.mentions.room test; never apply this to a body that merely contains the
-    // words.
-    Q_INVOKABLE QString markRoomMention(const QString &safeHtml) const;
+    // Styles the literal "@room" in a body with a room-mention highlight.
+    // The caller supplies theme colours; all three are validated here.
+    Q_INVOKABLE QString markRoomMention(const QString &safeHtml,
+                                        const QString &fill,
+                                        const QString &ink) const;
 
 Q_SIGNALS:
     // SENSITIVE in encrypted rooms (plaintext bodies, decrypted JSON): display

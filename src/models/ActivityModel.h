@@ -240,11 +240,11 @@ public:
     // Pure classifier for tests: the kind an event would get, or "" when it is
     // not activity for `selfUserId`.
     //
-    // Order: a reply to the user, a mention of the user, a reply in a thread
-    // they started or joined, then highlights. With a push verdict the rules
-    // decide highlights (a keyword or legacy mention is "highlight", @room is
-    // "room_mention" only when the rules highlighted it, which carries the
-    // sender's notification power). `keywords`, the bell's legacy local list,
+    // Order: a reply to the user, a highlighted mention of the user, a reply
+    // in a thread they started or joined, then other highlights. With a push
+    // verdict the rules decide highlights (a keyword or legacy mention is
+    // "highlight", @room is "room_mention" only when the rules highlighted
+    // it, which carries the sender's notification power). `keywords`, the bell's legacy local list,
     // only applies without a verdict (a backend that evaluates no rules).
     static QString classify(const TimelineEvent &event, const QString &selfUserId,
                             const QSet<QString> &ownEventIds,

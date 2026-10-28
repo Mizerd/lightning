@@ -3048,6 +3048,7 @@ async fn open_room_task(
     // What reached the server before this instant is history; see BacklogMarker.
     let opened_ms = crate::push_verdict::now_ms();
     let own_user = client.user_id().map(|u| u.to_string()).unwrap_or_default();
+    let fallback_verdicts = crate::push_verdict::SyncVerdicts::default();
 
     let Ok(room_ref) = RoomId::parse(&room_id) else {
         emit_timeline_error(&events, &room_id, room_gen, lifecycle, "invalid_room_id");
@@ -3224,8 +3225,9 @@ send queue owes nothing for them: {in_flight:?}"
         lifecycle,
     );
 
-    let snapshot: Vec<serde_json::Value> =
+    let mut snapshot: Vec<serde_json::Value> =
         items.iter().map(|item| item_to_json(item, &room_id, &own_user, &registry)).collect();
+    annotate_snapshot_verdicts(&room, &fallback_verdicts, &items, &mut snapshot).await;
     let mut backlog = crate::push_verdict::BacklogMarker::new(
         opened_ms,
         items.iter().filter_map(|item| crate::push_verdict::item_facts(item)),
@@ -3328,13 +3330,11 @@ send queue owes nothing for them: {in_flight:?}"
                         arrived_since_open(item, opened_ms, now)
                     });
                     let judged = mark_live_insert(&diff, live_insert.as_ref(), &mut value);
-                    annotate_push_verdicts(&room, &mut push_context, judged, &mut value)
-                        .await;
+                    annotate_push_verdicts(
+                        &room, &fallback_verdicts, &mut push_context, judged, &mut value,
+                    ).await;
                     if decrypted {
-                        annotate_decrypted_set(
-                            &room, &mut push_context, &diff, &mut value, opened_ms, now,
-                        )
-                        .await;
+                        annotate_decrypted_set(&diff, &mut value, opened_ms, now);
                     }
                     backlog.mark(
                         judged,
@@ -3389,6 +3389,7 @@ async fn open_thread_task(
 ) {
     let opened_ms = crate::push_verdict::now_ms();
     let own_user = client.user_id().map(|u| u.to_string()).unwrap_or_default();
+    let fallback_verdicts = crate::push_verdict::SyncVerdicts::default();
 
     let emit_error = |category: &str| {
         enqueue(
@@ -3455,8 +3456,9 @@ async fn open_thread_task(
         lifecycle,
     );
 
-    let snapshot: Vec<serde_json::Value> =
+    let mut snapshot: Vec<serde_json::Value> =
         items.iter().map(|item| item_to_json(item, &room_id, &own_user, &registry)).collect();
+    annotate_snapshot_verdicts(&room, &fallback_verdicts, &items, &mut snapshot).await;
     let mut backlog = crate::push_verdict::BacklogMarker::new(
         opened_ms,
         items.iter().filter_map(|item| crate::push_verdict::item_facts(item)),
@@ -3574,13 +3576,11 @@ async fn open_thread_task(
                         arrived_since_open(item, opened_ms, now)
                     });
                     let judged = mark_live_insert(&diff, live_insert.as_ref(), &mut value);
-                    annotate_push_verdicts(&room, &mut push_context, judged, &mut value)
-                        .await;
+                    annotate_push_verdicts(
+                        &room, &fallback_verdicts, &mut push_context, judged, &mut value,
+                    ).await;
                     if decrypted {
-                        annotate_decrypted_set(
-                            &room, &mut push_context, &diff, &mut value, opened_ms, now,
-                        )
-                        .await;
+                        annotate_decrypted_set(&diff, &mut value, opened_ms, now);
                     }
                     backlog.mark(
                         judged,
@@ -4249,18 +4249,14 @@ fn item_event_id(item: &Arc<TimelineItem>) -> Option<String> {
 /// live append carries: the verdict the account's rules give the DECRYPTED
 /// event, which the ciphertext could not have, and `backlog` when the event
 /// reached the server before the timeline opened.
-async fn annotate_decrypted_set(
-    room: &matrix_sdk::Room,
-    context: &mut Option<Option<matrix_sdk::room::PushContext>>,
+fn annotate_decrypted_set(
     diff: &VectorDiff<Arc<TimelineItem>>,
     value: &mut serde_json::Value,
     opened_ms: u64,
     now_ms: u64,
 ) {
     let VectorDiff::Set { value: item, .. } = diff else { return };
-    // Paired with the payload's `item` slot exactly as a push_back is.
-    let as_append = VectorDiff::PushBack { value: Arc::clone(item) };
-    annotate_push_verdicts(room, context, &as_append, value).await;
+    // The ordinary diff annotation already wrote this Set's push verdict.
     // Advisory only: `unsigned.age` is the age when the item was received, so
     // judging it now can only err towards "new". C++ (emitDecryptedOnce) ORs
     // in what it recorded at FIRST sight of the undecryptable copy, which is
@@ -4272,17 +4268,41 @@ async fn annotate_decrypted_set(
     }
 }
 
-/// Adds the account's push-rule verdict to the remote events of a live append,
-/// the diffs C++ notifies for (see push_verdict). `context` holds one push
-/// context per batch of diffs, fetched on first need; `Some(None)` means the
-/// SDK could not build one, and the events then carry no verdict.
+/// A reset is history rather than a notification, but its rows still need the
+/// verdict for mention presentation. It is built before the diff stream runs.
+async fn annotate_snapshot_verdicts(
+    room: &matrix_sdk::Room,
+    fallback_verdicts: &crate::push_verdict::SyncVerdicts,
+    items: &[Arc<TimelineItem>],
+    snapshot: &mut [serde_json::Value],
+) {
+    let context = room.push_context().await.ok().flatten();
+    for (item, slot) in items.iter().zip(snapshot.iter_mut()) {
+        let Some(raw) = item.as_event().and_then(|event| event.original_json()) else {
+            continue;
+        };
+        let verdict = crate::push_verdict::for_timeline_json(
+            room, context.as_ref(), fallback_verdicts, raw.json(),
+        ).await;
+        crate::push_verdict::PushVerdict::write_room_mention(
+            fallback_verdicts.room_mention_rule_matched(room, raw.json(), verdict).await,
+            slot,
+        );
+        crate::push_verdict::PushVerdict::write(verdict, slot);
+    }
+}
+
+/// Adds the account's push-rule verdict to every remote event in a diff.
+/// `context` holds one push context per batch, fetched on first need;
+/// `Some(None)` uses the same stored-state fallback as a closed room.
 async fn annotate_push_verdicts(
     room: &matrix_sdk::Room,
+    fallback_verdicts: &crate::push_verdict::SyncVerdicts,
     context: &mut Option<Option<matrix_sdk::room::PushContext>>,
     diff: &VectorDiff<Arc<TimelineItem>>,
     value: &mut serde_json::Value,
 ) {
-    for (item, slot) in crate::push_verdict::live_append_slots(diff, value) {
+    for (item, slot) in crate::push_verdict::event_slots(diff, value) {
         let Some(event) = item.as_event() else { continue };
         if event.original_json().is_none() {
             continue; // a local echo
@@ -4290,11 +4310,15 @@ async fn annotate_push_verdicts(
         if context.is_none() {
             *context = Some(room.push_context().await.ok().flatten());
         }
-        let Some(Some(push_context)) = context.as_ref() else { return };
-        crate::push_verdict::PushVerdict::write(
-            crate::push_verdict::for_timeline_item(push_context, event).await,
+        let raw = event.original_json().expect("remote timeline item has original JSON");
+        let verdict = crate::push_verdict::for_timeline_json(
+            room, context.as_ref().and_then(Option::as_ref), fallback_verdicts, raw.json(),
+        ).await;
+        crate::push_verdict::PushVerdict::write_room_mention(
+            fallback_verdicts.room_mention_rule_matched(room, raw.json(), verdict).await,
             slot,
         );
+        crate::push_verdict::PushVerdict::write(verdict, slot);
     }
 }
 

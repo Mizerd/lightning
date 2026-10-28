@@ -1760,6 +1760,7 @@ private Q_SLOTS:
         QVERIFY(!h.model.ingest(room, QStringLiteral("Ops")));
         room.eventId = QStringLiteral("$pv3");
         room.pushHighlight = true;                               // allowed
+        room.roomMentionHighlighted = true;
         QVERIFY(h.model.ingest(room, QStringLiteral("Ops")));
         QCOMPARE(h.kindOf(QStringLiteral("$pv3")), QStringLiteral("room_mention"));
 
@@ -1772,6 +1773,35 @@ private Q_SLOTS:
         local.pushVerdict = TimelineEvent::PushVerdict::Unknown;
         QVERIFY(h.model.ingest(local, QStringLiteral("Ops")));
         QCOMPARE(h.kindOf(QStringLiteral("$pv5")), QStringLiteral("keyword"));
+    }
+
+    // A server can disable the direct-mention rule for one room. The raw
+    // m.mentions flag still travels with the event, but is not a highlight.
+    void aQuietDirectMentionDoesNotBecomeActivity()
+    {
+        Harness h;
+        TimelineEvent direct = text(QStringLiteral("$quiet-direct"),
+                                    QStringLiteral("@bob:mock.local"),
+                                    QStringLiteral("hello @me"), 1000);
+        direct.mentionsMe = true;
+        direct.pushVerdict = TimelineEvent::PushVerdict::Quiet;
+        QVERIFY(!h.model.ingest(direct, QStringLiteral("Ops")));
+        QCOMPARE(h.model.count(), 0);
+
+        direct.eventId = QStringLiteral("$loud-direct");
+        direct.pushVerdict = TimelineEvent::PushVerdict::Notify;
+        direct.pushHighlight = true;
+        QVERIFY(h.model.ingest(direct, QStringLiteral("Ops")));
+        QCOMPARE(h.kindOf(direct.eventId), QStringLiteral("mention"));
+
+        direct.eventId = QStringLiteral("$quiet-edit");
+        direct.isEdit = true;
+        direct.pushHighlight = false;
+        direct.pushVerdict = TimelineEvent::PushVerdict::Quiet;
+        QCOMPARE(ActivityModel::classify(direct, h.client.self, {}, {}, {}), QString());
+        direct.replacesEventId = QStringLiteral("$unlisted");
+        QVERIFY(!h.model.ingest(direct, QStringLiteral("Ops")));
+        QCOMPARE(h.model.count(), 1);
     }
 
     // Finding 8. Element puts the replied-to user in m.mentions; old code
@@ -2008,6 +2038,16 @@ private Q_SLOTS:
         QCOMPARE(h.row(0).value(QStringLiteral("preview")).toString(),
                  QStringLiteral("now readable"));
         QCOMPARE(h.row(0).value(QStringLiteral("seen")).toBool(), true);
+
+        // Decryption must still honor a known quiet push verdict. The raw
+        // m.mentions flag alone is not a highlight in a muted room.
+        TimelineEvent quiet = enc;
+        quiet.eventId = QStringLiteral("$ld-quiet");
+        quiet.undecryptable = false;
+        quiet.mentionsMe = true;
+        quiet.pushVerdict = TimelineEvent::PushVerdict::Quiet;
+        Q_EMIT h.client.eventDecrypted(kRoom, quiet);
+        QCOMPARE(h.model.count(), 2);
     }
 
     // Finding 12. Stripped invite state has no timestamp; old code stamped

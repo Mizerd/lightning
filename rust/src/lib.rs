@@ -13086,6 +13086,10 @@ async fn decrypted_event_json(
             None => verdicts.without_sdk_context(room, raw.json()).await,
         },
     };
+    push_verdict::PushVerdict::write_room_mention(
+        verdicts.room_mention_rule_matched(room, raw.json(), verdict).await,
+        &mut event,
+    );
     push_verdict::PushVerdict::write(verdict, &mut event);
     Some(event)
 }
@@ -13509,10 +13513,12 @@ fn install_event_handlers(
                     u64::from(ev.origin_server_ts.get()),
                     unsigned_age_ms(ev.unsigned.age),
                 );
-                push_verdict::PushVerdict::write(
-                    verdicts.verdict(&room, &push_actions, &raw).await,
+                let verdict = verdicts.verdict(&room, &push_actions, &raw).await;
+                push_verdict::PushVerdict::write_room_mention(
+                    verdicts.room_mention_rule_matched(&room, &raw, verdict).await,
                     &mut event,
                 );
+                push_verdict::PushVerdict::write(verdict, &mut event);
                 enqueue(
                     &events,
                     json!({

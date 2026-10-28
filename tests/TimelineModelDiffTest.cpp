@@ -186,6 +186,7 @@ private Q_SLOTS:
     void uploadProgressIsMinusOneUntilTheSdkReportsATotal();
     void loggedOutClearsModel();
     void stableRoleData();
+    void roomMentionPresentationNeedsPushHighlight();
     void typingTextFormatsByCount();
     void senderIdentityRolesUseSdkProfileAndSafeAvatarMxc();
     void senderGroupingBoundariesAreDeterministic();
@@ -271,6 +272,37 @@ void TimelineModelDiffTest::init()
                          makeEvent(QStringLiteral("$e1"), QStringLiteral("m1")) };
     m_model->setRoomId(kRoom);
     QCOMPARE(m_model->rowCount(), 2);
+}
+
+void TimelineModelDiffTest::roomMentionPresentationNeedsPushHighlight()
+{
+    const QString chip = m_model->markRoomMention(
+        QStringLiteral("@room"), QStringLiteral("#e13239"),
+        QStringLiteral("#ffffff"));
+    QVERIFY(chip.contains(QStringLiteral("background-color:#e13239")));
+    QVERIFY(chip.contains(QStringLiteral("color:#ffffff")));
+    const QString escaped = m_model->markRoomMention(
+        QStringLiteral("@room"), QStringLiteral("#e13239\" onclick=\"x"),
+        QStringLiteral("#ffffff"));
+    QVERIFY(!escaped.contains(QStringLiteral("onclick")));
+
+    TimelineEvent room = makeEvent(QStringLiteral("$room-mention"),
+                                   QStringLiteral("@room update"));
+    room.mentionsRoom = true;
+    room.pushVerdict = TimelineEvent::PushVerdict::Notify;
+    m_client->mirror.append(room);
+    Q_EMIT m_client->eventAppended(kRoom, room);
+    const QModelIndex row = m_model->index(2);
+    QCOMPARE(m_model->data(row, TimelineModel::MentionsRoomRole).toBool(), true);
+    QCOMPARE(m_model->data(row, TimelineModel::RoomMentionHighlightedRole).toBool(), false);
+    QCOMPARE(m_model->data(row, TimelineModel::PushHighlightedRole).toBool(), false);
+
+    room.pushHighlight = true; // SDK allowed the sender to notify the room.
+    room.roomMentionHighlighted = true;
+    m_client->mirror[2] = room;
+    Q_EMIT m_client->eventReplaced(kRoom, room.eventId, room);
+    QCOMPARE(m_model->data(row, TimelineModel::RoomMentionHighlightedRole).toBool(), true);
+    QCOMPARE(m_model->data(row, TimelineModel::PushHighlightedRole).toBool(), true);
 }
 
 // A gallery arrives as one image row whose media fields name its primary

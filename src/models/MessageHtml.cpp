@@ -1,5 +1,6 @@
 #include "models/MessageHtml.h"
 
+#include <QColor>
 #include <QHash>
 #include <QRegularExpression>
 #include <QSet>
@@ -1595,7 +1596,8 @@ QList<MessageHtml::Segment> MessageHtml::segments(
 }
 
 QString MessageHtml::markRoomMention(const QString &safeHtml,
-                                     const QString &color)
+                                     const QString &color,
+                                     const QString &fill)
 {
     static const QString kNeedle = QStringLiteral("@room");
     if (safeHtml.isEmpty() || color.isEmpty() || !safeHtml.contains(kNeedle))
@@ -1614,8 +1616,13 @@ QString MessageHtml::markRoomMention(const QString &safeHtml,
                  || c == QLatin1Char(':'));
     };
 
+    QColor chip(color);
+    chip.setAlpha(48);
+    const QString chipFill = fill.isEmpty() ? chip.name(QColor::HexArgb) : fill;
     const QString open = QStringLiteral("<span style=\"color:")
-        + color.toHtmlEscaped() + QStringLiteral(";font-weight:600\"><b>");
+        + color.toHtmlEscaped() + QStringLiteral(";background-color:")
+        + chipFill.toHtmlEscaped()
+        + QStringLiteral(";font-weight:600\"><b>");
     const QString close = QStringLiteral("</b></span>");
 
     QString out;

@@ -1907,10 +1907,8 @@ Item {
                        : Math.max(1, parent.width - root.avatarGutterWidth)
                 height: implicitHeight
                 implicitHeight: bubbleContent.implicitHeight + root.bubblePad * 2
-                // No mention wash: mentionHighlight is the danger-family badge
-                // colour, so a tinted row reads as an error. The edge bar below
-                // is the signal. If a wash is ever wanted, add a mentionRowWash
-                // token outside the danger family.
+                // The edge bar below marks a rules-highlighted mention in
+                // both room and bubble layouts.
                 color: root.bubbleMode
                        ? (model.isOwn === true ? AppTheme.ownBubble
                                                : AppTheme.otherBubble)
@@ -1926,8 +1924,8 @@ Item {
                 // bubbleContent gets a matching inset so it never overlaps
                 // text. Rounded at both ends.
                 readonly property bool mentionBarVisible:
-                    !root.bubbleMode
-                    && (model.mentionsMe === true || model.mentionsRoom === true)
+                    model.roomMentionHighlighted === true
+                    || (model.mentionsMe === true && model.pushHighlighted === true)
                 Rectangle {
                     visible: bubble.mentionBarVisible
                     anchors.left: parent.left
@@ -1937,8 +1935,7 @@ Item {
                     anchors.bottomMargin: 1
                     width: 3
                     radius: 1
-                    color: model.mentionsMe === true
-                           ? AppTheme.bolt : AppTheme.borderStrong
+                    color: AppTheme.bolt
                 }
 
                 // Clicking the message content pins the action toolbar (click
@@ -2525,10 +2522,12 @@ Item {
                                 : app.linkPreviews.linkifiedBody(
                                       model.body || "")
                             // @room is plain text (no matrix.to link), so ink
-                            // it explicitly. Gated on the event's
-                            // m.mentions.room, never on the characters alone.
+                            // it explicitly. The pill follows m.mentions.room;
+                            // the row edge separately follows the push rules.
                             if (model.mentionsRoom === true && root.timelineModel)
-                                html = root.timelineModel.markRoomMention(html)
+                                html = root.timelineModel.markRoomMention(
+                                           html, "" + AppTheme.roomMentionBadge,
+                                           "" + AppTheme.mentionBadgeInk)
                             if (root.isEmoteRow)
                                 html = root.withEmoteLead(html)
                             return root.highlightSearchMatches(

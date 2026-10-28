@@ -179,6 +179,8 @@ struct TimelineEvent {
     // by substring matching.
     bool mentionsMe = false;
     bool mentionsRoom = false;
+    // The matched push rule is a room-mention rule, including legacy @room.
+    bool roomMentionHighlighted = false;
 
     // The account's push rules for this event, as the SDK evaluated them (Rust
     // backend). Unknown when none came with it: another backend, a local

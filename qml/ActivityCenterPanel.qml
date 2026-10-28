@@ -435,6 +435,29 @@ Dialog {
                         root.openEntry(listView.currentItem.entryId)
                 }
                 ScrollBar.vertical: ScrollBar { }
+                // The server seed is paged. Older highlights may belong to
+                // rooms outside the live sliding-sync window; every Activity
+                // filter needs a way to reach those pages, not only Threads.
+                footer: Item {
+                    width: listView.width
+                    height: root.activity && root.activity.threadHasMore
+                            ? AppTheme.buttonHeightSm + AppTheme.spacing12 : 0
+                    AppButton {
+                        objectName: "activityLoadOlder"
+                        anchors.centerIn: parent
+                        visible: parent.height > 0
+                        storm: true
+                        kind: "ghost"
+                        size: "sm"
+                        enabled: root.activity && !root.activity.threadPageLoading
+                        text: root.activity && root.activity.threadPageLoading
+                              ? qsTr("Loading…")
+                              : root.activity && root.activity.threadPageFailed
+                                ? qsTr("Retry older activity")
+                                : qsTr("Load older activity")
+                        onClicked: root.activity.loadOlderThreadActivity()
+                    }
+                }
                 delegate: Rectangle {
                     id: row
                     required property int index

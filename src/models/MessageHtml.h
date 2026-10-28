@@ -30,11 +30,9 @@ namespace MessageHtml {
 // #rrggbb strings (see TimelineModel::setMentionStyle); empty means Qt's
 // default link appearance.
 //
-// A mention is ink, not a box. Qt's rich-text engine does not honour
-// `border-radius` or `padding` on inline runs, and `background-color` paints
-// a square full-line-height slab that reads as a selection or search hit.
-// `color`, `font-weight` and `text-decoration` are honoured, so mentions use
-// ink plus weight. Do not re-add `background-color` expecting a pill.
+// User mentions use ink and weight. A highlighted @room also gets a tinted
+// inline surface; Qt rich text does not support rounded corners or padding
+// on that surface, so it is a compact chip rather than a rounded badge.
 //
 // The accent is reserved for a mention of the reader; everyone else and every
 // external URL gets the link ink.
@@ -98,14 +96,15 @@ struct Segment {
 //
 // The caller must:
 //   * call it only when the event's m.mentions.room is true, or anyone could
-//     fake a broadcast ping with plain text;
+//     fake a broadcast pill with plain text;
 //   * pass already-safe rich text; this never escapes or parses attributes.
 //
 // Emits a <span>, not an anchor: there is no profile behind @room.
 // Substitution happens in text runs only: tags are copied verbatim, entities
 // are atomic, matches need word boundaries ("@roomba" is not one), and
 // <code>/<pre> contents are left alone.
-QString markRoomMention(const QString &safeHtml, const QString &color);
+QString markRoomMention(const QString &safeHtml, const QString &color,
+                        const QString &fill = QString());
 
 /// Turn the `mxc:` sources of sanitize()'s inline custom emoji into sources
 /// the caller's media layer can render.

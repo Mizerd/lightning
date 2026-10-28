@@ -1458,6 +1458,12 @@ private Q_SLOTS:
         const QString out =
             MessageHtml::markRoomMention(QStringLiteral("hey @room look"), ink);
         QVERIFY(out.contains(QStringLiteral("color:#ff8800")));
+        QVERIFY(out.contains(QStringLiteral("background-color:#30ff8800")));
+        const QString solid = MessageHtml::markRoomMention(
+            QStringLiteral("@room"), QStringLiteral("#ffffff"),
+            QStringLiteral("#e13239"));
+        QVERIFY(solid.contains(QStringLiteral("background-color:#e13239")));
+        QVERIFY(solid.contains(QStringLiteral("color:#ffffff")));
         QVERIFY(out.contains(QStringLiteral("font-weight:600")));
         QVERIFY(out.contains(QStringLiteral("@room")));
         // A span, never an anchor: there is no profile behind @room.

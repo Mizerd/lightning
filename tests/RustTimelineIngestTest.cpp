@@ -303,6 +303,20 @@ void RustTimelineIngestTest::aLiveAppendCarriesItsPushVerdict()
     QVERIFY(outcome.items.at(0).pushHighlight);
     QCOMPARE(outcome.items.at(1).pushVerdict,
              TimelineEvent::PushVerdict::Unknown);
+
+    // The matched legacy @room rule has no m.mentions in the original event.
+    // Rust marks the body as a room mention only after evaluating that rule.
+    QJsonObject legacy = itemJson(QStringLiteral("legacy"), QStringLiteral("$legacy"),
+                                  QStringLiteral("@room update"));
+    legacy.insert(QStringLiteral("mentions_room"), true);
+    legacy.insert(QStringLiteral("room_mention_highlight"), true);
+    legacy.insert(QStringLiteral("push_notify"), true);
+    legacy.insert(QStringLiteral("push_highlight"), true);
+    QJsonObject legacyPush = diffJson(QStringLiteral("push_back"));
+    legacyPush.insert(QStringLiteral("item"), legacy);
+    outcome = applyTimelineDiff(mirror, legacyPush, kRoom);
+    QVERIFY(outcome.items.first().mentionsRoom);
+    QVERIFY(outcome.items.first().roomMentionHighlighted);
 }
 
 void RustTimelineIngestTest::aResyncAppendCarriesTheBacklogMark()
@@ -1832,6 +1846,7 @@ void RustTimelineIngestTest::aSyncPayloadCarriesBacklogReplyAndEditFacts()
     obj.insert(QStringLiteral("push_notify"), true);
     obj.insert(QStringLiteral("push_highlight"), true);
     obj.insert(QStringLiteral("push_sound"), true);
+    obj.insert(QStringLiteral("room_mention_highlight"), true);
 
     const TimelineEvent e = matrix::rust_timeline::syncEventFromPayload(obj, kRoom);
     QCOMPARE(e.eventId, QStringLiteral("$edit"));
@@ -1839,6 +1854,7 @@ void RustTimelineIngestTest::aSyncPayloadCarriesBacklogReplyAndEditFacts()
     QVERIFY(e.backlog);
     QCOMPARE(e.replyToEventId, QStringLiteral("$parent"));
     QVERIFY(e.isEdit);
+    QVERIFY(e.roomMentionHighlighted);
     QCOMPARE(e.replacesEventId, QStringLiteral("$orig"));
     QCOMPARE(e.editNewBody, QStringLiteral("fixed"));
     QVERIFY(e.editNewBodyAvailable);

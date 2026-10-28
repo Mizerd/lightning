@@ -992,14 +992,19 @@ QString ActivityModel::classify(const TimelineEvent &event, const QString &selfU
     // m.mentions lists exactly those) is told. Its keyword or reply relation
     // was the original's, already classified.
     if (event.isEdit)
-        return event.mentionsMe ? QStringLiteral("mention") : QString();
+        return event.mentionsMe
+                && (event.pushVerdict == TimelineEvent::PushVerdict::Unknown
+                    || event.pushHighlight)
+            ? QStringLiteral("mention") : QString();
     // A reply first: clients that follow intentional mentions also put the
     // replied-to user in m.mentions, which would otherwise make every reply a
     // "mention" and leave the Replies tab empty.
     if ((!event.replyToSenderId.isEmpty() && event.replyToSenderId == selfUserId)
         || (!event.replyToEventId.isEmpty() && ownEventIds.contains(event.replyToEventId)))
         return QStringLiteral("reply");
-    if (event.mentionsMe)
+    if (event.mentionsMe
+        && (event.pushVerdict == TimelineEvent::PushVerdict::Unknown
+            || event.pushHighlight))
         return QStringLiteral("mention");
     // The user's thread: one they replied in, or one rooted at their own
     // message. The latter is not a thread root yet when it is sent, so the
@@ -1016,7 +1021,7 @@ QString ActivityModel::classify(const TimelineEvent &event, const QString &selfU
         // the room, which any member can otherwise skip.
         if (!event.pushHighlight)
             return {};
-        return event.mentionsRoom ? QStringLiteral("room_mention")
+        return event.roomMentionHighlighted ? QStringLiteral("room_mention")
                                   : QStringLiteral("highlight");
     }
     // No verdict (a backend that evaluates no push rules): the bell's legacy
@@ -1104,7 +1109,7 @@ bool ActivityModel::ingest(const TimelineEvent &rawEvent, const QString &roomNam
     Entry e;
     e.id = event.eventId;
     e.kind = kind;
-    e.highlight = isHighlightKind(kind) || event.mentionsMe || event.pushHighlight;
+    e.highlight = isHighlightKind(kind) || event.pushHighlight;
     e.roomId = event.roomId;
     e.roomName = roomName;
     e.roomNamePending = roomName.isEmpty() || roomName == e.roomId;
@@ -1127,6 +1132,9 @@ bool ActivityModel::ingest(const TimelineEvent &rawEvent, const QString &roomNam
 // row per typo fix, with the "* " fallback as its text.
 bool ActivityModel::ingestEdit(const TimelineEvent &event, const QString &roomName)
 {
+    const bool highlightedMention = event.mentionsMe
+        && (event.pushVerdict == TimelineEvent::PushVerdict::Unknown
+            || event.pushHighlight);
     const QString target = event.replacesEventId;
     if (target.isEmpty() || m_redactedIds.contains(target))
         return false;
@@ -1150,7 +1158,7 @@ bool ActivityModel::ingestEdit(const TimelineEvent &event, const QString &roomNa
             roles << PreviewRole << EncryptedRole;
         }
         // Newly mentioned by the edit: the row now says so.
-        if (event.mentionsMe && e.kind != QLatin1String("mention")
+        if (highlightedMention && e.kind != QLatin1String("mention")
             && e.kind != QLatin1String("reply")) {
             e.kind = QStringLiteral("mention");
             e.highlight = true;
@@ -1168,7 +1176,7 @@ bool ActivityModel::ingestEdit(const TimelineEvent &event, const QString &roomNa
         }
         return false;
     }
-    if (!event.mentionsMe || isIgnored(event.sender))
+    if (!highlightedMention || isIgnored(event.sender))
         return false;
     // Newly mentioned in a message this list never held: one row, for the
     // ORIGINAL message, so later edits update it instead of adding more.
@@ -1249,8 +1257,7 @@ void ActivityModel::eventDecrypted(const QString &roomId, const TimelineEvent &d
         const bool kindMoved = !kind.isEmpty() && kind != e.kind;
         if (kindMoved)
             e.kind = kind;
-        e.highlight = e.highlight || isHighlightKind(kind) || event.mentionsMe
-            || event.pushHighlight;
+        e.highlight = e.highlight || isHighlightKind(kind) || event.pushHighlight;
         e.preview = previewOf(event);
         e.encrypted = event.undecryptable;
         if (e.threadRootId.isEmpty())

@@ -1794,6 +1794,8 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
     case ThreadUnreadRole:          return e.threadUnread;
     case MentionsMeRole:            return e.mentionsMe;
     case MentionsRoomRole:          return e.mentionsRoom;
+    case RoomMentionHighlightedRole: return e.roomMentionHighlighted;
+    case PushHighlightedRole:        return e.pushHighlight;
     case IsEncryptedRole:        return e.isEncrypted;
     case IsDecryptedRole:        return e.isDecrypted;
     case UndecryptableRole:      return e.undecryptable;
@@ -1965,6 +1967,8 @@ QHash<int, QByteArray> TimelineModel::roleNames() const
         { ThreadUnreadRole,          "threadUnread" },
         { MentionsMeRole,            "mentionsMe" },
         { MentionsRoomRole,          "mentionsRoom" },
+        { RoomMentionHighlightedRole, "roomMentionHighlighted" },
+        { PushHighlightedRole,        "pushHighlighted" },
         { IsEncryptedRole,         "isEncrypted" },
         { IsDecryptedRole,         "isDecrypted" },
         { UndecryptableRole,       "undecryptable" },
@@ -2111,14 +2115,17 @@ QVariantList TimelineModel::mediaEntries() const
     return out;
 }
 
-// The accent, not a colour of its own: the accent ink is spent on mentions
-// that concern the reader, and @room concerns every reader. Element paints a
-// red pill, but Qt's rich-text engine supports neither border-radius nor
-// padding on inline runs (see MessageHtml.h), and red ink alone reads as an
-// error.
-QString TimelineModel::markRoomMention(const QString &safeHtml) const
+// @room uses the same mention ink as a direct mention. The sanitizer's safe
+// output gets a compact tinted chip. The QML caller uses raw mention metadata
+// for the chip and the push verdict for the row highlight.
+QString TimelineModel::markRoomMention(const QString &safeHtml,
+                                       const QString &fill,
+                                       const QString &ink) const
 {
-    return MessageHtml::markRoomMention(safeHtml, m_mentionAccentColor);
+    static const QRegularExpression hexColor(QStringLiteral("^#[0-9a-fA-F]{6}$"));
+    if (!hexColor.match(fill).hasMatch() || !hexColor.match(ink).hasMatch())
+        return MessageHtml::markRoomMention(safeHtml, m_mentionAccentColor);
+    return MessageHtml::markRoomMention(safeHtml, ink, fill);
 }
 
 void TimelineModel::setMentionStyle(const QString &accentColor,

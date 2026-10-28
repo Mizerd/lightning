@@ -72,11 +72,16 @@ QtObject {
         property int unseenCount: 1
         property string filter: "all"
         property bool historyUnavailable: false
+        property bool threadHasMore: true
+        property bool threadPageLoading: false
+        property bool threadPageFailed: false
+        property int olderPageCalls: 0
         property var keywords: []
         property string lastOpened: ""
         property int openCalls: 0
         function open(id) { lastOpened = id; openCalls += 1 }
         function markAllSeen() {}
+        function loadOlderThreadActivity() { olderPageCalls += 1 }
         Component.onCompleted: {
             var now = Date.now()
             function add(id, kind, key, seen) {
@@ -189,6 +194,18 @@ private Q_SLOTS:
         qputenv("XDG_CONFIG_HOME", m_configHome.path().toUtf8());
         QCoreApplication::setOrganizationName(QStringLiteral("MatrixClientTests"));
         QCoreApplication::setApplicationName(QStringLiteral("activity-keyboard-test"));
+    }
+
+    void olderHighlightsCanBeLoadedFromTheMainActivityList()
+    {
+        Fixture f;
+        QVERIFY(make(f));
+        QObject *button = f.panel->findChild<QObject *>(QStringLiteral("activityLoadOlder"));
+        QVERIFY(button);
+        QVERIFY(button->property("visible").toBool());
+        QVERIFY(QMetaObject::invokeMethod(button, "clicked"));
+        QCOMPARE(f.activity->property("olderPageCalls").toInt(), 1);
+        QVERIFY2(f.warnings.isEmpty(), qPrintable(f.warnings.join('\n')));
     }
 
     void dialogKeysNavigateCloseAndStayInsideTheModal()

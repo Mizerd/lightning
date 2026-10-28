@@ -198,6 +198,8 @@ TimelineEvent syncEventFromPayload(const QJsonObject &obj, const QString &roomId
     // undecryptable event too.
     e.mentionsMe = obj.value(QStringLiteral("mentions_me")).toBool(false);
     e.mentionsRoom = obj.value(QStringLiteral("mentions_room")).toBool(false);
+    e.roomMentionHighlighted =
+        obj.value(QStringLiteral("room_mention_highlight")).toBool(false);
     readPushVerdict(obj, e);
     e.threadRootId = obj.value(QStringLiteral("thread_root_id")).toString();
     e.replyToEventId = obj.value(QStringLiteral("in_reply_to")).toString();
@@ -394,6 +396,8 @@ TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
     e.threadUnread = item.value(QStringLiteral("thread_unread")).toBool(false);
     e.mentionsMe = item.value(QStringLiteral("mentions_me")).toBool(false);
     e.mentionsRoom = item.value(QStringLiteral("mentions_room")).toBool(false);
+    e.roomMentionHighlighted =
+        item.value(QStringLiteral("room_mention_highlight")).toBool(false);
     readPushVerdict(item, e);
     // Set by the Rust diff loop on appends that re-fill a reset timeline.
     e.backlog = item.value(QStringLiteral("backlog")).toBool(false);

@@ -21,10 +21,7 @@ use matrix_sdk::{
     },
     Room,
 };
-use matrix_sdk_ui::{
-    eyeball_im::VectorDiff,
-    timeline::{EventTimelineItem, TimelineItem},
-};
+use matrix_sdk_ui::{eyeball_im::VectorDiff, timeline::TimelineItem};
 use serde_json::value::RawValue as RawJsonValue;
 
 /// What the rules say about one event.
@@ -58,6 +55,13 @@ impl PushVerdict {
             object.insert("push_notify".to_owned(), verdict.notify.into());
             object.insert("push_highlight".to_owned(), verdict.highlight.into());
             object.insert("push_sound".to_owned(), verdict.sound.into());
+        }
+    }
+
+    pub(crate) fn write_room_mention(matched: bool, payload: &mut serde_json::Value) {
+        if matched {
+            payload["mentions_room"] = true.into();
+            payload["room_mention_highlight"] = true.into();
         }
     }
 }
@@ -123,6 +127,40 @@ const OWN_NAME_REFRESH: std::time::Duration = std::time::Duration::from_secs(30 
 const OWN_NAME_RETRY: std::time::Duration = std::time::Duration::from_secs(2 * 60);
 
 impl SyncVerdicts {
+    /// Mark a room mention only when the account's matching rule is one of
+    /// the modern/legacy room-mention rules. A keyword can also highlight an
+    /// event containing @room, so the highlight bit alone cannot name its
+    /// reason. The rule checks sender notification power in this context.
+    pub(crate) async fn room_mention_rule_matched(
+        &self,
+        room: &Room,
+        raw: &RawJsonValue,
+        verdict: Option<PushVerdict>,
+    ) -> bool {
+        if !verdict.is_some_and(|verdict| verdict.highlight) {
+            return false;
+        }
+        let Ok(power_levels) = room.power_levels().await else { return false };
+        let sender = serde_json::from_str::<serde_json::Value>(raw.get())
+            .ok()
+            .and_then(|event| event["sender"].as_str().map(str::to_owned))
+            .and_then(|sender| UserId::parse(sender).ok());
+        let Some(sender) = sender else { return false };
+        if !power_levels.user_can_trigger_room_notification(&sender) {
+            return false;
+        }
+        let Some(context) = fallback_room_ctx(
+            room.room_id(), room.own_user_id(), room.active_members_count(),
+            self.own_display_name(room).await, Some(power_levels.into()),
+        ) else { return false };
+        let Ok(rules) = room.client().account().push_rules().await else { return false };
+        let event = Raw::<AnySyncTimelineEvent>::from_json(raw.to_owned());
+        rules.get_match(&event, &context).await.is_some_and(|rule| {
+            matches!(rule.rule_id(), ".m.rule.is_room_mention" | ".m.rule.roomnotif")
+                && rule.actions().iter().any(Action::is_highlight)
+        })
+    }
+
     /// `event` is the event as the handler received it (decrypted when the
     /// SDK decrypted it); it is read only when the SDK had no push context.
     pub(crate) async fn verdict(
@@ -312,6 +350,30 @@ pub(crate) fn live_append_slots<'d, 'v, T: Clone>(
     }
 }
 
+/// Every event-bearing diff slot, including history and in-place changes.
+/// These rows need push verdicts for presentation even though only live
+/// appends can create a notification or Activity entry.
+pub(crate) fn event_slots<'d, 'v, T>(
+    diff: &'d VectorDiff<T>,
+    payload: &'v mut serde_json::Value,
+) -> Vec<(&'d T, &'v mut serde_json::Value)> {
+    match diff {
+        VectorDiff::Append { values } | VectorDiff::Reset { values } => payload
+            .get_mut("items")
+            .and_then(|items| items.as_array_mut())
+            .map(|slots| values.iter().zip(slots.iter_mut()).collect())
+            .unwrap_or_default(),
+        VectorDiff::PushFront { value }
+        | VectorDiff::PushBack { value }
+        | VectorDiff::Insert { value, .. }
+        | VectorDiff::Set { value, .. } => payload
+            .get_mut("item")
+            .map(|slot| vec![(value, slot)])
+            .unwrap_or_default(),
+        _ => Vec::new(),
+    }
+}
+
 /// What the backlog mark needs to know about one timeline item.
 pub(crate) struct ItemFacts {
     pub(crate) event_id: String,
@@ -430,26 +492,36 @@ impl BacklogMarker {
     }
 }
 
-/// Verdict for a live timeline item. `None` for a local echo, which has no
-/// server JSON yet.
-pub(crate) async fn for_timeline_item(
-    context: &PushContext,
-    item: &EventTimelineItem,
+/// Live timeline equivalent of the sync handler's verdict: a room without
+/// our member has no SDK push context, but its stored room state can still
+/// supply the same fallback context used for closed rooms.
+pub(crate) async fn for_timeline_json(
+    room: &Room,
+    context: Option<&PushContext>,
+    fallback: &SyncVerdicts,
+    raw: &RawJsonValue,
 ) -> Option<PushVerdict> {
-    let raw = item.original_json()?;
-    Some(PushVerdict::from_actions(&context.for_event(raw).await))
+    match context {
+        Some(context) => {
+            let event = Raw::<AnySyncTimelineEvent>::from_json(raw.to_owned());
+            Some(PushVerdict::from_actions(&context.for_event(&event).await))
+        }
+        None => fallback.without_sdk_context(room, raw).await,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use matrix_sdk::ruma::{
         push::{
-            Action, EventMatchConditionData, HighlightTweakValue, NewConditionalPushRule,
+            Action, ConditionalPushRule, ConditionalPushRuleInit,
+            EventMatchConditionData, HighlightTweakValue, NewConditionalPushRule,
             NewPatternedPushRule, NewPushRule, NewSimplePushRule, PushCondition,
-            PushConditionRoomCtx, RuleKind, Ruleset, SoundTweakValue, Tweak,
+            PushConditionRoomCtx, RuleKind, Ruleset,
+            SenderNotificationPermissionConditionData, SoundTweakValue, Tweak,
         },
         serde::Raw,
-        uint, OwnedRoomId, OwnedUserId, RoomId, UserId,
+        int, uint, OwnedRoomId, OwnedUserId, RoomId, UserId,
     };
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -457,7 +529,8 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        fallback_room_ctx, live_append_slots, BacklogMarker, ItemFacts, PushConditionPowerLevelsCtx,
+        event_slots, fallback_room_ctx, live_append_slots, BacklogMarker, ItemFacts,
+        PushConditionPowerLevelsCtx,
         PushVerdict, SyncVerdicts,
     };
 
@@ -541,6 +614,23 @@ mod tests {
         assert_eq!(payload["push_sound"], json!(true));
     }
 
+    #[test]
+    fn history_and_set_diffs_have_verdict_slots_without_becoming_live_appends() {
+        let reset = VectorDiff::Reset { values: Vector::from(vec![1, 2]) };
+        let mut payload = json!({ "items": [{ "id": 1 }, { "id": 2 }] });
+        assert!(live_append_slots(&reset, &mut payload).is_empty());
+        assert_eq!(event_slots(&reset, &mut payload).len(), 2);
+
+        let front = VectorDiff::PushFront { value: 3 };
+        let mut payload = json!({ "item": { "id": 3 } });
+        assert!(live_append_slots(&front, &mut payload).is_empty());
+        assert_eq!(event_slots(&front, &mut payload).len(), 1);
+
+        let changed = VectorDiff::Set { index: 0, value: 4 };
+        let mut payload = json!({ "item": { "id": 4 } });
+        assert_eq!(event_slots(&changed, &mut payload).len(), 1);
+    }
+
     // "Notify" and "Loud" on the rules page differ ONLY by the sound tweak
     // (pushrules.rs `actions_for`). Before the sound bit, both mapped to the
     // same verdict, so this device chimed for both or neither.
@@ -584,6 +674,25 @@ mod tests {
             verdict(&rules, &mention).await,
             PushVerdict { notify: true, highlight: true, sound: true }
         );
+    }
+
+    #[tokio::test]
+    async fn a_room_mention_needs_the_senders_notification_power() {
+        let rules = Ruleset::server_default(&me());
+        let room_mention = message(json!({
+            "msgtype": "m.text", "body": "@room update",
+            "m.mentions": { "room": true },
+        }));
+        let low = fallback_room_ctx(&room(), &me(), 3, "Me".to_owned(),
+                                    Some(power_levels())).unwrap();
+        let quiet = PushVerdict::from_actions(rules.get_actions(&room_mention, &low).await);
+        assert!(!quiet.highlight);
+
+        let mut levels = power_levels();
+        levels.users.insert(UserId::parse("@them:example.org").unwrap(), int!(100));
+        let high = fallback_room_ctx(&room(), &me(), 3, "Me".to_owned(), Some(levels)).unwrap();
+        let allowed = PushVerdict::from_actions(rules.get_actions(&room_mention, &high).await);
+        assert!(allowed.highlight);
     }
 
     fn keyword_rule(rules: &mut Ruleset, actions: Vec<Action>) {
@@ -900,6 +1009,24 @@ mod tests {
             vec![Action::Notify, Action::SetTweak(Tweak::Highlight(HighlightTweakValue::Yes))],
         );
         display_name_rule(&mut rules);
+        #[allow(deprecated)]
+        rules.override_.insert(ConditionalPushRule::from(ConditionalPushRuleInit {
+            actions: vec![
+                Action::Notify,
+                Action::SetTweak(Tweak::Highlight(HighlightTweakValue::Yes)),
+            ],
+            default: true,
+            enabled: true,
+            rule_id: ".m.rule.roomnotif".into(),
+            conditions: vec![
+                PushCondition::EventMatch(EventMatchConditionData::new(
+                    "content.body".into(), "*@room*".into(),
+                )),
+                PushCondition::SenderNotificationPermission(
+                    SenderNotificationPermissionConditionData::new("room".into()),
+                ),
+            ],
+        }));
         let full = room_id!("!full:example.org");
         let bare = room_id!("!bare:example.org");
         let mut response = v5::Response::new("pos-1".to_owned());
@@ -950,6 +1077,41 @@ mod tests {
             "the stored name, not the localpart"
         );
         assert_eq!(highlight(verdicts.verdict(&room, &[], &event("hello")).await), Some(false));
+        let room_event = |sender: &str| to_raw_value(&json!({
+            "type": "m.room.message", "event_id": "$room:example.org",
+            "sender": sender, "origin_server_ts": 1_700_000_000_001u64,
+            "content": { "msgtype": "m.text", "body": "@room update",
+                         "m.mentions": { "room": true } },
+        })).unwrap();
+        let allowed_room = room_event("@alice:example.org");
+        let denied_room = room_event("@bob:example.org");
+        let allowed = verdicts.without_sdk_context(&room, &allowed_room).await;
+        let denied = verdicts.without_sdk_context(&room, &denied_room).await;
+        assert!(verdicts.room_mention_rule_matched(&room, &allowed_room, allowed).await);
+        assert!(!verdicts.room_mention_rule_matched(&room, &denied_room, denied).await);
+        let legacy = event("please @room update");
+        let legacy_verdict = verdicts.without_sdk_context(&room, &legacy).await;
+        let legacy_matched = verdicts.room_mention_rule_matched(
+            &room, &legacy, legacy_verdict,
+        ).await;
+        assert!(legacy_matched);
+        let mut payload = json!({ "mentions_room": false });
+        PushVerdict::write_room_mention(legacy_matched, &mut payload);
+        assert_eq!(payload["mentions_room"], true);
+        assert_eq!(payload["room_mention_highlight"], true);
+        // The open-room timeline used to drop its verdict here while the
+        // sync handler suppressed the duplicate event. Activity then missed
+        // these two highlights, which have no m.mentions flags.
+        let keyword_event = event("saw a BANANA");
+        let name_event = event("ping Rokas please");
+        assert_eq!(
+            highlight(super::for_timeline_json(&room, None, &verdicts, &keyword_event).await),
+            Some(true)
+        );
+        assert_eq!(
+            highlight(super::for_timeline_json(&room, None, &verdicts, &name_event).await),
+            Some(true)
+        );
         // The late-decryption entry (L4) asks the same fallback, and it does
         // so even for a room remembered as having our member: with no SDK
         // context there is no empty action list to call quiet. Through
