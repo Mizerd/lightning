@@ -1822,6 +1822,27 @@ private Q_SLOTS:
                  QStringLiteral("current"));
     }
 
+    void documentPortalUrlsAreClassifiedWithoutHostPathGuessing()
+    {
+#ifdef Q_OS_LINUX
+        const QUrl exported(QStringLiteral(
+            "file:///run/user/1000/doc/abcdef/photo%20one.png"));
+        QVERIFY(AttachmentQueueModel::isDocumentPortalUrl(exported));
+        AttachmentQueueModel model;
+        QList<QUrl> resolved;
+        AttachmentQueueModel::resolveDroppedUrls(
+            {exported}, {}, &model,
+            [&](const QList<QUrl> &urls) { resolved = urls; });
+        QCOMPARE(resolved, (QList<QUrl>{exported}));
+        QVERIFY(!AttachmentQueueModel::isDocumentPortalUrl(QUrl(
+            QStringLiteral("file:///run/user/1000/doc/../private/photo.png"))));
+#endif
+        QVERIFY(!AttachmentQueueModel::isDocumentPortalUrl(QUrl(
+            QStringLiteral("file:///home/user/photo.png"))));
+        QVERIFY(!AttachmentQueueModel::isDocumentPortalUrl(QUrl(
+            QStringLiteral("https://example.org/run/user/1000/doc/abc"))));
+    }
+
     // A Flatpak build is handed the HOST path, which does not exist inside the
     // sandbox; the file is reachable through the FileTransfer portal key the
     // file manager put beside it. Before the fix the key was never read and the
@@ -1860,14 +1881,30 @@ private Q_SLOTS:
                      .toLocalFile(),
                  exported);
 
-        // A readable drop never asks the portal, key or not.
+        // A key takes precedence even if the URL also happens to be readable.
         composer.attachments()->clearAll();
         const QString readable = writeFile(dir, QStringLiteral("here.bin"),
                                            QByteArray(8, 'h'));
         composer.addDroppedAttachments({QUrl::fromLocalFile(readable)},
                                        QStringLiteral("key-2"));
-        QCOMPARE(askedKeys.size(), 1);
+        QCOMPARE(askedKeys, (QStringList{QStringLiteral("key-1"),
+                                        QStringLiteral("key-2")}));
         QCOMPARE(composer.attachments()->rowCount(), 1);
+        QCOMPARE(composer.attachments()
+                     ->data(composer.attachments()->index(0, 0),
+                            AttachmentQueueModel::LocalUrlRole)
+                     .toUrl().toLocalFile(), exported);
+
+        // With no key, an already exported document URL and a plain file URL
+        // both take the direct path. No D-Bus request is made.
+        composer.attachments()->clearAll();
+        composer.addDroppedAttachments({QUrl::fromLocalFile(readable)}, {});
+        QCOMPARE(askedKeys.size(), 2);
+        QCOMPARE(composer.attachments()->rowCount(), 1);
+        QCOMPARE(composer.attachments()
+                     ->data(composer.attachments()->index(0, 0),
+                            AttachmentQueueModel::LocalUrlRole)
+                     .toUrl().toLocalFile(), readable);
     }
 
     // The portal failing falls back to the dropped URLs, so the user still

@@ -2282,6 +2282,55 @@ private slots:
         QCOMPARE(m_warnings, QStringList{});
     }
 
+    void aDropOnTheTimelineUsesThePortalKey()
+    {
+        auto *area = item("chatDropArea");
+        QVERIFY(area != nullptr);
+        const QString previousRoom = m_controller->currentRoomId();
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        QTest::qWait(30);
+        AttachmentQueueModel *queue = m_controller->composer()->attachments();
+        queue->clearAll();
+        const auto restore = qScopeGuard([&] {
+            queue->clearAll();
+            AttachmentQueueModel::setPortalRetrieveHook({});
+            m_controller->setCurrentRoomId(previousRoom);
+        });
+        QTemporaryDir dir;
+        const QString exported = writeFile(dir, QStringLiteral("timeline.bin"),
+                                           QByteArray(16, 't'));
+        QVERIFY(!exported.isEmpty());
+        QString askedKey;
+        AttachmentQueueModel::setPortalRetrieveHook(
+            [&](const QString &key,
+                std::function<void(bool, const QStringList &)> done) {
+                askedKey = key;
+                done(true, {exported});
+            });
+        QMimeData mime;
+        mime.setData(QStringLiteral("text/uri-list"),
+                     QUrl::fromLocalFile(dir.filePath(
+                         QStringLiteral("host/timeline.bin"))).toEncoded()
+                         + QByteArrayLiteral("\r\n"));
+        mime.setData(QStringLiteral("application/vnd.portal.filetransfer"),
+                     QByteArray("timeline-key\0", 13));
+        const QPoint at = area->mapToScene(QPointF(area->width() / 2.0,
+                                                   area->height() / 2.0))
+                              .toPoint();
+        QDragEnterEvent enter(at, Qt::CopyAction, &mime, Qt::LeftButton,
+                              Qt::NoModifier);
+        QCoreApplication::sendEvent(m_window, &enter);
+        QDropEvent dropped(QPointF(at), Qt::CopyAction, &mime, Qt::LeftButton,
+                           Qt::NoModifier);
+        QCoreApplication::sendEvent(m_window, &dropped);
+        QCoreApplication::processEvents();
+        QCOMPARE(askedKey, QStringLiteral("timeline-key"));
+        QCOMPARE(queue->rowCount(), 1);
+        QCOMPARE(queue->data(queue->index(0, 0),
+                             AttachmentQueueModel::LocalUrlRole)
+                     .toUrl().toLocalFile(), exported);
+    }
+
     // ---- C37 keyboard fixes. Each fails on the unfixed composer, and each
     // runs against BOTH editors: the markdown and the rich editor carry
     // separate copies of every key handler. ----

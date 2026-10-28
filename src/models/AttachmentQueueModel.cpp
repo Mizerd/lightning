@@ -23,18 +23,20 @@
 #include <QMimeDatabase>
 #include <QLoggingCategory>
 #include <QPointer>
+#include <QRegularExpression>
 #include <QSize>
 #include <QSysInfo>
 #include <QTemporaryDir>
 #include <QTimer>
 
-#ifdef HAVE_QT_DBUS
+#if defined(HAVE_QT_DBUS) && defined(Q_OS_LINUX)
 #include <QDBusConnection>
 #include <QDBusMessage>
 #include <QDBusPendingCallWatcher>
 #include <QDBusPendingReply>
 #endif
 
+#include <algorithm>
 #include <memory>
 #include <cmath>
 #include <utility>
@@ -151,7 +153,7 @@ void retrieveFromPortal(
         hook(key, done);
         return;
     }
-#ifdef HAVE_QT_DBUS
+#if defined(HAVE_QT_DBUS) && defined(Q_OS_LINUX)
     QDBusConnection bus = QDBusConnection::sessionBus();
     if (!bus.isConnected()) {
         qCWarning(lcAttach) << "drop portal unavailable reason=no_session_bus";
@@ -253,6 +255,20 @@ QString AttachmentQueueModel::portalKeyFromMimeData(const QMimeData *mime)
     return {};
 }
 
+bool AttachmentQueueModel::isDocumentPortalUrl(const QUrl &url)
+{
+#if defined(Q_OS_LINUX)
+    if (!url.isLocalFile())
+        return false;
+    static const QRegularExpression mount(
+        QStringLiteral("^/run/user/[0-9]+/doc/[^/]+(?:/|$)"));
+    return mount.match(QDir::cleanPath(url.toLocalFile())).hasMatch();
+#else
+    Q_UNUSED(url)
+    return false;
+#endif
+}
+
 QUrl AttachmentQueueModel::normalizeDroppedUrl(const QUrl &url)
 {
     if (!url.isLocalFile())
@@ -320,7 +336,6 @@ void AttachmentQueueModel::resolveDroppedUrls(
     const QString key = portalKeyFrom(portalKey.toUtf8());
     QList<QUrl> normalized;
     normalized.reserve(urls.size());
-    bool unreadable = false;
     for (const QUrl &url : urls) {
         const QUrl local = normalizeDroppedUrl(url);
         if (local != url) {
@@ -332,17 +347,18 @@ void AttachmentQueueModel::resolveDroppedUrls(
                              << "hostFolded=" << hostFolded
                              << "literalHashOrQuery=" << literalRestored;
         }
-        if (local.isLocalFile()
-            && !QFileInfo(local.toLocalFile()).isReadable())
-            unreadable = true;
         normalized.append(local);
     }
-    // The ordinary case, sandboxed or not: the dropped paths are readable here
-    // and the portal is never asked.
-    if (key.isEmpty() || (!unreadable && !normalized.isEmpty())) {
-        if (unreadable)
-            qCWarning(lcAttach) << "drop unreadable portal_key=none sandbox="
-                                << qPrintable(sandboxKind());
+    // A key is authoritative even when a host path happens to be readable:
+    // the source explicitly offered the portal's exported files. With no key,
+    // document-portal URLs and ordinary file URLs follow the same direct path.
+    if (key.isEmpty()) {
+        const bool documentPortalPath = std::any_of(
+            normalized.cbegin(), normalized.cend(),
+            [](const QUrl &url) { return isDocumentPortalUrl(url); });
+        qCDebug(lcAttach) << "drop resolved via="
+                          << (documentPortalPath ? "document_path" : "file_url")
+                          << "count=" << normalized.size();
         done(normalized);
         return;
     }

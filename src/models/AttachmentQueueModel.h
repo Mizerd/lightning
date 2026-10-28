@@ -157,6 +157,9 @@ public:
     // on a trailing NUL; it is stripped.
     static QString portalKeyFrom(const QByteArray &raw);
     static QString portalKeyFromMimeData(const QMimeData *mime);
+    // True for a file URL inside the document portal mount. Such URLs can be
+    // used directly when the drop has no FileTransfer key.
+    static bool isDocumentPortalUrl(const QUrl &url);
     // A dropped URL as this process can open it. "file://localhost/x" (and on
     // Unix "file://<this host>/x") is the local path /x, but QUrl turns it into
     // the UNC-style "//localhost/x", which never exists. An unescaped '#' or '?'
