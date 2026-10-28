@@ -140,28 +140,30 @@ void SavedMessagesController::setClient(MatrixClient *client)
             failWrite(tr("Saved messages data is unavailable."));
             return;
         }
-        // The operation's local removals win over the server snapshot. All
-        // other remote references survive, including another device's saves.
-        QSet<QString> locallyRemoved;
+        // Apply only THIS operation's change to the fresh server list: what
+        // it added (in m_refs, not in m_beforeWrite) and what it removed (the
+        // reverse). Re-adding the whole local copy would resurrect an item
+        // another device removed after our last read.
+        QSet<QString> before;
         QSet<QString> desired;
+        for (const Ref &ref : std::as_const(m_beforeWrite))
+            before.insert(key(ref.roomId, ref.eventId));
         for (const Ref &ref : std::as_const(m_refs))
             desired.insert(key(ref.roomId, ref.eventId));
-        for (const Ref &ref : std::as_const(m_beforeWrite)) {
-            const QString id = key(ref.roomId, ref.eventId);
-            if (!desired.contains(id)) locallyRemoved.insert(id);
-        }
         QVector<Ref> merged;
         QSet<QString> seen;
         for (const Ref &ref : std::as_const(remote)) {
             const QString id = key(ref.roomId, ref.eventId);
-            if (!locallyRemoved.contains(id) && !seen.contains(id)) {
+            const bool locallyRemoved = before.contains(id) && !desired.contains(id);
+            if (!locallyRemoved && !seen.contains(id)) {
                 merged.append(ref);
                 seen.insert(id);
             }
         }
         for (const Ref &ref : std::as_const(m_refs)) {
             const QString id = key(ref.roomId, ref.eventId);
-            if (!seen.contains(id)) {
+            const bool locallyAdded = !before.contains(id);
+            if (locallyAdded && !seen.contains(id)) {
                 merged.append(ref);
                 seen.insert(id);
             }
@@ -288,7 +290,8 @@ void SavedMessagesController::receive(const QVariantMap &content, bool present)
 bool SavedMessagesController::parseRefs(const QVariantMap &content, bool present,
                                         QVector<Ref> &next) const
 {
-    if (present && content.isEmpty()) return false;
+    // An existing but empty {} (another client clearing it) is an empty
+    // list; no write can be built from it without the strict shape below.
     const QVariantList raw = content.value(QStringLiteral("entries")).toList();
     if (!content.isEmpty()
         && (content.size() != 2

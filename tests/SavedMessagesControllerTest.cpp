@@ -97,6 +97,50 @@ private Q_SLOTS:
         QCOMPARE(saved.count(), 3);
     }
 
+    // Another device removed $gone after our last read; our save of $y must
+    // not write $gone back (only this operation's own change is applied).
+    void aSaveDoesNotResurrectAnItemAnotherDeviceRemoved()
+    {
+        SavedFakeClient client;
+        SavedMessagesController saved;
+        saved.setClient(&client);
+        const auto ref = [](const QString &event) {
+            return QVariantMap{{QStringLiteral("room_id"), QStringLiteral("!room:example.org")},
+                {QStringLiteral("event_id"), event},
+                {QStringLiteral("thread_root_id"), QString()},
+                {QStringLiteral("saved_at_ms"), 42}};
+        };
+        const auto content = [](const QVariantList &entries) {
+            return QVariantMap{{QStringLiteral("version"), 1},
+                               {QStringLiteral("entries"), entries}};
+        };
+        Q_EMIT client.accountPrefRead(client.lastType, true,
+            content({ref(QStringLiteral("$keep")), ref(QStringLiteral("$gone"))}));
+        QCOMPARE(saved.count(), 2);
+        saved.save(QStringLiteral("!room:example.org"), QStringLiteral("$y"), {});
+        // The fresh read before the write: $gone was removed elsewhere.
+        Q_EMIT client.accountPrefRead(client.lastType, true,
+            content({ref(QStringLiteral("$keep"))}));
+        QStringList written;
+        for (const QVariant &item : client.lastWrite.value(QStringLiteral("entries")).toList())
+            written << item.toMap().value(QStringLiteral("event_id")).toString();
+        written.sort();
+        QCOMPARE(written, (QStringList{QStringLiteral("$keep"), QStringLiteral("$y")}));
+    }
+
+    // Another client clearing the data to {} is an empty list, not a lockout.
+    void anEmptyObjectIsAnEmptyList()
+    {
+        SavedFakeClient client;
+        SavedMessagesController saved;
+        saved.setClient(&client);
+        Q_EMIT client.accountPrefRead(client.lastType, true, QVariantMap{});
+        QCOMPARE(saved.count(), 0);
+        saved.save(QStringLiteral("!room:example.org"), QStringLiteral("$y"), {});
+        Q_EMIT client.accountPrefRead(client.lastType, true, QVariantMap{});
+        QCOMPARE(client.lastWrite.value(QStringLiteral("entries")).toList().size(), 1);
+    }
+
     void invalidFreshServerListIsNeverOverwritten()
     {
         SavedFakeClient client;
