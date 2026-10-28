@@ -2201,6 +2201,7 @@ dependencies = [
  "once_cell",
  "prost 0.12.6",
  "reqwest",
+ "rustls-native-certs",
  "rusqlite",
  "serde",
  "serde_json",

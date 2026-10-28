@@ -1020,6 +1020,28 @@ check(_preflight_calls,
 
 # --- 2. the build refuses to produce an engine-less binary ------------------
 configure_src = _strip_shell_comments(_read("scripts", "configure-build.sh"))
+_loopback_cmake = _read("..", "CMakeLists.txt")
+check('option(LIGHTNING_TEST_LOOPBACK_FOCI' in _loopback_cmake
+      and re.search(r'option\(LIGHTNING_TEST_LOOPBACK_FOCI[\s\S]*? OFF\)', _loopback_cmake),
+      "loopback foci are disabled by default in CMake")
+check('NOT LIGHTNING_ARTIFACT_KIND STREQUAL "source"' in _loopback_cmake
+      and 'CMAKE_BUILD_TYPE STREQUAL "Release"' in _loopback_cmake
+      and 'LIGHTNING_TEST_LOOPBACK_FOCI requires a non-Release source build' in _loopback_cmake,
+      "CMake refuses loopback foci in package configurations")
+check('list(APPEND LIGHTNING_CARGO_FEATURE_ARGS --features test-loopback-foci)' in _loopback_cmake
+      and 'target_compile_definitions(lightning-matrix PRIVATE LIGHTNING_TEST_LOOPBACK_FOCI=1)' in _loopback_cmake,
+      "test option gates both the Rust feature and C++ build marker")
+check('-DLIGHTNING_TEST_LOOPBACK_FOCI=OFF' in configure_src
+      and 'LIGHTNING_TEST_LOOPBACK_FOCI is ON in the packaging build cache' in configure_src
+      and 'LIGHTNING_TEST_LOOPBACK_FOCI must be OFF for packaging' in configure_src,
+      "Linux packaging forces and asserts loopback foci OFF")
+for _path in [("scripts", "build-windows.sh"), ("scripts", "build-macos.sh"),
+              ("packaging", "rpm", "lightning-copr.spec.in"),
+              ("packaging", "flatpak", "org.lightning_matrix.Lightning.yaml.in")]:
+    _src = _read(*_path)
+    _expected = 2 if _path[1] == "rpm" else 1
+    check(_src.count('-DLIGHTNING_TEST_LOOPBACK_FOCI=OFF') == _expected,
+          f"{'/'.join(_path)} configures loopback foci OFF on every path")
 check("-DLIGHTNING_ENABLE_WEBRTC=ON" in configure_src,
       "configure-build.sh requests the call media engine explicitly")
 check("--call-media-status" in configure_src,

@@ -124,6 +124,17 @@ set(CMAKE_AUTORCC ON)
 
 option(ENABLE_RUST_SDK_BACKEND
     "Build the Matrix Rust SDK backend (requires cargo in PATH)" OFF)
+option(LIGHTNING_TEST_LOOPBACK_FOCI
+    "Local MatrixRTC rig only: allow HTTPS/WSS foci resolving to loopback" OFF)
+if(LIGHTNING_TEST_LOOPBACK_FOCI)
+    if(NOT ENABLE_RUST_SDK_BACKEND
+            OR NOT LIGHTNING_ARTIFACT_KIND STREQUAL "source"
+            OR CMAKE_BUILD_TYPE STREQUAL "Release")
+        message(FATAL_ERROR
+            "LIGHTNING_TEST_LOOPBACK_FOCI requires a non-Release source build with ENABLE_RUST_SDK_BACKEND=ON; packages may not enable it")
+    endif()
+    message(WARNING "TEST BUILD: MatrixRTC foci may connect to loopback addresses")
+endif()
 
 # Release guard: drop the HTTP and mock backends from lightning-matrix so a
 # package can only run the Rust SDK backend. Packaging sets it; dev builds keep
@@ -434,6 +445,9 @@ include(cmake/ThirdPartyRnnoise.cmake)
 # Vendored DeepFilterNet (third_party/deepfilternet): option, cargo feature
 # arguments, C++ wrapper. Must precede the Rust block and the noise block.
 include(cmake/ThirdPartyDeepFilterNet.cmake)
+if(LIGHTNING_TEST_LOOPBACK_FOCI)
+    list(APPEND LIGHTNING_CARGO_FEATURE_ARGS --features test-loopback-foci)
+endif()
 
 # Optional GStreamer webrtcbin call media engine, built when the GStreamer
 # WebRTC dev files are present; without it CallController refuses calls. The
@@ -1724,6 +1738,9 @@ endif()
 # separate literal in src/main.cpp and must not follow this name.
 qt_add_executable(lightning-matrix ${APP_MAIN_SOURCES})
 lightning_configure_qml_app(lightning-matrix)
+if(LIGHTNING_TEST_LOOPBACK_FOCI)
+    target_compile_definitions(lightning-matrix PRIVATE LIGHTNING_TEST_LOOPBACK_FOCI=1)
+endif()
 
 # Call sounds, rendered by scripts/generate-call-sounds.py (GPL-3.0-or-later).
 # Played by CallSoundPlayer from qrc:/sounds/<name>.wav. App target only, not

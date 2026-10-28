@@ -65,6 +65,7 @@ sha2 = "=0.10.9"
 # --offline --locked.
 livekit-protocol = "0.7"
 tokio-tungstenite = { version = "0.24", default-features = false, features = ["rustls-tls-webpki-roots", "connect"] }
+rustls-native-certs = { version = "0.8.4", optional = true }
 prost = "0.12"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -90,6 +91,7 @@ deep_filter = { path = "../third_party/deepfilternet/libDF", default-features = 
 # point then reports the backend as unavailable.
 default = ["deepfilternet"]
 deepfilternet = ["dep:deep_filter"]
+test-loopback-foci = ["dep:rustls-native-certs", "tokio-tungstenite/rustls-tls-native-roots"]
 
 [lints.rust]
 # ruma's `EventContent` derive checks `cfg(ruma_unstable_exhaustive_types)`,

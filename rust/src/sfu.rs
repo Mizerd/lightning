@@ -106,10 +106,14 @@ use prost::Message as _;
 use serde_json::json;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
-use crate::rooms::{classify_room_error, public_ip, require_client};
+use crate::rooms::{classify_room_error, require_client};
+#[cfg(not(feature = "test-loopback-foci"))]
+use crate::rooms::public_ip;
 use crate::rtc::{
     public_hostname, resolve_public_host, resolve_public_hosts, HostRefusal,
 };
+#[cfg(feature = "test-loopback-foci")]
+use crate::rtc::{loopback_hostname, test_focus_ip};
 use crate::{enqueue, RustClient};
 
 /// Bound on the JWT-service response body.
@@ -362,8 +366,17 @@ pub(crate) fn normalize_sfu_url(raw: &str) -> Option<String> {
 /// `rtc::resolve_public_host` at connect time.
 fn public_ws_host(url: &url::Url) -> bool {
     match url.host() {
+        #[cfg(feature = "test-loopback-foci")]
+        Some(url::Host::Ipv4(addr)) => test_focus_ip(std::net::IpAddr::V4(addr)),
+        #[cfg(not(feature = "test-loopback-foci"))]
         Some(url::Host::Ipv4(addr)) => public_ip(std::net::IpAddr::V4(addr)),
+        #[cfg(feature = "test-loopback-foci")]
+        Some(url::Host::Ipv6(addr)) => test_focus_ip(std::net::IpAddr::V6(addr)),
+        #[cfg(not(feature = "test-loopback-foci"))]
         Some(url::Host::Ipv6(addr)) => public_ip(std::net::IpAddr::V6(addr)),
+        #[cfg(feature = "test-loopback-foci")]
+        Some(url::Host::Domain(name)) => public_hostname(name) || loopback_hostname(name),
+        #[cfg(not(feature = "test-loopback-foci"))]
         Some(url::Host::Domain(name)) => public_hostname(name),
         None => false,
     }
@@ -437,15 +450,27 @@ async fn fetch_sfu_credentials(
         .ok()
         .flatten()
         .ok_or_else(|| "invalid_transport".to_owned())?;
-    let http = reqwest::Client::builder()
+    let mut http_builder = reqwest::Client::builder()
         .https_only(true)
         .redirect(reqwest::redirect::Policy::none())
         .no_proxy()
         .resolve(&host, pinned)
         .connect_timeout(Duration::from_secs(5))
         .timeout(SFU_TIMEOUT)
-        .user_agent(format!("Lightning/{}", env!("CARGO_PKG_VERSION")))
-        .build()
+        .user_agent(format!("Lightning/{}", env!("CARGO_PKG_VERSION")));
+    #[cfg(feature = "test-loopback-foci")]
+    if std::env::var_os("SSL_CERT_FILE").is_some() {
+        let certs = rustls_native_certs::load_native_certs();
+        if certs.certs.is_empty() || !certs.errors.is_empty() {
+            return Err("invalid_request".to_owned());
+        }
+        for cert in certs.certs {
+            http_builder = http_builder.add_root_certificate(
+                reqwest::Certificate::from_der(cert.as_ref())
+                    .map_err(|_| "invalid_request".to_owned())?);
+        }
+    }
+    let http = http_builder.build()
         .map_err(|_| "invalid_request".to_owned())?;
 
     let response = http
@@ -1863,6 +1888,7 @@ mod tests {
     /// Loopback, private ranges, IPv4-mapped loopback and local-only names are
     /// refused at the literal, before resolution.
     #[test]
+    #[cfg(not(feature = "test-loopback-foci"))]
     fn an_sfu_url_on_an_unroutable_host_is_refused() {
         for bad in [
             "wss://127.0.0.1:8443/",
@@ -1879,6 +1905,18 @@ mod tests {
         }
         assert!(normalize_sfu_url("wss://livekit.example.net").is_some());
         assert!(normalize_sfu_url("wss://").is_none());
+    }
+
+    #[test]
+    #[cfg(feature = "test-loopback-foci")]
+    fn test_sfu_url_allows_only_loopback_exception() {
+        for good in ["wss://127.0.0.2:8443/", "wss://[::1]/", "wss://localhost/"] {
+            assert!(normalize_sfu_url(good).is_some(), "{good}");
+        }
+        for bad in ["ws://127.0.0.1/", "wss://10.0.0.5/", "wss://169.254.1.1/",
+                    "wss://[fc00::1]/", "wss://[::ffff:127.0.0.1]/"] {
+            assert!(normalize_sfu_url(bad).is_none(), "{bad}");
+        }
     }
 
     #[test]

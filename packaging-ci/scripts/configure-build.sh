@@ -11,6 +11,12 @@ BUILD_DIR="$ROOT/work/build"
 STAGE_DIR="$ROOT/work/stage"
 BUILD_TYPE="${BUILD_TYPE:-Release}"
 BUILD_JOBS="${BUILD_JOBS:-2}"
+[[ "${LIGHTNING_TEST_LOOPBACK_FOCI:-OFF}" == OFF ]] || \
+    die "LIGHTNING_TEST_LOOPBACK_FOCI must be OFF for packaging"
+if [[ -f "$BUILD_DIR/CMakeCache.txt" ]] && \
+   grep -Eq '^LIGHTNING_TEST_LOOPBACK_FOCI:BOOL=(ON|TRUE|1)$' "$BUILD_DIR/CMakeCache.txt"; then
+    die "LIGHTNING_TEST_LOOPBACK_FOCI is ON in the packaging build cache"
+fi
 
 [[ "$BUILD_TYPE" == "Release" ]] || die "only BUILD_TYPE=Release is supported for distributable packages"
 [[ "$BUILD_JOBS" =~ ^[1-8]$ ]] || die "BUILD_JOBS must be 1-8 on the package runners"
@@ -118,6 +124,7 @@ cmake -S "$SOURCE_DIR" -B "$BUILD_DIR" -G Ninja \
     -DBUILD_TESTING=OFF \
     -DENABLE_RUST_SDK_BACKEND=ON \
     -DLIGHTNING_RUST_ONLY=ON \
+    -DLIGHTNING_TEST_LOOPBACK_FOCI=OFF \
     -DLIGHTNING_REQUIRE_GIF_KEYS="$REQUIRE_GIF_KEYS" \
     -DLIGHTNING_ENABLE_WEBRTC=ON \
     -DLIGHTNING_REQUIRE_WEBRTC=ON \

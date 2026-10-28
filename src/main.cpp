@@ -433,6 +433,9 @@ QString buildInfoString()
         false;
 #endif
     out += QStringLiteral("screenshot_demo_compiled: %1\n").arg(yn(screenshotDemoCompiled));
+#ifdef LIGHTNING_TEST_LOOPBACK_FOCI
+    out += QStringLiteral("test_loopback_foci_compiled: true\n");
+#endif
     out += QStringLiteral("secret_store: %1\n").arg(secretStore);
     out += QStringLiteral("artifact_kind: %1\n").arg(QLatin1String(LIGHTNING_ARTIFACT_KIND));
     return out;
@@ -651,6 +654,9 @@ PreflightResult preflightParse(int argc, char *argv[])
             r.action = PreflightResult::ExitSuccess;
             // Packaging validators pin this exact shape on every platform.
             r.stdoutMsg = QStringLiteral("Lightning %1\n").arg(QLatin1String(APP_VERSION));
+#ifdef LIGHTNING_TEST_LOOPBACK_FOCI
+            r.stdoutMsg += QStringLiteral("WARNING: TEST BUILD permits loopback MatrixRTC foci\n");
+#endif
             return r;
         }
         if (a == QLatin1String("--build-info")) {
@@ -2520,6 +2526,9 @@ int main(int argc, char *argv[])
     // After the claim: a second launch that only raises the first window
     // must not open a log file beside the running one's.
     installRollingLog();
+#ifdef LIGHTNING_TEST_LOOPBACK_FOCI
+    qWarning("WARNING: TEST BUILD permits loopback MatrixRTC foci; never distribute this binary");
+#endif
     lightning::logexport::setBuildInfo(buildInfoString());
     // Closed once quitting starts; the lock stays held past that and past
     // this guard's own destruction (see holdLockUntilProcessExit() above),

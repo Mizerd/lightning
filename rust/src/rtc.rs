@@ -186,16 +186,31 @@ fn sane_https_url(value: &str) -> Option<String> {
     // refuses CGNAT, multicast and the rest).
     match host {
         url::Host::Ipv4(addr) => {
+            #[cfg(feature = "test-loopback-foci")]
+            if !public_ip(std::net::IpAddr::V4(addr)) && !addr.is_loopback() {
+                return None;
+            }
+            #[cfg(not(feature = "test-loopback-foci"))]
             if !public_ip(std::net::IpAddr::V4(addr)) {
                 return None;
             }
         }
         url::Host::Ipv6(addr) => {
+            #[cfg(feature = "test-loopback-foci")]
+            if !public_ip(std::net::IpAddr::V6(addr)) && !addr.is_loopback() {
+                return None;
+            }
+            #[cfg(not(feature = "test-loopback-foci"))]
             if !public_ip(std::net::IpAddr::V6(addr)) {
                 return None;
             }
         }
         url::Host::Domain(name) => {
+            #[cfg(feature = "test-loopback-foci")]
+            if !public_hostname(name) && !loopback_hostname(name) {
+                return None;
+            }
+            #[cfg(not(feature = "test-loopback-foci"))]
             if !public_hostname(name) {
                 return None;
             }
@@ -212,6 +227,17 @@ pub(crate) fn public_hostname(name: &str) -> bool {
         || lower.ends_with(".localhost")
         || lower.ends_with(".local")
         || lower.ends_with(".internal"))
+}
+
+#[cfg(feature = "test-loopback-foci")]
+pub(crate) fn loopback_hostname(name: &str) -> bool {
+    let lower = name.trim_end_matches('.').to_ascii_lowercase();
+    lower == "localhost" || lower.ends_with(".localhost")
+}
+
+#[cfg(feature = "test-loopback-foci")]
+pub(crate) fn test_focus_ip(ip: std::net::IpAddr) -> bool {
+    public_ip(ip) || ip.is_loopback()
 }
 
 /// Why a host could not be resolved to an approved address. Distinguished
@@ -237,6 +263,11 @@ pub(crate) async fn resolve_public_hosts(
     host: &str,
     port: u16,
 ) -> Result<Vec<std::net::SocketAddr>, HostRefusal> {
+    #[cfg(feature = "test-loopback-foci")]
+    if !public_hostname(host) && !loopback_hostname(host) {
+        return Err(HostRefusal::PrivateName);
+    }
+    #[cfg(not(feature = "test-loopback-foci"))]
     if !public_hostname(host) {
         return Err(HostRefusal::PrivateName);
     }
@@ -247,6 +278,14 @@ pub(crate) async fn resolve_public_hosts(
     if addresses.is_empty() {
         return Err(HostRefusal::Unresolved);
     }
+    #[cfg(feature = "test-loopback-foci")]
+    if !addresses.iter().all(|address| {
+        if loopback_hostname(host) { address.ip().is_loopback() }
+        else { test_focus_ip(address.ip()) }
+    }) {
+        return Err(HostRefusal::NonPublicAddress);
+    }
+    #[cfg(not(feature = "test-loopback-foci"))]
     if !addresses.iter().all(|address| public_ip(address.ip())) {
         return Err(HostRefusal::NonPublicAddress);
     }
@@ -4962,6 +5001,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "test-loopback-foci"))]
     fn transport_url_refuses_credentials_and_unroutable_hosts() {
         // Foci are advertised by remote participants and will be connected to.
         for bad in [
@@ -4998,6 +5038,19 @@ mod tests {
             "livekit_service_url": "https://sfu.example.org/"
         }))
         .is_some());
+    }
+
+    #[test]
+    #[cfg(feature = "test-loopback-foci")]
+    fn test_transport_accepts_https_loopback_only() {
+        for good in ["https://127.0.0.2:8443/", "https://[::1]/", "https://localhost/"] {
+            assert!(sane_https_url(good).is_some(), "{good}");
+        }
+        for bad in ["http://127.0.0.1/", "https://10.0.0.5/",
+                    "https://169.254.1.1/", "https://[fc00::1]/",
+                    "https://[::ffff:127.0.0.1]/", "https://sfu.local/"] {
+            assert!(sane_https_url(bad).is_none(), "{bad}");
+        }
     }
 
     #[test]
@@ -5843,6 +5896,7 @@ mod tests {
     // record looks like to `lookup_host`, keeping the test offline.
 
     #[tokio::test]
+    #[cfg(not(feature = "test-loopback-foci"))]
     async fn a_focus_that_resolves_into_private_space_is_refused() {
         for host in [
             "127.0.0.1",        // loopback
@@ -5867,6 +5921,7 @@ mod tests {
 
     // Local-only names are refused before any lookup.
     #[tokio::test]
+    #[cfg(not(feature = "test-loopback-foci"))]
     async fn local_only_names_are_refused_without_resolving() {
         for host in [
             "localhost",
@@ -5881,6 +5936,18 @@ mod tests {
                 "{host} must be refused without resolving"
             );
             assert!(!public_hostname(host), "{host} must not read as public");
+        }
+    }
+
+    #[tokio::test]
+    #[cfg(feature = "test-loopback-foci")]
+    async fn test_resolution_allows_only_loopback_exception() {
+        for host in ["127.0.0.1", "127.2.3.4", "::1"] {
+            assert!(resolve_public_host(host, 443).await.is_some(), "{host}");
+        }
+        for host in ["10.0.0.5", "169.254.169.254", "fc00::1",
+                     "fe80::1", "::ffff:127.0.0.1"] {
+            assert!(resolve_public_host(host, 443).await.is_none(), "{host}");
         }
     }
 
