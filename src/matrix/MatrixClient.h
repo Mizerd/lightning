@@ -1526,9 +1526,11 @@ public:
     // Publish or refresh our own membership; answers rtcMembershipPublished.
     virtual quint64 rtcPublishMembership(const QString &roomId,
                                          const QString &focusUrl,
-                                         const QString &intent)
+                                         const QString &intent,
+                                         bool multiSfu = true)
     {
-        Q_UNUSED(roomId); Q_UNUSED(focusUrl); Q_UNUSED(intent); return 0;
+        Q_UNUSED(roomId); Q_UNUSED(focusUrl); Q_UNUSED(intent);
+        Q_UNUSED(multiSfu); return 0;
     }
     /// Restart the server-side delayed retraction so it does not fire.
     virtual quint64 rtcRestartDelayedLeave(const QString &delayId)

@@ -329,16 +329,17 @@ pub(crate) fn plan_foci(
     let remote: Vec<&RtcMember> = members.iter()
         .filter(|member| member.rtc_identity != own)
         .collect();
-    let mode = if remote.iter().any(|member| {
+    let legacy_peer = remote.iter().any(|member| {
         member.focus_selection != FocusSelection::MultiSfu
-    }) {
+    });
+    let oldest = select_focus(members);
+    let mode = if legacy_peer || (own_preferred.is_none() && oldest.is_some()) {
         FocusSelection::OldestMembership
     } else {
         FocusSelection::MultiSfu
     };
-    let oldest = select_focus(members);
     let publisher = if mode == FocusSelection::MultiSfu {
-        own_preferred
+        own_preferred.or_else(|| oldest.clone())
     } else {
         oldest.clone().or(own_preferred)
     };
@@ -2072,6 +2073,7 @@ pub(crate) fn publish_membership(
     room_id: String,
     focus_url: String,
     intent: String,
+    multi_sfu: bool,
     op_id: u64,
 ) -> Result<(), String> {
     let client = require_client(bridge)?;
@@ -2106,7 +2108,13 @@ pub(crate) fn publish_membership(
         // Mixed calls may initially select the oldest focus, but a publish
         // denial moves this device home; legacy peers still use the oldest
         // focus while multi-SFU peers follow this advertised focus.
-        let selection = FocusSelection::MultiSfu;
+        // A device without a discovered focus publishes on the oldest
+        // member's service and must tell other clients to follow that rule.
+        let selection = if multi_sfu {
+            FocusSelection::MultiSfu
+        } else {
+            FocusSelection::OldestMembership
+        };
         let room_version = room
             .clone_info()
             .room_version()
@@ -4748,6 +4756,28 @@ mod tests {
         assert_eq!(plan.mode, FocusSelection::MultiSfu);
         assert_eq!(plan.publisher, Some(focus("a.example")));
         assert_eq!(plan.subscribers, vec![focus("c.example"), focus("a.example")]);
+    }
+
+    #[test]
+    fn no_own_focus_uses_oldest_publisher_and_subscribes_to_each_peer() {
+        let focus = |host: &str| LivekitTransport {
+            service_url: format!("https://{host}/"), alias: None,
+        };
+        let mut older = member_at("@a:x", "A", 10, 9_000);
+        older.focus_selection = FocusSelection::MultiSfu;
+        older.foci = vec![focus("old.example")];
+        let mut newer = member_at("@b:x", "B", 20, 9_000);
+        newer.focus_selection = FocusSelection::MultiSfu;
+        newer.foci = vec![focus("new.example")];
+        let plan = plan_foci(&[older, newer], "@me:x:ME", None);
+        assert_eq!(plan.mode, FocusSelection::OldestMembership);
+        assert_eq!(plan.publisher, Some(focus("old.example")));
+        assert_eq!(plan.subscribers,
+                   vec![focus("old.example"), focus("new.example")]);
+        let content = own_membership_content_with_mode("ME", "@me:x",
+            plan.publisher.as_ref(), FocusSelection::OldestMembership,
+            "audio", None, MEMBERSHIP_EXPIRY_MS);
+        assert_eq!(content["focus_active"]["focus_selection"], "oldest_membership");
     }
 
     #[test]

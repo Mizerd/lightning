@@ -717,7 +717,8 @@ public:
     quint64 rtcTransports(const QString &roomId) override;
     quint64 rtcPublishMembership(const QString &roomId,
                                  const QString &focusUrl,
-                                 const QString &intent) override;
+                                 const QString &intent,
+                                 bool multiSfu = true) override;
     quint64 rtcRestartDelayedLeave(const QString &delayId) override;
     quint64 rtcRetractMembership(const QString &roomId,
                                  const QString &delayId) override;

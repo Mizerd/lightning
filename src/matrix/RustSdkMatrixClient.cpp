@@ -10845,7 +10845,8 @@ quint64 RustSdkMatrixClient::rtcTransports(const QString &roomId)
 
 quint64 RustSdkMatrixClient::rtcPublishMembership(const QString &roomId,
                                                  const QString &focusUrl,
-                                                 const QString &intent)
+                                                 const QString &intent,
+                                                 bool multiSfu)
 {
     if (!m_rustHandle || roomId.isEmpty())
         return 0;
@@ -10855,7 +10856,7 @@ quint64 RustSdkMatrixClient::rtcPublishMembership(const QString &roomId,
     const QByteArray callIntent = intent.toUtf8();
     const QString result = takeRustString(mx_rust_rtc_publish_membership(
         m_rustHandle, room.constData(), focus.constData(),
-        callIntent.constData(), opId));
+        callIntent.constData(), multiSfu, opId));
     return result.isEmpty() ? opId : 0;
 }
 

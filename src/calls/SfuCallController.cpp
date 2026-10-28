@@ -23,10 +23,13 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QMap>
 #include <QRandomGenerator>
 #include <QSet>
 #include <QUuid>
 #include <QVariantMap>
+
+#include <algorithm>
 
 #ifdef Q_OS_UNIX
 #include <unistd.h>
@@ -2136,6 +2139,7 @@ bool SfuCallController::join(const QString &roomId, bool withVideo)
     m_lastReactionSentMs = 0;
     m_participants.clear();
     m_remoteTrackMuted.clear();
+    m_publisherParticipants.clear();
     m_inboundRingKeys.clear();
     // A blocked-media badge must not outlive its call.
     if (!m_blockedStreams.isEmpty()) {
@@ -2225,7 +2229,10 @@ bool SfuCallController::join(const QString &roomId, bool withVideo)
     // oldest membership.
     m_publishOp = m_client->rtcPublishMembership(
         roomId, m_focusUrl, withVideo ? QStringLiteral("video")
-                                      : QStringLiteral("audio"));
+                                      : QStringLiteral("audio"),
+        !m_rtc->ownFocusUrlFor().isEmpty()
+            && m_focusUrl == m_rtc->ownFocusUrlFor()
+            && (!m_rtc->usesLegacyFocusFor(roomId) || m_publishFallbackTried));
     qCInfo(lcSfuCall) << "membership publish op=" << m_publishOp;
     if (m_publishOp == 0) {
         teardown(State::Failed, tr("Couldn't announce you in the call."));
@@ -2471,8 +2478,9 @@ void SfuCallController::logRemoteSubscription(
 {
     const QString routedSid = id == 0 ? sid
         : QStringLiteral("c%1:").arg(id) + sid;
-    for (const QVariant &value : m_participants) {
-        const QVariantMap row = value.toMap();
+    const auto connectionRows = id == 0 ? m_publisherParticipants
+        : m_subscriberParticipants.value(id);
+    for (const QVariantMap &row : connectionRows) {
         if (row.value(QStringLiteral("sid")).toString() != routedSid)
             continue;
         const QString identity = row.value(QStringLiteral("identity")).toString();
@@ -2503,18 +2511,8 @@ void SfuCallController::logRemoteSubscription(
 void SfuCallController::updateSubscriberParticipants(
     int id, const QVariantList &rows, bool replace)
 {
-    if (replace) {
-        QVariantList departed;
-        for (const QString &identity : m_subscriberParticipants.value(id).keys()) {
-            departed.append(QVariantMap{
-                {QStringLiteral("identity"), identity},
-                {QStringLiteral("state"), QStringLiteral("disconnected")},
-            });
-        }
-        if (!departed.isEmpty())
-            onSfuParticipants(departed);
+    if (replace)
         m_subscriberParticipants.remove(id);
-    }
     auto &known = m_subscriberParticipants[id];
     QVariantList forwarded;
     for (const QVariant &value : rows) {
@@ -2547,9 +2545,14 @@ void SfuCallController::updateSubscriberParticipants(
         } else {
             continue;
         }
-        forwarded.append(row);
+        if (row.value(QStringLiteral("state")).toString()
+            != QLatin1String("disconnected"))
+            forwarded.append(row);
     }
-    onSfuParticipants(forwarded);
+    noteRemoteTrackMutes(forwarded);
+    // Rebuild from all connections. A delta or replacement on this service
+    // must never remove a peer still present on another service.
+    onSfuParticipants({});
 }
 
 quint64 SfuCallController::connectFocusPlan()
@@ -3204,15 +3207,16 @@ void SfuCallController::onSfuJoined(const QString &identity,
     // On a rejoin this replaces the list the lost session left: the same
     // people, and our own row under the same identity with a new sid.
     m_participants = participants.mid(0, kMaxParticipants);
+    m_publisherParticipants.clear();
+    for (const QVariant &value : std::as_const(m_participants)) {
+        const QVariantMap row = value.toMap();
+        const QString identity = row.value(QStringLiteral("identity")).toString();
+        if (!identity.isEmpty())
+            m_publisherParticipants.insert(identity, row);
+    }
     // A subscriber focus may finish its join before the publisher. Restore
     // those snapshots after replacing the publisher's own list.
-    for (auto it = m_subscriberParticipants.cbegin();
-         it != m_subscriberParticipants.cend(); ++it) {
-        QVariantList rows;
-        for (const QVariantMap &row : it.value())
-            rows.append(row);
-        mergeParticipants(rows);
-    }
+    mergeParticipants({});
     noteParticipantIdentities();
     rebuildModels();
     if (rejoin) {
@@ -3402,36 +3406,67 @@ bool SfuCallController::mergeParticipants(const QVariantList &updates)
         before.insert(
             row.toMap().value(QStringLiteral("identity")).toString());
     }
-    // A LiveKit ParticipantUpdate is a delta (it includes our own row), so
-    // merge by identity and remove on DISCONNECTED, like livekit-client's
-    // `Room.handleParticipantUpdates`. Assigning it over the list dropped
-    // everyone it did not mention.
+    // Publisher updates are deltas. Subscriber snapshots live separately;
+    // the same Matrix device can have a different LiveKit sid on each focus.
     for (const QVariant &value : updates) {
         const QVariantMap row = value.toMap();
         const QString identity =
             row.value(QStringLiteral("identity")).toString();
         if (identity.isEmpty())
             continue;
-        int at = -1;
-        for (int i = 0; i < m_participants.size(); ++i) {
-            if (m_participants.at(i).toMap()
-                    .value(QStringLiteral("identity")).toString()
-                == identity) {
-                at = i;
-                break;
-            }
-        }
         if (row.value(QStringLiteral("state")).toString()
             == QLatin1String("disconnected")) {
-            if (at >= 0)
-                m_participants.removeAt(at);
+            m_publisherParticipants.remove(identity);
             continue;
         }
-        if (at >= 0)
-            m_participants[at] = row;
-        else if (m_participants.size() < kMaxParticipants)
-            m_participants.append(row);
+        if (m_publisherParticipants.size() < kMaxParticipants
+            || m_publisherParticipants.contains(identity))
+            m_publisherParticipants.insert(identity, row);
     }
+    // Prefer a row with actual tracks; ties keep the publisher row, then the
+    // lowest connection ID. The selected sid and its tracks stay together.
+    QMap<QString, QVariantMap> visible;
+    for (auto it = m_publisherParticipants.cbegin();
+         it != m_publisherParticipants.cend(); ++it)
+        visible.insert(it.key(), it.value());
+    QList<int> connections = m_subscriberParticipants.keys();
+    std::sort(connections.begin(), connections.end());
+    for (int id : connections) {
+        const auto &rows = m_subscriberParticipants[id];
+        for (auto it = rows.cbegin(); it != rows.cend(); ++it) {
+            if (visible.size() >= kMaxParticipants && !visible.contains(it.key()))
+                continue;
+            const QVariantMap current = visible.value(it.key());
+            const QString ownFocus = m_rtc
+                ? m_rtc->participantForIdentity(m_roomId, it.key())
+                    .value(QStringLiteral("focusServiceUrl")).toString()
+                : QString();
+            const bool preferred = !ownFocus.isEmpty()
+                && m_connectionFocusUrls.value(id) == ownFocus;
+            const bool currentHasTracks = !current.value(QStringLiteral("tracks"))
+                .toList().isEmpty();
+            const bool candidateHasTracks = !it.value()
+                .value(QStringLiteral("tracks")).toList().isEmpty();
+            if (current.isEmpty() || (candidateHasTracks && !currentHasTracks)
+                || (candidateHasTracks && currentHasTracks && preferred))
+                visible.insert(it.key(), it.value());
+        }
+    }
+    QVariantList merged;
+    QSet<QString> added;
+    for (const QVariant &previous : std::as_const(m_participants)) {
+        const QString identity = previous.toMap()
+            .value(QStringLiteral("identity")).toString();
+        if (visible.contains(identity) && !added.contains(identity)) {
+            merged.append(visible.value(identity));
+            added.insert(identity);
+        }
+    }
+    for (auto it = visible.cbegin(); it != visible.cend(); ++it) {
+        if (!added.contains(it.key()))
+            merged.append(it.value());
+    }
+    m_participants = merged;
     noteParticipantIdentities();
     rebuildModels();
     Q_EMIT participantsChanged();
@@ -4171,7 +4206,15 @@ void SfuCallController::noteParticipantIdentities()
     // Binds the LiveKit sid (what frames carry) to the sending device (what
     // keys name). Re-run on every participant update and key: neither is
     // known at a fixed point, and re-running is the retry.
-    for (const QVariant &row : std::as_const(m_participants)) {
+    QVariantList allRows;
+    for (const QVariantMap &row : std::as_const(m_publisherParticipants))
+        allRows.append(row);
+    for (auto it = m_subscriberParticipants.cbegin();
+         it != m_subscriberParticipants.cend(); ++it) {
+        for (const QVariantMap &row : it.value())
+            allRows.append(row);
+    }
+    for (const QVariant &row : std::as_const(allRows)) {
         const QVariantMap participant = row.toMap();
         const QString identity =
             participant.value(QStringLiteral("identity")).toString();
@@ -4722,7 +4765,10 @@ void SfuCallController::republishMembership()
     // id).
     m_refreshOp = m_client->rtcPublishMembership(
         m_roomId, m_focusUrl,
-        m_withVideo ? QStringLiteral("video") : QStringLiteral("audio"));
+        m_withVideo ? QStringLiteral("video") : QStringLiteral("audio"),
+        m_rtc && !m_rtc->ownFocusUrlFor().isEmpty()
+            && m_focusUrl == m_rtc->ownFocusUrlFor()
+            && (!m_rtc->usesLegacyFocusFor(m_roomId) || m_publishFallbackTried));
     if (m_refreshOp == 0) {
         qCWarning(lcSfuCall)
             << "membership refresh could not be dispatched — this device may "
@@ -5103,6 +5149,7 @@ void SfuCallController::teardown(State finalState, const QString &error)
     m_delayedCategory.clear();
     m_ownIdentity.clear();
     m_participants.clear();
+    m_publisherParticipants.clear();
     m_remoteTrackMuted.clear();
     // A blocked-media badge must not outlive its call.
     if (!m_blockedStreams.isEmpty()) {
@@ -7019,7 +7066,10 @@ quint64 SfuCallController::beginMembershipPublishForTest(
     m_announceIntent = QStringLiteral("audio");
     setState(State::Preparing);
     m_publishOp = m_client->rtcPublishMembership(roomId, focusUrl,
-                                                 QStringLiteral("audio"));
+        QStringLiteral("audio"),
+        m_rtc && !m_rtc->ownFocusUrlFor().isEmpty()
+            && focusUrl == m_rtc->ownFocusUrlFor()
+            && !m_rtc->usesLegacyFocusFor(roomId));
     return m_publishOp;
 }
 

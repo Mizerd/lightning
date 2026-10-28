@@ -1977,6 +1977,7 @@ char *mx_rust_rtc_publish_membership(void *client,
                                      const char *room_id,
                                      const char *focus_url_or_empty,
                                      const char *intent,
+                                     bool multi_sfu,
                                      unsigned long long op_id);
 char *mx_rust_rtc_restart_delayed_leave(void *client,
                                         const char *delay_id,

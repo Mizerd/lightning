@@ -145,8 +145,7 @@ bool RtcController::callingAvailable() const
     // session that names a focus counts even without MSC4143 discovery.
     bool sessionNamesAFocus = false;
     for (auto it = m_sessions.cbegin(); it != m_sessions.cend(); ++it) {
-        if (!it->slotClosed && !it->focusServiceUrl.isEmpty()
-            && usesLegacyFocusFor(it.key())) {
+        if (!it->slotClosed && !it->focusServiceUrl.isEmpty()) {
             sessionNamesAFocus = true;
             break;
         }
@@ -177,10 +176,6 @@ QString RtcController::sessionFocusFor(const QString &roomId) const
 
 bool RtcController::transportReachableFor(const QString &roomId) const
 {
-    // A multi-SFU publisher must have its own account's discovered service.
-    // A legacy peer remains reachable on its oldest advertised focus.
-    if (!usesLegacyFocusFor(roomId))
-        return !m_serviceUrls.isEmpty();
     return !sessionFocusFor(roomId).isEmpty() || !m_serviceUrls.isEmpty();
 }
 
@@ -870,6 +865,7 @@ QVariantMap RtcController::participantForIdentity(
         out.insert(QStringLiteral("avatarMxc"), matched->avatarMxc);
         out.insert(QStringLiteral("ownUser"), matched->ownUser);
         out.insert(QStringLiteral("ownDevice"), matched->ownDevice);
+        out.insert(QStringLiteral("focusServiceUrl"), matched->focusServiceUrl);
         return out;
     }
     // An empty lookup means the participant gets no key and their ring is
@@ -997,10 +993,10 @@ QVariantList RtcController::participantFaces(const QString &roomId,
 
 QString RtcController::focusUrlFor(const QString &roomId) const
 {
-    if (!usesLegacyFocusFor(roomId))
-        return ownFocusUrlFor();
     const QString oldest = sessionFocusFor(roomId);
-    return oldest.isEmpty() ? ownFocusUrlFor() : oldest;
+    if (usesLegacyFocusFor(roomId) || ownFocusUrlFor().isEmpty())
+        return oldest.isEmpty() ? ownFocusUrlFor() : oldest;
+    return ownFocusUrlFor();
 }
 
 QString RtcController::ownFocusUrlFor() const

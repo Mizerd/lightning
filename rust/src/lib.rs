@@ -10870,6 +10870,7 @@ pub unsafe extern "C" fn mx_rust_rtc_publish_membership(
     room_id: *const c_char,
     focus_url: *const c_char,
     intent: *const c_char,
+    multi_sfu: bool,
     op_id: u64,
 ) -> *mut c_char {
     ffi_string(|| {
@@ -10877,7 +10878,7 @@ pub unsafe extern "C" fn mx_rust_rtc_publish_membership(
         let room_id = unsafe { cstr_arg(room_id) }?;
         let focus_url = unsafe { cstr_arg(focus_url) }?;
         let intent = unsafe { cstr_arg(intent) }?;
-        rtc::publish_membership(bridge, room_id, focus_url, intent, op_id)
+        rtc::publish_membership(bridge, room_id, focus_url, intent, multi_sfu, op_id)
             .map(|_| String::new())
     })
 }

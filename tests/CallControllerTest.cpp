@@ -150,13 +150,16 @@ public:
     // MatrixRTC membership: everything the leave path depends on.
     quint64 rtcPublishMembership(const QString &roomId,
                                  const QString &focusUrl,
-                                 const QString &intent) override
+                                 const QString &intent,
+                                 bool multiSfu = true) override
     {
         Q_UNUSED(focusUrl); Q_UNUSED(intent);
+        publishedMultiSfu.append(multiSfu);
         publishes.append(roomId);
         lastPublishOp = ++opCounter;
         return lastPublishOp;
     }
+    QList<bool> publishedMultiSfu;
     quint64 rtcRestartDelayedLeave(const QString &delayId) override
     {
         delayedRestarts.append(delayId);
@@ -868,6 +871,155 @@ private:
     }
 
 private Q_SLOTS:
+    void duplicateAcrossFocusesSurvivesOneDisconnectWithoutKeyRotation()
+    {
+        KeyLaneCall c({QStringLiteral("ADEV")});
+        const QString identity = KeyLaneCall::identityFor(QStringLiteral("ADEV"));
+        c.deliver({sfuParticipant(identity, QStringLiteral("publisher-sid"), {})});
+        c.call.ingestSubscriberParticipantsForTest(1, {
+            sfuParticipant(identity, QStringLiteral("subscriber-sid"), {
+                sfuTrack(QStringLiteral("microphone"), QStringLiteral("audio-sid"), false)
+            })
+        }, true);
+        QCOMPARE(c.call.streamIdForIdentityForTest(identity),
+                 QStringLiteral("c1:subscriber-sid"));
+        QCOMPARE(c.call.trackKeyForSourceForTest(identity,
+                 QStringLiteral("microphone")), QStringLiteral("c1:audio-sid"));
+        c.call.startKeyLaneForTest();
+        const int key = c.newest();
+        QVERIFY(key >= 0);
+        QVariantMap gone = sfuParticipant(identity, QString(), {});
+        gone.insert(QStringLiteral("state"), QStringLiteral("disconnected"));
+        c.deliver({gone});
+        QCOMPARE(c.call.participantModel()->rowCount(), 1);
+        QCOMPARE(c.call.streamIdForIdentityForTest(identity),
+                 QStringLiteral("c1:subscriber-sid"));
+        QCOMPARE(c.call.trackKeyForSourceForTest(identity,
+                 QStringLiteral("microphone")), QStringLiteral("c1:audio-sid"));
+        QCOMPARE(c.newest(), key);
+    }
+
+    void subscriberReplacementKeepsPublisherPresence()
+    {
+        KeyLaneCall c({QStringLiteral("ADEV")});
+        const QString identity = KeyLaneCall::identityFor(QStringLiteral("ADEV"));
+        c.deliver({sfuParticipant(identity, QStringLiteral("publisher-sid"), {
+            sfuTrack(QStringLiteral("microphone"), QStringLiteral("publisher-audio"), false)
+        })});
+        c.call.ingestSubscriberParticipantsForTest(1, {
+            sfuParticipant(identity, QStringLiteral("subscriber-sid"), {})
+        }, true);
+        c.call.startKeyLaneForTest();
+        const int key = c.newest();
+        QVERIFY(key >= 0);
+        c.call.ingestSubscriberParticipantsForTest(1, {}, true);
+        QCOMPARE(c.call.participantModel()->rowCount(), 1);
+        QCOMPARE(c.call.streamIdForIdentityForTest(identity),
+                 QStringLiteral("publisher-sid"));
+        QCOMPARE(c.call.trackKeyForSourceForTest(identity,
+                 QStringLiteral("microphone")), QStringLiteral("publisher-audio"));
+        QCOMPARE(c.newest(), key);
+    }
+
+    void duplicateTrackRowsPreferAdvertisedFocus()
+    {
+        KeyLaneCall c({QStringLiteral("ADEV")});
+        const QString identity = KeyLaneCall::identityFor(QStringLiteral("ADEV"));
+        const QString preferred = QStringLiteral("https://preferred.example.org");
+        RtcSessionData session;
+        session.roomId = c.room;
+        RtcParticipant member;
+        member.userId = KeyLaneCall::userFor(QStringLiteral("ADEV"));
+        member.deviceId = QStringLiteral("ADEV");
+        member.rtcIdentity = identity;
+        member.focusSelection = QStringLiteral("multi_sfu");
+        member.focusServiceUrl = preferred;
+        session.participants = {member};
+        c.rtc.refresh(c.room);
+        c.client.answerSession(c.client.lastSessionOp, session);
+        c.call.setConnectionFocusUrlsForTest({
+            QStringLiteral("https://other.example.org"), preferred});
+        c.deliver({sfuParticipant(identity, QStringLiteral("other-sid"), {
+            sfuTrack(QStringLiteral("microphone"), QStringLiteral("other-audio"), false)
+        })});
+        c.call.ingestSubscriberParticipantsForTest(1, {
+            sfuParticipant(identity, QStringLiteral("preferred-sid"), {
+                sfuTrack(QStringLiteral("microphone"), QStringLiteral("preferred-audio"), false)
+            })
+        }, true);
+        QCOMPARE(c.call.streamIdForIdentityForTest(identity),
+                 QStringLiteral("c1:preferred-sid"));
+        QCOMPARE(c.call.trackKeyForSourceForTest(identity,
+                 QStringLiteral("microphone")), QStringLiteral("c1:preferred-audio"));
+    }
+
+    void noOwnFocusUsesOldestForMultiSfuPeers()
+    {
+        RecordingCallClient client;
+        RtcController rtc;
+        rtc.setClient(&client);
+        const QString room = QStringLiteral("!fallback:example.org");
+        const QString oldest = QStringLiteral("https://old.example.org");
+        const QString second = QStringLiteral("https://second.example.org");
+        rtc.discover(room);
+        client.answerTransports({});
+        RtcSessionData session;
+        session.roomId = room;
+        session.focusServiceUrl = oldest;
+        RtcParticipant a;
+        a.rtcIdentity = QStringLiteral("@a:example.org:A");
+        a.focusSelection = QStringLiteral("multi_sfu");
+        a.focusServiceUrl = oldest;
+        RtcParticipant b;
+        b.rtcIdentity = QStringLiteral("@b:example.org:B");
+        b.focusSelection = QStringLiteral("multi_sfu");
+        b.focusServiceUrl = second;
+        session.participants = {a, b};
+        rtc.refresh(room);
+        client.answerSession(client.lastSessionOp, session);
+        QVERIFY(rtc.callingAvailable());
+        QCOMPARE(rtc.focusUrlFor(room), oldest);
+        QCOMPARE(rtc.subscriberFocusUrlsFor(room), QStringList({oldest, second}));
+        SfuCallController call;
+        call.setClient(&client);
+        call.setRtcController(&rtc);
+        const quint64 op = call.beginMembershipPublishForTest(room, oldest);
+        QVERIFY(op != 0);
+        QCOMPARE(client.publishedMultiSfu.last(), false);
+        client.answerPublish(op, true, QString());
+        QCOMPARE(client.focusPlans.last(), QStringList({oldest, second}));
+    }
+
+    void noOwnFocusLightningToLightningUsesOldest()
+    {
+        RecordingCallClient client;
+        RtcController rtc;
+        rtc.setClient(&client);
+        const QString room = QStringLiteral("!lightning:example.org");
+        const QString oldest = QStringLiteral("https://peer.example.org");
+        rtc.discover(room);
+        client.answerTransports({});
+        RtcSessionData session;
+        session.roomId = room;
+        session.focusServiceUrl = oldest;
+        RtcParticipant lightning;
+        lightning.rtcIdentity = QStringLiteral("@peer:example.org:DEV");
+        lightning.focusSelection = QStringLiteral("multi_sfu");
+        lightning.focusServiceUrl = oldest;
+        session.participants = {lightning};
+        rtc.refresh(room);
+        client.answerSession(client.lastSessionOp, session);
+        QCOMPARE(rtc.focusUrlFor(room), oldest);
+        SfuCallController call;
+        call.setClient(&client);
+        call.setRtcController(&rtc);
+        const quint64 op = call.beginMembershipPublishForTest(room, oldest);
+        QVERIFY(op != 0);
+        QCOMPARE(client.publishedMultiSfu.last(), false);
+        client.answerPublish(op, true, QString());
+        QCOMPARE(client.focusPlans.last(), QStringList({oldest}));
+    }
+
     void multiSfuPlanCreatesPublisherAndTwoFocusRoutes()
     {
         RecordingCallClient client;

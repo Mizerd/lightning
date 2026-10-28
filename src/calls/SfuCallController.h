@@ -650,6 +650,12 @@ public:
     /// Inject a LiveKit ParticipantUpdate payload (a DELTA, merged by
     /// identity, `state: "disconnected"` removes).
     void ingestParticipantsForTest(const QVariantList &updates);
+    void ingestSubscriberParticipantsForTest(int connectionId,
+        const QVariantList &updates, bool replace = false)
+    { updateSubscriberParticipants(connectionId, updates, replace); }
+    QString trackKeyForSourceForTest(const QString &identity,
+                                    const QString &source) const
+    { return trackKeyForSource(identity, source); }
     /// Inject a SpeakersChanged payload: [{sid, active, level}].
     void ingestSpeakersForTest(const QVariantList &speakers);
     /// Inject a ConnectionQuality payload: [{sid, quality}].
@@ -759,6 +765,8 @@ public:
                                           bool announce = false);
     QStringList connectionFocusUrlsForTest() const
     { return m_connectionFocusUrls; }
+    void setConnectionFocusUrlsForTest(const QStringList &urls)
+    { m_connectionFocusUrls = urls; }
     quint64 sfuGenerationForTest() const { return m_sfuGeneration; }
     QString streamIdForIdentityForTest(const QString &identity) const
     { return streamIdForIdentity(identity); }
@@ -1304,6 +1312,7 @@ private:
     QPointer<SfuMediaEngine> m_engine;
     QHash<int, QPointer<SfuMediaEngine>> m_subscriberEngines;
     QHash<int, QHash<QString, QVariantMap>> m_subscriberParticipants;
+    QHash<QString, QVariantMap> m_publisherParticipants;
     QHash<int, QString> m_connectionOwnIdentity;
     QStringList m_connectionFocusUrls;
     quint64 m_sfuGeneration = 0;

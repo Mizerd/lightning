@@ -566,6 +566,7 @@ pub(crate) enum SfuCommand {
 pub(crate) struct SfuSession {
     pub generation: u64,
     pub connection_id: u32,
+    pub dropped_commands: AtomicU64,
     pub commands: tokio::sync::mpsc::Sender<SfuCommand>,
     pub leave: tokio::sync::oneshot::Sender<()>,
     pub task: tokio::task::JoinHandle<()>,
@@ -1329,7 +1330,8 @@ pub(crate) fn connect_many(
             }
         });
         sessions.insert(focus_key, SfuSession {
-            generation, connection_id, commands: tx, leave: leave_tx, task,
+            generation, connection_id, dropped_commands: AtomicU64::new(0),
+            commands: tx, leave: leave_tx, task,
         });
     }
     let mut guard = bridge.sfu.sessions.lock()
@@ -1364,10 +1366,39 @@ pub(crate) fn send_command_for(
             if command_generation_current(
                 bridge.sfu_generation.load(Ordering::SeqCst),
                 session.generation, generation) {
-                let _ = session.commands.try_send(command);
+                if let Some(category) = try_queue_command(&session.commands,
+                    &session.dropped_commands, connection_id, command) {
+                    enqueue(&bridge.events, json!({
+                        "type": "sfu_state", "generation": generation,
+                        "connection_id": connection_id,
+                        "state": "failed", "category": category,
+                    }));
+                }
             }
         }
     }
+}
+
+/// Returns a failure category only when a dropped negotiation message must
+/// fail the call. Every dropped command is counted and logged without content.
+fn try_queue_command(
+    queue: &tokio::sync::mpsc::Sender<SfuCommand>,
+    dropped_count: &AtomicU64,
+    connection_id: u32,
+    command: SfuCommand,
+) -> Option<&'static str> {
+    let negotiation = matches!(command,
+        SfuCommand::Offer { .. } | SfuCommand::Answer { .. });
+    let category = match queue.try_send(command) {
+        Ok(()) => return None,
+        Err(tokio::sync::mpsc::error::TrySendError::Full(_)) =>
+            "command_queue_full",
+        Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) =>
+            "command_queue_closed",
+    };
+    let dropped = dropped_count.fetch_add(1, Ordering::Relaxed) + 1;
+    eprintln!("lightning: sfu command queue warning connection={connection_id} dropped={dropped}");
+    negotiation.then_some(category)
 }
 
 /// Compatibility path for the original one-focus caller.
@@ -1440,7 +1471,8 @@ mod tests {
                 receivers.push(receiver);
                 sessions.insert(("!room:x".to_owned(),
                                  format!("https://focus{id}.example")), SfuSession {
-                    generation: 7, connection_id: id, commands, leave,
+                    generation: 7, connection_id: id,
+                    dropped_commands: AtomicU64::new(0), commands, leave,
                     task: tokio::spawn(async { std::future::pending::<()>().await }),
                 });
             }
@@ -1455,6 +1487,20 @@ mod tests {
         for receiver in receivers {
             assert!(receiver.await.is_ok());
         }
+    }
+
+    #[tokio::test]
+    async fn full_command_queue_counts_drops_and_identifies_lost_answer() {
+        let (sender, _receiver) = tokio::sync::mpsc::channel(1);
+        let drops = AtomicU64::new(0);
+        assert_eq!(try_queue_command(&sender, &drops, 1,
+            SfuCommand::Candidate { candidate_init: String::new(), target: 1 }), None);
+        assert_eq!(try_queue_command(&sender, &drops, 1,
+            SfuCommand::Candidate { candidate_init: String::new(), target: 1 }), None);
+        assert_eq!(try_queue_command(&sender, &drops, 1,
+            SfuCommand::Answer { sdp: String::new(), target: 1 }),
+            Some("command_queue_full"));
+        assert_eq!(drops.load(Ordering::Relaxed), 2);
     }
 
     // The server-injected-frame trailer crosses the bridge, bounded.
