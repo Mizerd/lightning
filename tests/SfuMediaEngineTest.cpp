@@ -4757,8 +4757,11 @@ private slots:
     {
         const QString pane = QString::fromUtf8(SOURCE_UNDER_TEST);
         QVERIFY(!pane.isEmpty());
-        QVERIFY2(pane.contains(QStringLiteral("g_object_get(srcPad, \"msid\"")),
-                 "received tracks are not attributed by the pad's own msid");
+        // CLAUDE.md §16: no webrtcbin pad property is load-bearing. The
+        // sender and track sid come from our own parse of the remote SDP,
+        // matched on the section's mid; the pad's msid is not read at all.
+        QVERIFY2(!pane.contains(QStringLiteral("g_object_get(srcPad, \"msid\"")),
+                 "received tracks are attributed by a webrtcbin pad property");
         QVERIFY2(pane.contains(QStringLiteral("g_object_get(transceiver, \"mid\"")),
                  "the track's mid does not come from its own transceiver");
         // The positional fallback must key on the section's mid, never on a
