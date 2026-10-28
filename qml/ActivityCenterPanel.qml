@@ -440,7 +440,7 @@ Dialog {
                 // filter needs a way to reach those pages, not only Threads.
                 footer: Item {
                     width: listView.width
-                    height: root.activity && root.activity.threadHasMore
+                    height: root.activity && root.activity.activityHasMore
                             ? AppTheme.buttonHeightSm + AppTheme.spacing12 : 0
                     AppButton {
                         objectName: "activityLoadOlder"
@@ -455,7 +455,7 @@ Dialog {
                               : root.activity && root.activity.threadPageFailed
                                 ? qsTr("Retry older activity")
                                 : qsTr("Load older activity")
-                        onClicked: root.activity.loadOlderThreadActivity()
+                        onClicked: root.activity.loadOlderActivity()
                     }
                 }
                 delegate: Rectangle {
@@ -610,7 +610,7 @@ Dialog {
                 ScrollBar.vertical: ScrollBar { }
                 footer: Item {
                     width: threadList.width
-                    height: root.activity && root.activity.threadHasMore
+                    height: root.activity && root.activity.activityHasMore
                             ? AppTheme.buttonHeightSm + AppTheme.spacing12 : 0
                     AppButton {
                         anchors.centerIn: parent
@@ -624,7 +624,7 @@ Dialog {
                               : root.activity && root.activity.threadPageFailed
                                 ? qsTr("Retry older activity")
                                 : qsTr("Load older activity")
-                        onClicked: root.activity.loadOlderThreadActivity()
+                        onClicked: root.activity.loadOlderActivity()
                     }
                 }
                 delegate: Rectangle {

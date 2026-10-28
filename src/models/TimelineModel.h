@@ -133,6 +133,7 @@ public:
         MentionsRoomRole,
         RoomMentionHighlightedRole, // m.mentions.room with the rules' highlight tweak.
         PushHighlightedRole,
+        PushVerdictKnownRole,
         // Encryption metadata, so MessageDelegate can style undecryptable rows
         // without matching body strings.
         IsEncryptedRole,

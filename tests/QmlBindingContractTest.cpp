@@ -1387,7 +1387,13 @@ private Q_SLOTS:
         QVERIFY(delegate.contains(QStringLiteral(
             "                       : \"transparent\"")));
         // The edge bar is the mention signal, so it must be present.
-        QVERIFY(delegate.contains(QStringLiteral("mentionBarVisible")));
+        QVERIFY(delegate.contains(QStringLiteral(
+            "readonly property bool mentionBarVisible:\n"
+            "                    !root.bubbleMode\n"
+            "                    && (model.roomMentionHighlighted === true\n"
+            "                        || (model.mentionsMe === true\n"
+            "                            && (model.pushHighlighted === true\n"
+            "                                || model.pushVerdictKnown !== true)))")));
         QVERIFY(delegate.contains(QStringLiteral(
             "? AppTheme.bolt : AppTheme.borderStrong")));
     }

@@ -1907,8 +1907,7 @@ Item {
                        : Math.max(1, parent.width - root.avatarGutterWidth)
                 height: implicitHeight
                 implicitHeight: bubbleContent.implicitHeight + root.bubblePad * 2
-                // The edge bar below marks a rules-highlighted mention in
-                // both room and bubble layouts.
+                // The edge bar marks mentions in the flat layouts.
                 color: root.bubbleMode
                        ? (model.isOwn === true ? AppTheme.ownBubble
                                                : AppTheme.otherBubble)
@@ -1924,8 +1923,11 @@ Item {
                 // bubbleContent gets a matching inset so it never overlaps
                 // text. Rounded at both ends.
                 readonly property bool mentionBarVisible:
-                    model.roomMentionHighlighted === true
-                    || (model.mentionsMe === true && model.pushHighlighted === true)
+                    !root.bubbleMode
+                    && (model.roomMentionHighlighted === true
+                        || (model.mentionsMe === true
+                            && (model.pushHighlighted === true
+                                || model.pushVerdictKnown !== true)))
                 Rectangle {
                     visible: bubble.mentionBarVisible
                     anchors.left: parent.left

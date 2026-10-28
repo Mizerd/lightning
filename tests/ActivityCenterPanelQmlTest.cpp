@@ -72,7 +72,7 @@ QtObject {
         property int unseenCount: 1
         property string filter: "all"
         property bool historyUnavailable: false
-        property bool threadHasMore: true
+        property bool activityHasMore: true
         property bool threadPageLoading: false
         property bool threadPageFailed: false
         property int olderPageCalls: 0
@@ -81,7 +81,7 @@ QtObject {
         property int openCalls: 0
         function open(id) { lastOpened = id; openCalls += 1 }
         function markAllSeen() {}
-        function loadOlderThreadActivity() { olderPageCalls += 1 }
+        function loadOlderActivity() { olderPageCalls += 1 }
         Component.onCompleted: {
             var now = Date.now()
             function add(id, kind, key, seen) {

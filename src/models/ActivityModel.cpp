@@ -854,9 +854,9 @@ void ActivityModel::refreshThreadFollowing()
     }
 }
 
-void ActivityModel::loadOlderThreadActivity()
+void ActivityModel::loadOlderActivity()
 {
-    if (!m_client || m_threadPageLoading || m_threadPageToken.isEmpty())
+    if (!m_client || m_threadPageLoading || !activityHasMore())
         return;
     m_threadPageLoading = true;
     m_threadPageFailed = false;
@@ -1291,6 +1291,7 @@ bool ActivityModel::removeEntries(const std::function<bool(const Entry &)> &drop
         return false;
     m_entries.removeIf(drop);
     rebuildVisible();
+    Q_EMIT threadPageChanged();
     Q_EMIT unseenCountChanged();
     return true;
 }
@@ -1450,6 +1451,7 @@ void ActivityModel::inviteResolved(const QString &roomId)
     m_ids.remove(id);
     m_entries.removeIf([&id](const Entry &e) { return e.id == id; });
     rebuildVisible();
+    Q_EMIT threadPageChanged();
     Q_EMIT unseenCountChanged();
 }
 
@@ -1542,6 +1544,7 @@ void ActivityModel::seed(const QVariantList &entries)
         m_ids.remove(m_entries.last().id);
         m_entries.removeLast();
     }
+    Q_EMIT threadPageChanged();
     m_seedAwaitingRooms += reconcileSeedAgainstRoomCounts(seeded);
     rebuildVisible();
     Q_EMIT unseenCountChanged();
@@ -1786,6 +1789,7 @@ bool ActivityModel::addEntry(Entry entry)
         }
         m_entries.removeLast();
     }
+    Q_EMIT threadPageChanged();
     Q_EMIT unseenCountChanged();
     ++m_threadActivityRevision;
     Q_EMIT threadActivityChanged();

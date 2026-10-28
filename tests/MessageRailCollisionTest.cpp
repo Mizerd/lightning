@@ -110,6 +110,9 @@ class MessageRailCollisionTest : public QObject
         f.insert(QStringLiteral("isThreadRoot"), false);
         f.insert(QStringLiteral("mentionsMe"), false);
         f.insert(QStringLiteral("mentionsRoom"), false);
+        f.insert(QStringLiteral("roomMentionHighlighted"), false);
+        f.insert(QStringLiteral("pushHighlighted"), false);
+        f.insert(QStringLiteral("pushVerdictKnown"), false);
         f.insert(QStringLiteral("isLocalEcho"), false);
         f.insert(QStringLiteral("readReceipts"), QVariantList{});
         f.insert(QStringLiteral("readReceiptsTotal"), 0);
@@ -285,6 +288,33 @@ class MessageRailCollisionTest : public QObject
     }
 
 private Q_SLOTS:
+    void directMentionWithoutVerdictKeepsItsEdgeBar()
+    {
+        AppController app(AppController::MockBackend);
+        QVariantMap f = baseFixture();
+        f.insert(QStringLiteral("mentionsMe"), true);
+        Delegate d;
+        QVERIFY(build(app, f, d));
+        auto *bubble = findVisual(d.root, QStringLiteral("messageContentColumn"));
+        QVERIFY(bubble);
+        QVERIFY(bubble->property("mentionBarVisible").toBool());
+
+        f.insert(QStringLiteral("pushVerdictKnown"), true);
+        Delegate quiet;
+        QVERIFY(build(app, f, quiet));
+        auto *quietBubble = findVisual(quiet.root, QStringLiteral("messageContentColumn"));
+        QVERIFY(quietBubble);
+        QVERIFY(!quietBubble->property("mentionBarVisible").toBool());
+
+        f.insert(QStringLiteral("pushHighlighted"), true);
+        app.settings()->setMessageLayout(1);
+        Delegate bubbles;
+        QVERIFY(build(app, f, bubbles, kRowWidth, true));
+        auto *bubbleLayout = findVisual(bubbles.root, QStringLiteral("messageContentColumn"));
+        QVERIFY(bubbleLayout);
+        QVERIFY(!bubbleLayout->property("mentionBarVisible").toBool());
+    }
+
     // Isolate the settings store: these build a real AppController, hence a
     // real SettingsManager, which resolves its file from the application
     // identity. Same two guards MediaPlaceholderQmlTest documents.
@@ -446,16 +476,20 @@ private Q_SLOTS:
         // did ("none" was expected false here and every live trial showed the
         // corner). It takes the band centred on the card or, in a taller row,
         // the band just below the toolbar's, right of the content column
-        // (left of an own bubble). At 1000px every row has one (a "wide"
-        // caption runs to the row's edge since 2026-10-20, but it is BELOW the
-        // card, so only the bands it shares count). At 520px the toolbar's band covers the centred one
-        // and only Compact's tall row (card from x 8) leaves 156px below it.
+        // (left of an own bubble). The own Bubbles case measures the current
+        // space beside the card; the other cases retain their measured table.
+        // A wide caption is below the card, so only shared bands count.
+        // At 520px the toolbar's band covers the centred one in the flat
+        // layouts, except Compact's tall row (card from x 8).
         // Reactions and the thread summary sit under the content, never
         // beside the card; the `occupied` loop asserts no overlap, and the
         // short thread row's proof below asserts the horizontal clearance.
-        // Measured on these delegates: 2026-10-18-fx2 notes.
-        const bool fits = width == 1000
-            || (layout == 2 && caption == QLatin1String("tall"));
+        // Flat-layout measurements: 2026-10-18-fx2 notes.
+        const bool fits = layout == 1 && own
+            ? cardBefore.left() - notice->property("margin").toReal()
+                - notice->property("gap").toReal()
+                >= notice->property("minWidth").toReal()
+            : width == 1000 || (layout == 2 && caption == QLatin1String("tall"));
         QTRY_COMPARE(notice->isVisible(), fits);
         QTRY_COMPARE(paneCount(), fits ? 0 : 1);
         QCOMPARE(int(notice->isVisible()) + paneCount(), 1);
@@ -1417,7 +1451,7 @@ private Q_SLOTS:
                  "the sent check is drawn beside the readers it gives way to");
     }
 
-    // Bubbles: an own bubble leaves the check's rail clear, as for the pile.
+    // Bubbles: the check sits in the receipt band below the own bubble.
     void anOwnBubbleClearsTheSentCheck()
     {
         AppController app(AppController::MockBackend);
@@ -1441,12 +1475,12 @@ private Q_SLOTS:
         QVERIFY(bubble);
         QVERIFY2(check && check->isVisible() && check->width() > 0,
                  "no sent check on the newest own bubble");
-        const qreal bubbleRight = rightEdgeIn(bubble, d.root);
-        const qreal checkLeft = leftEdgeIn(check, d.root);
-        QVERIFY2(bubbleRight <= checkLeft + 1.0,
-                 qPrintable(QStringLiteral(
-                     "the own bubble (ends at %1) runs under the sent check "
-                     "(starts at %2)").arg(bubbleRight).arg(checkLeft)));
+        const QRectF bubbleRect = bubble->mapRectToItem(d.root, bubble->boundingRect());
+        const QRectF checkRect = check->mapRectToItem(d.root, check->boundingRect());
+        QVERIFY(checkRect.top() >= bubbleRect.bottom());
+        QVERIFY(qAbs(checkRect.right() - bubbleRect.right()) <= 1.0);
+        QVERIFY(d.root->boundingRect().contains(checkRect));
+        QVERIFY(!checkRect.intersects(bubbleRect));
     }
 
 

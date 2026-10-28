@@ -1796,6 +1796,7 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
     case MentionsRoomRole:          return e.mentionsRoom;
     case RoomMentionHighlightedRole: return e.roomMentionHighlighted;
     case PushHighlightedRole:        return e.pushHighlight;
+    case PushVerdictKnownRole:       return e.pushVerdict != TimelineEvent::PushVerdict::Unknown;
     case IsEncryptedRole:        return e.isEncrypted;
     case IsDecryptedRole:        return e.isDecrypted;
     case UndecryptableRole:      return e.undecryptable;
@@ -1969,6 +1970,7 @@ QHash<int, QByteArray> TimelineModel::roleNames() const
         { MentionsRoomRole,          "mentionsRoom" },
         { RoomMentionHighlightedRole, "roomMentionHighlighted" },
         { PushHighlightedRole,        "pushHighlighted" },
+        { PushVerdictKnownRole,       "pushVerdictKnown" },
         { IsEncryptedRole,         "isEncrypted" },
         { IsDecryptedRole,         "isDecrypted" },
         { UndecryptableRole,       "undecryptable" },

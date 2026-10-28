@@ -56,7 +56,7 @@ class ActivityModel : public QAbstractListModel
                    NOTIFY threadActivityChanged)
     Q_PROPERTY(bool threadPageLoading READ threadPageLoading NOTIFY threadPageChanged)
     Q_PROPERTY(bool threadPageFailed READ threadPageFailed NOTIFY threadPageChanged)
-    Q_PROPERTY(bool threadHasMore READ threadHasMore NOTIFY threadPageChanged)
+    Q_PROPERTY(bool activityHasMore READ activityHasMore NOTIFY threadPageChanged)
 
 public:
     enum Roles {
@@ -134,10 +134,11 @@ public:
     int threadActivityRevision() const { return m_threadActivityRevision; }
     bool threadPageLoading() const { return m_threadPageLoading; }
     bool threadPageFailed() const { return m_threadPageFailed; }
-    bool threadHasMore() const { return !m_threadPageToken.isEmpty(); }
+    bool activityHasMore() const
+    { return !m_threadPageToken.isEmpty() && m_entries.size() < kMaxEntries; }
     Q_INVOKABLE QVariantList threadActivity(const QString &scope) const;
     Q_INVOKABLE void refreshThreadFollowing();
-    Q_INVOKABLE void loadOlderThreadActivity();
+    Q_INVOKABLE void loadOlderActivity();
     Q_INVOKABLE void openThreadActivity(const QString &roomId,
                                        const QString &rootEventId,
                                        const QString &eventId);

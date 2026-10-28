@@ -209,17 +209,17 @@ private Q_SLOTS:
         QCOMPARE(h.model.threadActivity(QStringLiteral("all")).size(), 0);
     }
 
-    void olderThreadActivityRetriesTheSameCursorAndAppends()
+    void olderActivityRetriesTheSameCursorAndAppends()
     {
         Harness h;
         Q_EMIT h.client.activitySeedCursorReceived(QStringLiteral("page-one"));
-        QVERIFY(h.model.threadHasMore());
-        h.model.loadOlderThreadActivity();
+        QVERIFY(h.model.activityHasMore());
+        h.model.loadOlderActivity();
         QCOMPARE(h.client.requestedActivityPage, QStringLiteral("page-one"));
         QVERIFY(h.model.threadPageLoading());
         Q_EMIT h.client.activitySeedPageFailed(QStringLiteral("timeout"));
         QVERIFY(h.model.threadPageFailed());
-        h.model.loadOlderThreadActivity();
+        h.model.loadOlderActivity();
         QCOMPARE(h.client.requestedActivityPage, QStringLiteral("page-one"));
         Q_EMIT h.client.activitySeedPageReceived({QVariantMap{
             { QStringLiteral("eventId"), QStringLiteral("$older") },
@@ -228,9 +228,32 @@ private Q_SLOTS:
             { QStringLiteral("senderId"), QStringLiteral("@bob:mock.local") },
             { QStringLiteral("timestampMs"), 100 },
         }}, QString());
-        QVERIFY(!h.model.threadHasMore());
+        QVERIFY(!h.model.activityHasMore());
         QVERIFY(!h.model.threadPageLoading());
         QCOMPARE(h.model.threadActivity(QStringLiteral("all")).size(), 1);
+    }
+    void olderActivityStopsAtTheEntryCap()
+    {
+        Harness h;
+        Q_EMIT h.client.activitySeedCursorReceived(QStringLiteral("page-one"));
+        QVERIFY(h.model.activityHasMore());
+        QVariantList entries;
+        for (int i = 0; i < ActivityModel::kMaxEntries; ++i)
+            entries.append(QVariantMap{
+                { QStringLiteral("eventId"), QStringLiteral("$seed%1").arg(i) },
+                { QStringLiteral("roomId"), kRoom },
+                { QStringLiteral("senderId"), QStringLiteral("@bob:mock.local") },
+                { QStringLiteral("timestampMs"), i + 1 },
+            });
+        h.model.seed(entries);
+        QCOMPARE(h.model.count(), ActivityModel::kMaxEntries);
+        QVERIFY(!h.model.activityHasMore());
+        h.model.loadOlderActivity();
+        QVERIFY(h.client.requestedActivityPage.isEmpty());
+        QVERIFY(!h.model.threadPageLoading());
+        h.model.dropSender(QStringLiteral("@bob:mock.local"));
+        QCOMPARE(h.model.count(), 0);
+        QVERIFY(h.model.activityHasMore());
     }
     // Reading a room (this client's read receipt) marks its entries seen up
     // to that point.
