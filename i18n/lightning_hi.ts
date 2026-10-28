@@ -1654,7 +1654,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+47"/>
         <source>Editing this animation sends one still PNG frame.</source>
-        <translation>इस एनीमेशन को संपादित करने से एक स्थिर पीएनजी फ्रेम भेजा जाता है।</translation>
+        <translation>इस एनीमेशन को संपादित करने से एक स्थिर PNG फ्रेम भेजा जाता है।</translation>
     </message>
     <message>
         <location line="+1"/>
