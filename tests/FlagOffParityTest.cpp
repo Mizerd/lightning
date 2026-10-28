@@ -24,7 +24,11 @@
 // then commit that file with Phase 1.
 // Re-recorded once since, for a deliberate change outside Labs: the search
 // filter asks for the ignore list at login (MASTER-2 L2), which adds exactly
-// one client:ignoredUsersReceived line and moves nothing else.
+// one client:ignoredUsersReceived line and moves nothing else. And again
+// (2026-10-28) for the saved-message cross-room jump: AppController relays
+// the backend's timelineReset as a queued roomTimelineReady, which adds
+// exactly one app:roomTimelineReady(QString) line at the end of the queued
+// section and moves nothing else.
 
 #ifndef FLAG_OFF_GOLDEN_CAPTURE
 #include "support/LabsAppHarness.h"
