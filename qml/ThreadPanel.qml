@@ -2620,6 +2620,7 @@ Rectangle {
                         IconButton {
                             id: threadEmojiButton
                             objectName: "threadEmojiButton"
+                            Layout.alignment: panel.composerExpanded ? Qt.AlignBottom : Qt.AlignVCenter
                             implicitWidth: 24; implicitHeight: 24
                             radius: AppTheme.radiusControl
                             iconName: "mood"
@@ -2639,6 +2640,7 @@ Rectangle {
                         IconButton {
                             id: threadMediaButton
                             objectName: "threadMediaButton"
+                            Layout.alignment: panel.composerExpanded ? Qt.AlignBottom : Qt.AlignVCenter
                             implicitWidth: 24; implicitHeight: 24
                             radius: AppTheme.radiusControl
                             iconName: "gif_box"
@@ -2666,6 +2668,7 @@ Rectangle {
                         // send a finished recording.
                         IconButton {
                             objectName: "threadMicButton"
+                            Layout.alignment: panel.composerExpanded ? Qt.AlignBottom : Qt.AlignVCenter
                             implicitWidth: 24; implicitHeight: 24
                             radius: AppTheme.radiusControl
                             iconName: "mic"

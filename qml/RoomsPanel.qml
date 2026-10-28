@@ -878,6 +878,7 @@ Rectangle {
             // Selection controls float over the list so selecting a row never
             // moves the rows beneath the pointer.
             Rectangle {
+                id: batchOverlay
                 z: 40
                 anchors.left: parent.left
                 anchors.right: parent.right
@@ -959,6 +960,9 @@ Rectangle {
             Loader {
                 id: classicLoader
                 anchors.fill: parent
+                // Rows stay put (top-anchored); the bar only takes the bottom
+                // of the viewport, so rows under it scroll up into reach.
+                anchors.bottomMargin: batchOverlay.visible ? batchOverlay.height : 0
                 active: !root.compact && !parent.channelsUsable
                 visible: active
                 sourceComponent: RoomListClassicPresenter {
@@ -991,6 +995,9 @@ Rectangle {
             Loader {
                 id: channelsLoader
                 anchors.fill: parent
+                // Rows stay put (top-anchored); the bar only takes the bottom
+                // of the viewport, so rows under it scroll up into reach.
+                anchors.bottomMargin: batchOverlay.visible ? batchOverlay.height : 0
                 active: !root.compact && parent.channelsUsable
                 visible: active
                 sourceComponent: RoomChannelsPresenter {
