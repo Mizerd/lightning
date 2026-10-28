@@ -4583,7 +4583,7 @@ Item {
                                                             + "comes back when you switch.")
                                                      : qsTr("Flat rows with a small avatar "
                                                             + "above each sender's messages, "
-                                                            + "tight spacing, and threads in "
+                                                            + "Nheko's close row spacing, and threads in "
                                                             + "the main view. Your fonts, text "
                                                             + "size and colours are unchanged."))
                                                   : qsTr("Lightning's own layout. Nheko "

@@ -15,7 +15,7 @@ Rectangle {
     readonly property bool compact: messageLayout === 2 || messageLayout === 3
     readonly property int rowGap: messageSpacing === 0 ? 3
                                   : messageSpacing === 2 ? 10 : 6
-    implicitHeight: 168
+    implicitHeight: Math.max(168, timelineContent.implicitHeight + AppTheme.spacing8 * 2)
     radius: AppTheme.radiusMd
     color: AppTheme.timelineBackground
     border.color: AppTheme.stormBorder
@@ -84,13 +84,27 @@ Rectangle {
             radius: AppTheme.radiusSm
             color: AppTheme.timelineBackground
             ColumnLayout {
+                id: timelineContent
                 anchors.fill: parent
                 spacing: root.rowGap
-                Label {
-                    text: qsTr("Mira · 10:42")
-                    color: AppTheme.textSecondary
-                    font.family: AppTheme.uiFont
-                    font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 5
+                    Rectangle {
+                        objectName: "layoutPreviewSmallAvatar"
+                        visible: root.messageLayout === 3
+                        implicitWidth: visible ? 20 : 0
+                        implicitHeight: visible ? 20 : 0
+                        radius: 10
+                        color: AppTheme.accentBorder
+                    }
+                    Label {
+                        text: qsTr("Mira · 10:42")
+                        color: AppTheme.textSecondary
+                        font.family: AppTheme.uiFont
+                        font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                    }
+                    Item { Layout.fillWidth: true }
                 }
                 Label {
                     text: root.threadPlacement === 1

@@ -61,6 +61,7 @@ public:
 Q_SIGNALS:
     void changed();
     void actionFailed(const QString &message);
+    void saveSucceeded();
     void openRequested(const QString &roomId, const QString &eventId,
                        const QString &threadRootId);
 
@@ -98,6 +99,7 @@ private:
     bool m_undoValid = false;
     bool m_loaded = false;
     bool m_busy = false;
+    bool m_saving = false;
     bool m_fetchingForWrite = false;
     int m_pendingReads = 0;
     bool m_reloadOwed = false;

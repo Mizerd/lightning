@@ -888,7 +888,9 @@ Rectangle {
                 color: AppTheme.border
             }
             Label {
-                readonly property int replies: app.thread.exactReplyCount
+                objectName: "threadReplyCountLabel"
+                readonly property int replies: app.thread.exactReplyCount >= 0
+                    ? app.thread.replyCount : -1
                 text: replies >= 0
                     ? qsTr("%n reply(s)", "replies in the open thread", replies)
                     : qsTr("Replies")
@@ -2060,9 +2062,11 @@ Rectangle {
 
                     RowLayout {
                         id: composerRow
+                        objectName: "threadComposerRow"
                         anchors.left: parent.left
                         anchors.right: parent.right
-                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.bottom: parent.bottom
+                        anchors.bottomMargin: AppTheme.spacing8
                         anchors.leftMargin: AppTheme.spacing12
                         anchors.rightMargin: AppTheme.spacing8
                         spacing: AppTheme.spacing8

@@ -6,6 +6,7 @@ import QtQuick.Layouts
 // raster working copy from AttachmentQueueModel; the chosen file stays intact.
 AppDialog {
     id: root
+    objectName: "attachmentImageEditDialog"
     property var queue
     property int row: -1
     property string previewUrl: ""
@@ -29,6 +30,7 @@ AppDialog {
     parent: Overlay.overlay
     anchors.centerIn: parent
     width: Math.min(620, parent ? parent.width - 32 : 620)
+    height: Math.min(680, parent ? parent.height - 32 : 680)
     standardButtons: Dialog.NoButton
     closePolicy: Popup.CloseOnEscape
 
@@ -91,8 +93,14 @@ AppDialog {
         row = -1
     }
 
-    contentItem: ColumnLayout {
-        spacing: 10
+    contentItem: ScrollView {
+        id: editorScroll
+        objectName: "attachmentImageEditScroll"
+        clip: true
+        ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+        ColumnLayout {
+            width: editorScroll.availableWidth
+            spacing: 10
         Label {
             Layout.fillWidth: true
             text: root.animatedSource
@@ -230,6 +238,7 @@ AppDialog {
                     else root.errorText = qsTr("The edited image could not be queued.")
                 }
             }
+        }
         }
     }
 }

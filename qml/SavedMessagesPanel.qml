@@ -257,6 +257,8 @@ Dialog {
                         size: "sm"
                         visible: modelData.threadRootId !== ""
                         Accessible.name: qsTr("Open thread root in room")
+                        ToolTip.text: qsTr("Open thread root in room")
+                        ToolTip.visible: hovered
                         onClicked: {
                             root.saved.openRoot(modelData.roomId, modelData.eventId)
                             root.close()
@@ -264,9 +266,11 @@ Dialog {
                     }
                     IconButton {
                         storm: true
-                        iconName: "forum"
+                        iconName: "home"
                         size: "sm"
                         Accessible.name: qsTr("Open room")
+                        ToolTip.text: qsTr("Open room")
+                        ToolTip.visible: hovered
                         onClicked: {
                             root.saved.openRoom(modelData.roomId)
                             root.close()

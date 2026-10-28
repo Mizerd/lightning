@@ -523,6 +523,40 @@ private slots:
                  QStringLiteral("Select a room to start typing"));
     }
 
+    void expandedComposerStartsTextAtTop()
+    {
+        auto *bar = item("composerBar");
+        auto *plain = item("composerInput");
+        auto *rich = item("composerRichInput");
+        QVERIFY(bar && plain && rich);
+        bar->setProperty("composerExpanded", true);
+        QCoreApplication::processEvents();
+        QCOMPARE(plain->property("verticalAlignment").toInt(),
+                 int(Qt::AlignTop));
+        QCOMPARE(rich->property("verticalAlignment").toInt(),
+                 int(Qt::AlignTop));
+        bar->setProperty("composerExpanded", false);
+    }
+
+    void imageEditorFitsWindowAndScrollsControls()
+    {
+        auto *dialog = m_root->findChild<QObject *>(
+            QStringLiteral("attachmentImageEditDialog"));
+        if (!dialog)
+            dialog = m_engine->findChild<QObject *>(
+                QStringLiteral("attachmentImageEditDialog"));
+        QVERIFY(dialog);
+        auto *scroll = dialog->findChild<QObject *>(
+            QStringLiteral("attachmentImageEditScroll"));
+        QVERIFY(scroll);
+        QVERIFY(QMetaObject::invokeMethod(dialog, "open"));
+        QCoreApplication::processEvents();
+        QVERIFY(dialog->property("height").toReal() <= m_window->height() - 32);
+        QVERIFY(scroll->property("contentHeight").toReal()
+                > scroll->property("height").toReal());
+        QVERIFY(QMetaObject::invokeMethod(dialog, "close"));
+    }
+
     // The single GIF/sticker button is a glyph button like its neighbours:
     // same size, borderless, with a pressed state.
     void mediaButtonMatchesItsGlyphRow()

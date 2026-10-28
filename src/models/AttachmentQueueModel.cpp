@@ -761,22 +761,22 @@ QVariantMap AttachmentQueueModel::renderImageEdit(
         || source.height() > maxEdge || qint64(source.width()) * source.height()
                                      > 16LL * 1024 * 1024)
         return fail(tr("This image could not be decoded safely."));
-    const QRect bounds(QPoint(), source.size());
-    const QRect crop(qRound(left * source.width()), qRound(top * source.height()),
-                     qRound((right - left) * source.width()),
-                     qRound((bottom - top) * source.height()));
-    const QRect clipped = crop.intersected(bounds);
-    if (clipped.isEmpty())
-        return fail(tr("The crop is empty."));
-    QImage output = source.copy(clipped);
-    source = QImage();
     QTransform transform;
     if (mirror)
         transform.scale(-1, 1);
     transform.rotate(quarterTurns * 90);
-    output = output.transformed(transform, Qt::FastTransformation);
+    QImage output = source.transformed(transform, Qt::FastTransformation);
+    source = QImage();
     if (output.isNull())
         return fail(tr("The image edit failed."));
+    const QRect bounds(QPoint(), output.size());
+    const QRect crop(qRound(left * output.width()), qRound(top * output.height()),
+                     qRound((right - left) * output.width()),
+                     qRound((bottom - top) * output.height()));
+    const QRect clipped = crop.intersected(bounds);
+    if (clipped.isEmpty())
+        return fail(tr("The crop is empty."));
+    output = output.copy(clipped);
     // A fresh pixel-only surface prevents QImage text fields from being
     // carried into the PNG by a format plugin. Alpha remains intact.
     QImage clean(output.size(), QImage::Format_ARGB32_Premultiplied);

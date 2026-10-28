@@ -392,7 +392,7 @@ private Q_SLOTS:
         QVERIFY(!previewBytes.contains(kGpsMarker));
         QImage edited;
         QVERIFY(edited.loadFromData(previewBytes));
-        QCOMPARE(edited.size(), QSize(16, 8));
+        QCOMPARE(edited.size(), QSize(8, 16));
         QVERIFY(queue->commitImageEdit(0));
         QCOMPARE(queue->entries().at(0).mime, QStringLiteral("image/png"));
         QCOMPARE(queue->entries().at(0).fileName, QStringLiteral("holiday.png"));
@@ -424,6 +424,35 @@ private Q_SLOTS:
         QVERIFY(!QFileInfo::exists(previewPath));
         QCOMPARE(queue->entries().at(0).localPath, path);
         QCOMPARE(readAll(path), decodablePng());
+    }
+
+    void cropAfterRotationUsesDisplayedEdges()
+    {
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!room:example.org"));
+        QImage source(4, 4, QImage::Format_ARGB32);
+        source.fill(Qt::blue);
+        for (int y = 0; y < 4; ++y)
+            source.setPixelColor(3, y, Qt::red);
+        QByteArray bytes;
+        QBuffer buffer(&bytes);
+        QVERIFY(buffer.open(QIODevice::WriteOnly));
+        QVERIFY(source.save(&buffer, "PNG"));
+        QTemporaryDir dir;
+        composer.addAttachment(QUrl::fromLocalFile(
+            writeFile(dir, QStringLiteral("edges.png"), bytes)));
+        auto *queue = composer.attachments();
+        const QVariantMap preview = queue->renderImageEdit(
+            0, 0, 0, 1, 0.5, 1, false, {});
+        QImage result(preview.value(QStringLiteral("url")).toUrl().toLocalFile());
+        QCOMPARE(result.size(), QSize(4, 2));
+        // After a clockwise turn the red source right edge is the visible
+        // bottom edge. Bottom trims those rows from the displayed image.
+        for (int y = 0; y < result.height(); ++y)
+            for (int x = 0; x < result.width(); ++x)
+                QCOMPARE(result.pixelColor(x, y), QColor(Qt::blue));
     }
 
     void editedPngDropsEmbeddedTextButKeepsTransparency()

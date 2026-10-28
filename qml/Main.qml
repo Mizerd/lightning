@@ -281,6 +281,45 @@ ApplicationWindow {
             window.raiseIntoView()
         }
     }
+
+    // A room switch can deliver its first timeline snapshot after the open
+    // request. Pagination clears navigation on that reset, so repeat the
+    // saved-message landing once the new snapshot has been adopted.
+    property string savedLandingRoom: ""
+    property string savedLandingEvent: ""
+    Timer {
+        id: savedLandingExpiry
+        interval: 10000
+        onTriggered: {
+            window.savedLandingRoom = ""
+            window.savedLandingEvent = ""
+        }
+    }
+    Connections {
+        target: app.savedMessages
+        function onOpenRequested(roomId, eventId, threadRootId) {
+            window.savedLandingRoom = eventId && !threadRootId ? roomId : ""
+            window.savedLandingEvent = window.savedLandingRoom ? eventId : ""
+            if (window.savedLandingEvent) savedLandingExpiry.restart()
+        }
+    }
+    Connections {
+        target: app.timeline
+        function onModelReset() {
+            if (window.savedLandingEvent !== ""
+                    && window.savedLandingRoom === app.currentRoomId) {
+                Qt.callLater(function() {
+                    if (window.savedLandingRoom === app.currentRoomId) {
+                        var eventId = window.savedLandingEvent
+                        window.savedLandingRoom = ""
+                        window.savedLandingEvent = ""
+                        savedLandingExpiry.stop()
+                        app.pagination.jumpToEvent(eventId)
+                    }
+                })
+            }
+        }
+    }
     // Ctrl+Q quits for real, as does the tray icon's "Quit Lightning". It sets
     // quitRequested first so the close handler does not veto the quit.
     // Qt.quit() rather than Qt.exit() so aboutToQuit teardown (AppController,
@@ -1014,6 +1053,9 @@ ApplicationWindow {
             target: app.savedMessages
             function onActionFailed(message) {
                 pinNotice.show(message, true)
+            }
+            function onSaveSucceeded() {
+                pinNotice.show(qsTr("Message saved."), false)
             }
         }
         // Report outcome. The report dialog closes before the server answers,

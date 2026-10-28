@@ -161,6 +161,34 @@ class QmlBindingContractTest : public QObject
     }
 
 private Q_SLOTS:
+    void savedMessageLandingAndActionsRemainDistinct()
+    {
+        const QString main = read(QStringLiteral("Main.qml"));
+        const QString saved = read(QStringLiteral("SavedMessagesPanel.qml"));
+        QVERIFY(!main.isEmpty() && !saved.isEmpty());
+        // The room's async snapshot resets PaginationController navigation.
+        // The saved target must be replayed on that reset through the same
+        // highlighted reply-jump path.
+        const int reset = main.indexOf(QStringLiteral("function onModelReset()"));
+        QVERIFY(reset >= 0);
+        QVERIFY(main.mid(reset, 700).contains(QStringLiteral(
+            "app.pagination.jumpToEvent(eventId)")));
+        QVERIFY(main.contains(QStringLiteral("function onSaveSucceeded()")));
+        QVERIFY(saved.contains(QStringLiteral("iconName: \"forum\"")));
+        QVERIFY(saved.contains(QStringLiteral("iconName: \"home\"")));
+        QVERIFY(saved.contains(QStringLiteral(
+            "ToolTip.text: qsTr(\"Open thread root in room\")")));
+        QVERIFY(saved.contains(QStringLiteral(
+            "ToolTip.text: qsTr(\"Open room\")")));
+    }
+
+    void presetDescriptionMatchesCozySmallAvatarRhythm()
+    {
+        const QString settings = read(QStringLiteral("SettingsScreen.qml"));
+        QVERIFY(settings.contains(QStringLiteral("Nheko's close row spacing")));
+        QVERIFY(!settings.contains(QStringLiteral("tight spacing, and threads")));
+    }
+
     // A media-cache completion handler must re-evaluate the Image's `source`
     // binding (bump a counter it reads), never assign `source`: an imperative
     // write destroys the binding and the Image keeps its first image for the

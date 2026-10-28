@@ -2625,7 +2625,8 @@ Item {
                             leftInset: 0
                             rightInset: 0
                             inputMethodHints: Qt.ImhNone
-                            verticalAlignment: TextEdit.AlignVCenter
+                            verticalAlignment: root.composerExpanded
+                                               ? TextEdit.AlignTop : TextEdit.AlignVCenter
                             wrapMode: TextArea.Wrap
                             enabled: app.currentRoomId !== ""
                             background: Rectangle { color: "transparent" }
@@ -2882,7 +2883,8 @@ Item {
                         // not implement (it uses IMM32); spell checking is
                         // Lightning's own, via app.spell.
                         inputMethodHints: Qt.ImhNone
-                        verticalAlignment: TextEdit.AlignVCenter
+                        verticalAlignment: root.composerExpanded
+                                           ? TextEdit.AlignTop : TextEdit.AlignVCenter
                         wrapMode: TextArea.Wrap
                         enabled: app.currentRoomId !== ""
                         text: app.composer.text

@@ -2134,9 +2134,15 @@ private slots:
         QCOMPARE(preview->property("threadPlacement").toInt(),
                  settings->threadPlacement());
         QCOMPARE(preview->property("compact").toBool(), true);
+        auto *smallAvatar = item("layoutPreviewSmallAvatar");
+        QVERIFY(smallAvatar);
+        QVERIFY(smallAvatar->isVisible());
+        QCOMPARE(smallAvatar->width(), 20.0);
         settings->setMessageSpacing(SettingsManager::kSpacingRoomy);
         QCoreApplication::processEvents();
         QCOMPARE(preview->property("rowGap").toInt(), 10);
+        QVERIFY(preview->height() > 168);
+        QVERIFY(preview->height() >= preview->property("implicitHeight").toReal());
         settings->resetLayoutPresetOverrides();
         QCoreApplication::processEvents();
         // Back to whatever spacing the preset itself carries.

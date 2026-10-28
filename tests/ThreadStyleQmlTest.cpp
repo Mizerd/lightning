@@ -188,6 +188,27 @@ class ThreadStyleQmlTest : public QObject
     }
 
 private slots:
+    void replyDividerUsesLiveKnownCount()
+    {
+        QString root;
+        openThreadPanel(&root);
+        const QString composite = MatrixClient::threadTimelineId(
+            QString::fromLatin1(kDevRoom), root);
+        const auto events = mock()->timeline(composite);
+        int rootIndex = -1;
+        for (int i = 0; i < events.size(); ++i)
+            if (events.at(i).eventId == root) { rootIndex = i; break; }
+        QVERIFY(rootIndex >= 0);
+        TimelineEvent changed = events.at(rootIndex);
+        changed.threadReplyCount = 1;
+        mock()->changeEventAtForTest(composite, rootIndex, changed);
+        auto *label = item("threadReplyCountLabel");
+        QVERIFY(label);
+        const int live = m_controller->thread()->replyCount();
+        QVERIFY(live > 1);
+        QTRY_COMPARE(label->property("replies").toInt(), live);
+    }
+
     void initTestCase()
     {
         QVERIFY(m_home.isValid());

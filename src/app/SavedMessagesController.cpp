@@ -76,6 +76,7 @@ void SavedMessagesController::reset()
     m_undoValid = false;
     m_loaded = false;
     m_busy = false;
+    m_saving = false;
     m_fetchingForWrite = false;
     m_pendingReads = 0;
     m_reloadOwed = false;
@@ -212,7 +213,10 @@ void SavedMessagesController::setClient(MatrixClient *client)
             Q_EMIT actionFailed(m_error);
         } else {
             m_error.clear();
+            if (m_saving)
+                Q_EMIT saveSucceeded();
         }
+        m_saving = false;
         m_beforeWrite.clear();
         emitChanged();
         if (ok || m_reloadOwed) {
@@ -347,6 +351,7 @@ void SavedMessagesController::write()
 void SavedMessagesController::failWrite(const QString &message)
 {
     m_busy = false;
+    m_saving = false;
     m_fetchingForWrite = false;
     m_refs = std::move(m_beforeWrite);
     m_beforeWrite.clear();
@@ -394,6 +399,7 @@ void SavedMessagesController::save(const QString &roomId,
     }
     m_beforeWrite = m_refs;
     m_refs.prepend(ref);
+    m_saving = true;
     m_undoValid = false;
     write();
 }
@@ -406,6 +412,7 @@ void SavedMessagesController::remove(const QString &roomId,
     if (i < 0) return;
     m_beforeWrite = m_refs;
     m_undo = m_refs.takeAt(i);
+    m_saving = false;
     m_undoValid = true;
     write();
 }
@@ -416,6 +423,7 @@ void SavedMessagesController::undoRemove()
         || isSaved(m_undo.roomId, m_undo.eventId)) return;
     m_beforeWrite = m_refs;
     m_refs.append(m_undo);
+    m_saving = false;
     std::sort(m_refs.begin(), m_refs.end(), [](const Ref &a, const Ref &b) {
         return a.savedAtMs > b.savedAtMs;
     });

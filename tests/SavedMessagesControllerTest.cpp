@@ -189,6 +189,7 @@ private Q_SLOTS:
         QCOMPARE(client.lastType, SavedMessagesController::eventType());
         Q_EMIT client.accountPrefRead(client.lastType, false, {});
         QVERIFY(saved.loaded());
+        QSignalSpy savedNotice(&saved, &SavedMessagesController::saveSucceeded);
         saved.save(QStringLiteral("!room:example.org"), QStringLiteral("$reply"),
                    QStringLiteral("$root"));
         Q_EMIT client.accountPrefRead(client.lastType, false, {});
@@ -206,6 +207,7 @@ private Q_SLOTS:
         QVERIFY(!QJsonDocument(QJsonObject::fromVariantMap(client.lastWrite))
                     .toJson().contains("secret body"));
         Q_EMIT client.accountPrefWritten(client.lastType, true, {});
+        QCOMPARE(savedNotice.size(), 1);
         QSignalSpy opened(&saved, &SavedMessagesController::openRequested);
         saved.open(QStringLiteral("!room:example.org"), QStringLiteral("$reply"));
         QCOMPARE(opened.size(), 1);

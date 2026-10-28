@@ -430,6 +430,16 @@ private slots:
         auto *threadSend = item("threadSendButton");
         QVERIFY(miniComposer && threadSend);
         QCOMPARE(qobject_cast<QQuickItem *>(threadSend)->width(), 28.0);
+        auto *composerRow = item("threadComposerRow");
+        QVERIFY(composerRow);
+        const qreal originalHeight = miniComposer->height();
+        miniComposer->setHeight(originalHeight + 80);
+        QCoreApplication::processEvents();
+        QVERIFY(qAbs(composerRow->mapToItem(miniComposer,
+                    QPointF(0, composerRow->height())).y()
+                     - (miniComposer->height() - 8)) < 1.0);
+        miniComposer->setHeight(originalHeight);
+        QCoreApplication::processEvents();
 
         const QImage img = grabAndSave(QStringLiteral("design-thread-panel"));
         QVERIFY(!img.isNull());
