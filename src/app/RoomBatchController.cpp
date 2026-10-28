@@ -71,7 +71,7 @@ void RoomBatchController::clear()
 {
     ++m_generation;
     disconnect(m_tagFailureConnection);
-    m_selected.clear(); m_order.clear(); m_results.clear(); m_queue.clear();
+    m_selected.clear(); m_order.clear(); m_results.clear(); m_names.clear(); m_queue.clear();
     m_active.clear(); m_action.clear(); m_mode = -1;
     m_selecting = false; m_confirmLeave = false;
     emit changed();
@@ -124,7 +124,7 @@ QVariantList RoomBatchController::outcomes() const
     QVariantList rows;
     for (const auto &id : m_order)
         if (m_results.contains(id)) rows.append(QVariantMap{{QStringLiteral("roomId"), id},
-            {QStringLiteral("name"), m_rooms ? m_rooms->findRoom(id).value(QStringLiteral("name")) : QVariant()},
+            {QStringLiteral("name"), m_names.value(id)},
             {QStringLiteral("status"), m_results.value(id)}});
     return rows;
 }
@@ -140,8 +140,9 @@ void RoomBatchController::run(const QString &action, int mode)
         || (action == QLatin1String("read") && !m_client->supportsMarkRoomRead())
         || (action == QLatin1String("notification") && (mode < 0 || mode > 3))) return;
     ++m_generation;
-    m_action = action; m_mode = mode; m_results.clear();
+    m_action = action; m_mode = mode; m_results.clear(); m_names.clear();
     for (const auto &id : m_order) {
+        m_names.insert(id, m_rooms->findRoom(id).value(QStringLiteral("name")).toString());
         m_results.insert(id, QStringLiteral("pending"));
         m_queue.append(id);
     }
@@ -168,8 +169,11 @@ void RoomBatchController::confirmLeave()
 {
     if (!m_confirmLeave || busy() || m_account.isEmpty()) return;
     ++m_generation;
-    m_confirmLeave = false; m_action = QStringLiteral("leave"); m_results.clear();
-    for (const auto &id : m_order) { m_results.insert(id, QStringLiteral("pending")); m_queue.append(id); }
+    m_confirmLeave = false; m_action = QStringLiteral("leave"); m_results.clear(); m_names.clear();
+    for (const auto &id : m_order) {
+        m_names.insert(id, m_rooms->findRoom(id).value(QStringLiteral("name")).toString());
+        m_results.insert(id, QStringLiteral("pending")); m_queue.append(id);
+    }
     emit changed(); advance();
 }
 void RoomBatchController::advance()
@@ -225,6 +229,11 @@ void RoomBatchController::finish(const QString &id, bool ok)
     if (id != m_active || m_active.isEmpty()) return;
     disconnect(m_tagFailureConnection);
     m_results[id] = ok ? QStringLiteral("succeeded") : QStringLiteral("failed");
+    if (ok && m_action == QLatin1String("leave")) {
+        m_selected.remove(id);
+        if (m_selected.isEmpty())
+            m_selecting = false;
+    }
     m_active.clear();
     emit changed();
     // Defer the next dispatch so a synchronous mock acknowledgement cannot

@@ -244,6 +244,7 @@ private Q_SLOTS:
     void aRoomMovesWhenSomebodySpeaksInIt();
     void aFavouriteRisesToTheTopOfItsGroup();
     void lowPriorityTagReachesTheChannelMenu();
+    void lowPriorityFollowsOrdinaryRoomsInEverySortMode();
     // The DM tab survives a space-list rebuild: SpaceManager drops a scope
     // that is not a joined Space, but the rail's tab sentinels ("@people",
     // "@orphans") are never rooms and must be kept.
@@ -1938,6 +1939,23 @@ void SpaceChannelsTest::lowPriorityTagReachesTheChannelMenu()
     QVERIFY(row >= 0);
     QVERIFY(!f.model.data(f.model.index(row, 0),
                           SpaceChannelModel::IsLowPriorityRole).toBool());
+}
+
+void SpaceChannelsTest::lowPriorityFollowsOrdinaryRoomsInEverySortMode()
+{
+    Fixture f;
+    auto tagged = room(QStringLiteral("!tagged:x"), QStringLiteral("A Tagged"));
+    tagged.lowPriority = true;
+    tagged.lastActivity = ago(1);
+    auto ordinary = room(QStringLiteral("!ordinary:x"), QStringLiteral("Z Ordinary"));
+    ordinary.lastActivity = ago(900);
+    f.build({tagged, ordinary});
+    f.selectHome();
+    for (int mode : {0, 1, 2, 3}) {
+        f.model.setSortMode(mode);
+        QVERIFY2(rowOfName(f.model, ordinary.name) < rowOfName(f.model, tagged.name),
+                 "m.lowpriority room must follow the ordinary room");
+    }
 }
 
 void SpaceChannelsTest::aSpacesRoomsAreNewestFirstNotInChildOrder()

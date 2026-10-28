@@ -71,6 +71,7 @@ private:
     QSet<QString> m_selected;
     QStringList m_order;
     QHash<QString, QString> m_results;
+    QHash<QString, QString> m_names;
     QStringList m_queue;
     QString m_active;
     QString m_action;

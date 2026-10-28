@@ -160,6 +160,43 @@ RoomListClassicPresenter { objectName: "presenter"; width: 320; height: 400 }
 )QML";
 
 private Q_SLOTS:
+    void batchPromptUsesAppDialogAndSelectMenuHasMappedIcon()
+    {
+        QFile panel(QStringLiteral(LIGHTNING_SOURCE_DIR "/qml/RoomsPanel.qml"));
+        QVERIFY(panel.open(QIODevice::ReadOnly));
+        const QByteArray panelSource = panel.readAll();
+        QVERIFY(panelSource.contains("AppDialog {\n            id: batchLeaveDialog"));
+        QFile menu(QStringLiteral(LIGHTNING_SOURCE_DIR "/qml/RoomActionsMenu.qml"));
+        QVERIFY(menu.open(QIODevice::ReadOnly));
+        const QByteArray menuSource = menu.readAll();
+        const auto selectAt = menuSource.indexOf("objectName: \"roomSelectItem\"");
+        QVERIFY(selectAt >= 0);
+        QVERIFY(menuSource.mid(selectAt, 160).contains("iconName: \"check\""));
+        QFile icons(QStringLiteral(LIGHTNING_SOURCE_DIR "/qml/Icon.qml"));
+        QVERIFY(icons.open(QIODevice::ReadOnly));
+        QVERIFY(icons.readAll().contains("\"check\": "));
+    }
+
+    void pointerSelectionKeepsRowsStillAndEscapeClosesIt()
+    {
+        Fixture f;
+        QVERIFY(load(f, R"QML(
+import QtQuick
+import MatrixClient
+RoomsPanel { width: 380; height: 700 }
+)QML", 380, 700));
+        const auto rows = rowsOf(f.item.get());
+        QVERIFY(!rows.isEmpty());
+        const qreal before = rows.first()->mapToScene(QPointF()).y();
+        const QPoint point = rows.first()->mapToScene(
+            QPointF(rows.first()->width() / 2, rows.first()->height() / 2)).toPoint();
+        QTest::mouseClick(&f.window, Qt::LeftButton, Qt::ControlModifier, point);
+        QTRY_VERIFY(f.controller->roomBatch()->selecting());
+        QCOMPARE(rows.first()->mapToScene(QPointF()).y(), before);
+        QTest::keyClick(&f.window, Qt::Key_Escape);
+        QTRY_VERIFY(!f.controller->roomBatch()->selecting());
+    }
+
     void selectionCanEnterByKeyboardAndExitWithEscape()
     {
         Fixture f;

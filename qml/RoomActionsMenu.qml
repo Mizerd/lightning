@@ -39,6 +39,7 @@ AppMenu {
     AppMenuItem {
         objectName: "roomSelectItem"
         visible: !root.isInvite
+        iconName: "check"
         text: qsTr("Select room")
         onTriggered: root.selectRoomRequested()
     }

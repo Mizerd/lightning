@@ -127,6 +127,8 @@ ItemDelegate {
             base = qsTr("%1, %n mention(s)", "", root.highlightCount).arg(base);
         else if (root.readsUnread)
             base = qsTr("%1, unread").arg(base);
+        if (root.isLowPriority)
+            base = qsTr("%1, low priority").arg(base);
         return base;
     }
 
@@ -229,7 +231,9 @@ ItemDelegate {
             sourceComponent: Label {
                 // Remote or externally chosen text: never markup.
                 textFormat: Text.PlainText
-                text: root.channelName
+                text: root.isLowPriority
+                      ? qsTr("%1 · Low priority").arg(root.channelName)
+                      : root.channelName
                 elide: Text.ElideRight
                 maximumLineCount: 1
                 font.pixelSize: AppTheme.scaled(AppTheme.textBody)

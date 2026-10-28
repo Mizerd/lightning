@@ -180,6 +180,36 @@ private Q_SLOTS:
         emit client.roomsChanged();
         QCOMPARE(batch.succeeded(), 1);
     }
+
+    void leaveKeepsSnapshotNamesAndRemovesSuccessfulSelections()
+    {
+        BatchClient client;
+        auto first = room(QStringLiteral("!a:x")); first.name = QStringLiteral("Alpha");
+        auto second = room(QStringLiteral("!b:x")); second.name = QStringLiteral("Beta");
+        client.rows = {first, second};
+        RoomListModel rooms; rooms.setClient(&client);
+        RoomInfoController info; info.setClient(&client);
+        RoomBatchController batch;
+        batch.configure(&client, &rooms, &info, [](const QString &, int) {});
+        batch.setAccount(QStringLiteral("@alice:x"));
+        batch.select(first.id); batch.select(second.id);
+        batch.requestLeave(); batch.confirmLeave();
+        client.rows.removeFirst();
+        emit client.roomsChanged();
+        emit client.roomLeaveFinished(1, first.id, true, {});
+        QCOMPARE(batch.selectionCount(), 1);
+        QVERIFY(!batch.isSelected(first.id));
+        QCOMPARE(batch.outcomes().first().toMap().value(QStringLiteral("name")).toString(),
+                 QStringLiteral("Alpha"));
+        QTRY_COMPARE(client.leaveRequests.size(), 2);
+        client.rows.clear();
+        emit client.roomsChanged();
+        emit client.roomLeaveFinished(2, second.id, true, {});
+        QCOMPARE(batch.selectionCount(), 0);
+        QVERIFY(!batch.selecting());
+        QCOMPARE(batch.outcomes().last().toMap().value(QStringLiteral("name")).toString(),
+                 QStringLiteral("Beta"));
+    }
 };
 QTEST_MAIN(RoomBatchControllerTest)
 #include "RoomBatchControllerTest.moc"

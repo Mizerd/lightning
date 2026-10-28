@@ -232,6 +232,8 @@ void SpaceChannelModel::sortGroup(QVector<Row> &rooms, bool favouritesFirst)
                           return isCall(a);
                       if (favouritesFirst && a.favourite != b.favourite)
                           return a.favourite;
+                      if (a.lowPriority != b.lowPriority)
+                          return !a.lowPriority;
                       return conversation::byName(collator, a.name, a.id,
                                                   b.name, b.id);
                   });
@@ -246,6 +248,8 @@ void SpaceChannelModel::sortGroup(QVector<Row> &rooms, bool favouritesFirst)
                       return isCall(a);
                   if (favouritesFirst && a.favourite != b.favourite)
                       return a.favourite;
+                  if (a.lowPriority != b.lowPriority)
+                      return !a.lowPriority;
                   if (unreadFirst && a.hasUnread != b.hasUnread)
                       return a.hasUnread;
                   return byRecency(a, b);
@@ -257,6 +261,8 @@ void SpaceChannelModel::sortGroup(QVector<Row> &rooms, bool favouritesFirst)
             return isCall(a);
         if (favouritesFirst && a.favourite != b.favourite)
             return a.favourite;
+        if (a.lowPriority != b.lowPriority)
+            return !a.lowPriority;
         if (unreadFirst && a.hasUnread != b.hasUnread)
             return a.hasUnread;
         return conversation::moreRecent(a.targetActivity, a.name, a.id,
@@ -283,7 +289,9 @@ void SpaceChannelModel::sortSpaceChannels(QVector<Row> &rooms)
                                             && b.id == m_callRoomId;
                          if (aCall != bCall)
                              return aCall;
-                         return a.favourite && !b.favourite;
+                         if (a.favourite != b.favourite)
+                             return a.favourite;
+                         return !a.lowPriority && b.lowPriority;
                      });
 }
 
