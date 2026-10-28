@@ -1315,11 +1315,19 @@ Item {
                       + AppTheme.spacingXS)
         : 0
 
-    // An own bubble is right-aligned to the same edge the facepile rides, so
-    // inset it (and narrow a wide incoming one) by the pile's width when there
-    // is a pile. receiptRow.width depends only on the chip count, so no loop.
+    // Own Bubbles messages give the sent check or reader faces a measured
+    // footer. Use the model roles here, not readReceiptStrip.visible: the
+    // latter reads naturalImplicitHeight, which includes this footer.
+    readonly property bool ownBubbleReceiptFooter:
+        root.bubbleMode && model.isOwn === true && !model.redacted
+        && (model.sentReceipt === true
+            || (model.readReceipts || []).length > 0)
+
+    // Incoming Bubbles rows still use the side rail; leave its width clear.
+    // Own Bubbles rows have a footer and need no horizontal inset.
     readonly property real bubbleReceiptInset:
-        (root.bubbleMode && readReceiptStrip.visible && receiptRow.width > 0)
+        (root.bubbleMode && !root.ownBubbleReceiptFooter
+         && readReceiptStrip.visible && receiptRow.width > 0)
         ? receiptRow.width + AppTheme.spacingXS
         : 0
 
@@ -1353,13 +1361,14 @@ Item {
     // unclickable. Reserve the pile's width only while the two bands meet. The
     // bar's bottom is 29px below bubbleRow's top (28px buttons + 2*2 padding -
     // 3px overhang), +4 so they do not touch. Feeds only a Loader's
-    // rightMargin, so it cannot loop through the bubble's width and applies in
-    // Bubbles too.
+    // rightMargin, so it cannot loop through the bubble's width. The own
+    // Bubbles footer is below the bar and needs no side reserve.
     // True while the receipt band and the action bar's band meet.
     readonly property bool receiptBandMeetsBar:
         (layout.height - bubbleRow.y - receiptRow.height) < 33
     readonly property real actionBarReceiptReserve:
-        (readReceiptStrip.visible && receiptRow.width > 0
+        (!root.ownBubbleReceiptFooter && readReceiptStrip.visible
+         && receiptRow.width > 0
          && root.receiptBandMeetsBar)
         ? receiptRow.width + AppTheme.spacingXS
         : 0
@@ -1734,6 +1743,8 @@ Item {
             Layout.fillWidth: true
             implicitHeight: Math.max(avatarSlot.implicitHeight,
                                      bubble.implicitHeight)
+                            + (root.ownBubbleReceiptFooter
+                               ? AppTheme.spacingXS + receiptRow.height : 0)
 
             HoverHandler {
                 id: rowHover
@@ -3467,9 +3478,10 @@ Item {
             // bubbleRow and does not feed the bubble's measurement.
             readonly property bool followsOwnBubble:
                 root.bubbleMode && model.isOwn === true
-            // The facepile rides the row's right edge in every layout, so its
-            // reservation is a floor on the right margin.
+            // A side-rail facepile needs a right margin; the own Bubbles
+            // footer has its own measured band above the reactions.
             readonly property real pileReserve: readReceiptStrip.visible
+                && !root.ownBubbleReceiptFooter
                 ? receiptRow.width + AppTheme.spacingXS : 0
             Layout.rightMargin: reactionsFlow.followsOwnBubble
                 ? Math.max(reactionsFlow.pileReserve,
@@ -3846,10 +3858,8 @@ Item {
         readonly property int overflowCount:
             Math.max(0, totalOthers - Math.min(shown.length, maxAvatars))
         // Element's "sent" check: this is the newest message of ours the
-        // server has, and nobody has read it yet. It rides the same rail as the
-        // facepile (and gives way to it once someone reads), so the right-rail
-        // reservations that already key on this strip's visibility and its
-        // row's width cover it in every layout, Bubbles included.
+        // server has, and nobody has read it yet. It shares the facepile's
+        // slot and gives way to reader faces once someone reads the message.
         readonly property bool sentOnly:
             model.sentReceipt === true && receipts.length === 0
 
@@ -3900,17 +3910,18 @@ Item {
         // Only on a row with a body of its own.
         visible: !model.redacted && (receipts.length > 0 || sentOnly)
                  && root.naturalImplicitHeight > 0
-        // Placement is identical for every message, own or not (the
-        // one-left-aligned-sender contract; its scan bans the right-align
-        // literal in this file). The chip stack rides the full row's right
-        // edge: one fixed receipt rail, as in Element.
+        // Own Bubbles rows place the strip below the bubble. Other layouts
+        // keep the existing right rail.
         x: layout.x
         width: layout.width
-        // A zero-height overlay at the bottom of whichever body this row shows;
-        // the chips paint upward from it, so receipts never add a tail. Outside
-        // `layout` because `layout` is hidden for call-event and room-activity
-        // rows, which can carry receipts too.
-        y: root.isCallEvent || root.isStateActivity || root.isThreadKeyWait
+        // Outside `layout` because call-event and room-activity rows can also
+        // carry receipts. The Bubbles footer is reserved in bubbleRow's
+        // implicitHeight, so it contributes to the timeline's measured height.
+        y: root.ownBubbleReceiptFooter
+           ? layout.y + bubbleRow.y
+             + Math.max(avatarSlot.implicitHeight, bubble.implicitHeight)
+             + AppTheme.spacingXS
+           : root.isCallEvent || root.isStateActivity || root.isThreadKeyWait
            ? root.height : layout.y + layout.height
         height: 0
         z: 3
@@ -3933,9 +3944,11 @@ Item {
         Row {
             id: receiptRow
             objectName: "readReceiptRow"
-            x: Math.max(root.avatarGutterWidth,
-                        readReceiptStrip.width - width)
-            y: -height
+            x: root.ownBubbleReceiptFooter
+               ? bubble.x + bubble.width - width
+               : Math.max(root.avatarGutterWidth,
+                          readReceiptStrip.width - width)
+            y: root.ownBubbleReceiptFooter ? 0 : -height
             // sable-next's pitch: 18px faces, each on a ring of the surface
             // colour, overlapping by 6.
             spacing: -6

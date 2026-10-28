@@ -1828,23 +1828,36 @@ private Q_SLOTS:
                      .arg(headerRight).arg(bubbleRight)));
     }
 
-    // Bubbles: an own bubble's placement must honour the receipt-rail inset
-    // its width cap reserves, or the avatars clip its corner.
-    void anOwnBubbleClearsTheReceiptPile()
+    // Bubbles: both the sent check and reader faces belong in a measured
+    // footer below a short own bubble. On the old code the pile's bottom was
+    // at the row's bottom and its top was above the bubble's bottom; the
+    // below-bubble assertion fails for either fixture.
+    void anOwnBubblePlacesItsReceiptBelow_data()
     {
+        QTest::addColumn<bool>("readByOthers");
+        QTest::newRow("sent-check") << false;
+        QTest::newRow("reader-faces") << true;
+    }
+    void anOwnBubblePlacesItsReceiptBelow()
+    {
+        QFETCH(bool, readByOthers);
         AppController app(AppController::MockBackend);
         QVERIFY(app.settings());
         app.settings()->setMessageLayout(1);   // Bubbles
 
         QVariantMap f = baseFixture();
         f.insert(QStringLiteral("isOwn"), true);
-        f.insert(QStringLiteral("readReceipts"), receipts(3));
-        f.insert(QStringLiteral("readReceiptsTotal"), 3);
+        f.insert(QStringLiteral("showSenderIdentity"), false);
+        f.insert(QStringLiteral("body"), QStringLiteral("ok"));
+        if (readByOthers) {
+            f.insert(QStringLiteral("readReceipts"), receipts(3));
+            f.insert(QStringLiteral("readReceiptsTotal"), 3);
+        } else {
+            f.insert(QStringLiteral("sentReceipt"), true);
+        }
 
         Delegate d;
-        QVERIFY(build(app, f, d));
-        QQmlProperty::write(d.root, QStringLiteral("isDirectRoom"), true);
-        QCoreApplication::processEvents();
+        QVERIFY(build(app, f, d, kRowWidth, true));
         QVERIFY(QQmlProperty::read(d.root, QStringLiteral("bubbleMode")).toBool());
 
         auto *bubble = d.root->findChild<QQuickItem *>(
@@ -1853,15 +1866,35 @@ private Q_SLOTS:
             QStringLiteral("readReceiptRow"));
         QVERIFY(bubble);
         QVERIFY(pile);
-        QVERIFY2(pile->width() > 0, "the receipt facepile measured empty");
+        QVERIFY2(pile->isVisible() && pile->width() > 0,
+                 "the receipt did not appear on the own message");
+        auto *check = d.root->findChild<QQuickItem *>(
+            QStringLiteral("sentReceiptCheck"));
+        if (readByOthers)
+            QVERIFY(!check || !check->isVisible());
+        else
+            QVERIFY(check && check->isVisible());
 
-        const qreal bubbleRight = rightEdgeIn(bubble, d.root);
-        const qreal pileLeft = leftEdgeIn(pile, d.root);
-        QVERIFY2(bubbleRight <= pileLeft + 1.0,
-                 qPrintable(QStringLiteral(
-                     "the own bubble (ends at %1) runs under the read-receipt "
-                     "facepile (starts at %2), which clips its corner")
-                     .arg(bubbleRight).arg(pileLeft)));
+        const QPointF bubbleTop = bubble->mapToItem(d.root, QPointF(0, 0));
+        const QPointF pileTop = pile->mapToItem(d.root, QPointF(0, 0));
+        const QRectF pileRect(pileTop, QSizeF(pile->width(), pile->height()));
+        const qreal bubbleBottom = bubbleTop.y() + bubble->height();
+        QVERIFY2(pileRect.top() >= bubbleBottom + 1.0,
+                 qPrintable(QStringLiteral("receipt top %1 is above bubble "
+                                           "bottom %2")
+                                .arg(pileRect.top()).arg(bubbleBottom)));
+        QVERIFY2(qAbs(pileRect.right() - rightEdgeIn(bubble, d.root)) <= 1.0,
+                 "the receipt does not end at the bubble's trailing edge");
+        QVERIFY2(pileRect.bottom() <= d.root->height() + 0.5,
+                 "the receipt hangs into the next message row");
+
+        QQuickItem *bar = forceActionBar(d.root);
+        QVERIFY2(bar && bar->width() > 0 && bar->height() > 0,
+                 "the action bar did not measure");
+        const QPointF barTop = bar->mapToItem(d.root, QPointF(0, 0));
+        const QRectF barRect(barTop, QSizeF(bar->width(), bar->height()));
+        QVERIFY2(!barRect.intersects(pileRect),
+                 "the receipt overlaps the hover action bar on a short row");
     }
 
     // O:2370: in Bubbles the hover bar sat at the row's top-right, exactly
