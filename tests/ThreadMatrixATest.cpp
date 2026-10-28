@@ -172,13 +172,17 @@ private slots:
 
             thread.openThread(roomId, rootA);
             QTRY_COMPARE(thread.state(), ThreadController::Ready);
+            // A delivered upload is released while A is parked (nothing left
+            // to act on); a failed one stays in A's tray, for A only.
+            if (accepted) {
+                QCOMPARE(thread.attachments()->rowCount(), 0);
+                continue;
+            }
             QCOMPARE(thread.attachments()->rowCount(), 1);
             QCOMPARE(thread.attachments()->entries().first().state,
-                     accepted ? QStringLiteral("sent")
-                              : QStringLiteral("failed"));
+                     QStringLiteral("failed"));
             QCOMPARE(thread.attachments()->entries().first().opId, quint64(0));
-            if (!accepted)
-                QVERIFY(!thread.attachments()->entries().first().error.isEmpty());
+            QVERIFY(!thread.attachments()->entries().first().error.isEmpty());
             thread.openThread(roomId, rootB);
             QTRY_COMPARE(thread.state(), ThreadController::Ready);
             QCOMPARE(thread.attachments()->rowCount(), 0);
