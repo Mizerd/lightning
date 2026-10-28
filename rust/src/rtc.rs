@@ -5958,12 +5958,12 @@ mod tests {
     fn a_non_default_port_has_one_validated_portless_fallback() {
         use super::transports_endpoint::fallback_for;
         assert_eq!(
-            fallback_for("example.org:8448").as_deref(),
-            Ok(Some("https://example.org/.well-known/matrix/client"))
+            fallback_for("example.org:8448"),
+            Ok(Some("https://example.org/.well-known/matrix/client".to_owned()))
         );
         assert_eq!(
-            fallback_for("127.0.0.2:18101").as_deref(),
-            Ok(Some("https://127.0.0.2/.well-known/matrix/client"))
+            fallback_for("127.0.0.2:18101"),
+            Ok(Some("https://127.0.0.2/.well-known/matrix/client".to_owned()))
         );
         assert_eq!(fallback_for("example.org"), Ok(None));
         assert_eq!(fallback_for("example.org:443"), Ok(None));
