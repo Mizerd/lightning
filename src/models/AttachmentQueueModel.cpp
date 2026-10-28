@@ -828,10 +828,10 @@ QVariantMap AttachmentQueueModel::renderImageEdit(
         base = QStringLiteral("image");
     const QString path = QDir(workDir).filePath(base + QStringLiteral(".png"));
     QByteArray encoded;
-    QBuffer buffer(&encoded);
-    if (!buffer.open(QIODevice::WriteOnly))
+    QBuffer encodeBuffer(&encoded);
+    if (!encodeBuffer.open(QIODevice::WriteOnly))
         return fail(tr("The image edit could not be saved."));
-    QImageWriter writer(&buffer, "png");
+    QImageWriter writer(&encodeBuffer, "png");
     if (!writer.write(output))
         return fail(tr("The image edit could not be saved."));
     lightning::scratch::ScratchFile file(path);
