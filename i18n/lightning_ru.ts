@@ -26387,22 +26387,22 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+34"/>
         <source>Open the selected message&apos;s thread</source>
-        <translation type="unfinished"></translation>
+        <translation>Открыть обсуждение выбранного сообщения</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Edit the selected message</source>
-        <translation type="unfinished"></translation>
+        <translation>Изменить выбранное сообщение</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>React to the selected message</source>
-        <translation type="unfinished"></translation>
+        <translation>Отреагировать на выбранное сообщение</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Pin or unpin the selected message</source>
-        <translation type="unfinished"></translation>
+        <translation>Закрепить или открепить выбранное сообщение</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -26432,7 +26432,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+3"/>
         <source>View the selected message&apos;s source</source>
-        <translation type="unfinished"></translation>
+        <translation>Посмотреть исходный код выбранного сообщения</translation>
     </message>
     <message>
         <location line="+3"/>

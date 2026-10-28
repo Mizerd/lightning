@@ -26303,22 +26303,22 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+34"/>
         <source>Open the selected message&apos;s thread</source>
-        <translation type="unfinished"></translation>
+        <translation>चुने हुए संदेश का थ्रेड खोलें</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Edit the selected message</source>
-        <translation type="unfinished"></translation>
+        <translation>चुना हुआ संदेश संपादित करें</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>React to the selected message</source>
-        <translation type="unfinished"></translation>
+        <translation>चुने हुए संदेश पर प्रतिक्रिया दें</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Pin or unpin the selected message</source>
-        <translation type="unfinished"></translation>
+        <translation>चुने हुए संदेश को पिन या अनपिन करें</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -26348,7 +26348,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+3"/>
         <source>View the selected message&apos;s source</source>
-        <translation type="unfinished"></translation>
+        <translation>चुने हुए संदेश का स्रोत देखें</translation>
     </message>
     <message>
         <location line="+3"/>

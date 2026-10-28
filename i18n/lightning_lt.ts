@@ -26387,22 +26387,22 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+34"/>
         <source>Open the selected message&apos;s thread</source>
-        <translation type="unfinished"></translation>
+        <translation>Atidaryti pasirinktos žinutės giją</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Edit the selected message</source>
-        <translation type="unfinished"></translation>
+        <translation>Redaguoti pasirinktą žinutę</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>React to the selected message</source>
-        <translation type="unfinished"></translation>
+        <translation>Reaguoti į pasirinktą žinutę</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Pin or unpin the selected message</source>
-        <translation type="unfinished"></translation>
+        <translation>Prisegti arba atsegti pasirinktą žinutę</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -26432,7 +26432,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+3"/>
         <source>View the selected message&apos;s source</source>
-        <translation type="unfinished"></translation>
+        <translation>Peržiūrėti pasirinktos žinutės šaltinį</translation>
     </message>
     <message>
         <location line="+3"/>

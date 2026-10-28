@@ -26630,22 +26630,22 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+34"/>
         <source>Open the selected message&apos;s thread</source>
-        <translation type="unfinished"></translation>
+        <translation>فتح خيط الرسالة المحددة</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Edit the selected message</source>
-        <translation type="unfinished"></translation>
+        <translation>تعديل الرسالة المحددة</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>React to the selected message</source>
-        <translation type="unfinished"></translation>
+        <translation>التفاعل مع الرسالة المحددة</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Pin or unpin the selected message</source>
-        <translation type="unfinished"></translation>
+        <translation>تثبيت الرسالة المحددة أو إلغاء تثبيتها</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -26675,7 +26675,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+3"/>
         <source>View the selected message&apos;s source</source>
-        <translation type="unfinished"></translation>
+        <translation>عرض مصدر الرسالة المحددة</translation>
     </message>
     <message>
         <location line="+3"/>

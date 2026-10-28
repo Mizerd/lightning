@@ -26294,22 +26294,22 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+34"/>
         <source>Open the selected message&apos;s thread</source>
-        <translation type="unfinished"></translation>
+        <translation>নির্বাচিত বার্তার থ্রেড খুলুন</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Edit the selected message</source>
-        <translation type="unfinished"></translation>
+        <translation>নির্বাচিত বার্তা সম্পাদনা করুন</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>React to the selected message</source>
-        <translation type="unfinished"></translation>
+        <translation>নির্বাচিত বার্তায় প্রতিক্রিয়া জানান</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Pin or unpin the selected message</source>
-        <translation type="unfinished"></translation>
+        <translation>নির্বাচিত বার্তা পিন বা আনপিন করুন</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -26339,7 +26339,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+3"/>
         <source>View the selected message&apos;s source</source>
-        <translation type="unfinished"></translation>
+        <translation>নির্বাচিত বার্তার উৎস দেখুন</translation>
     </message>
     <message>
         <location line="+3"/>

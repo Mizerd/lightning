@@ -26303,22 +26303,22 @@ Nota: importar claves no verifica esta sesión.</translation>
     <message>
         <location line="+34"/>
         <source>Open the selected message&apos;s thread</source>
-        <translation type="unfinished"></translation>
+        <translation>Abrir el hilo del mensaje seleccionado</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Edit the selected message</source>
-        <translation type="unfinished"></translation>
+        <translation>Editar el mensaje seleccionado</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>React to the selected message</source>
-        <translation type="unfinished"></translation>
+        <translation>Reaccionar al mensaje seleccionado</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Pin or unpin the selected message</source>
-        <translation type="unfinished"></translation>
+        <translation>Fijar o desfijar el mensaje seleccionado</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -26348,7 +26348,7 @@ Nota: importar claves no verifica esta sesión.</translation>
     <message>
         <location line="+3"/>
         <source>View the selected message&apos;s source</source>
-        <translation type="unfinished"></translation>
+        <translation>Ver el código fuente del mensaje seleccionado</translation>
     </message>
     <message>
         <location line="+3"/>

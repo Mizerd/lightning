@@ -26303,22 +26303,22 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message>
         <location line="+34"/>
         <source>Open the selected message&apos;s thread</source>
-        <translation type="unfinished"></translation>
+        <translation>Thread der ausgewählten Nachricht öffnen</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Edit the selected message</source>
-        <translation type="unfinished"></translation>
+        <translation>Die ausgewählte Nachricht bearbeiten</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>React to the selected message</source>
-        <translation type="unfinished"></translation>
+        <translation>Auf die ausgewählte Nachricht reagieren</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Pin or unpin the selected message</source>
-        <translation type="unfinished"></translation>
+        <translation>Die ausgewählte Nachricht anpinnen oder lösen</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -26348,7 +26348,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message>
         <location line="+3"/>
         <source>View the selected message&apos;s source</source>
-        <translation type="unfinished"></translation>
+        <translation>Quelltext der ausgewählten Nachricht ansehen</translation>
     </message>
     <message>
         <location line="+3"/>

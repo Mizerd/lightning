@@ -26219,22 +26219,22 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+34"/>
         <source>Open the selected message&apos;s thread</source>
-        <translation type="unfinished"></translation>
+        <translation>打开所选消息的话题</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Edit the selected message</source>
-        <translation type="unfinished"></translation>
+        <translation>编辑所选消息</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>React to the selected message</source>
-        <translation type="unfinished"></translation>
+        <translation>对所选消息作出表情回应</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Pin or unpin the selected message</source>
-        <translation type="unfinished"></translation>
+        <translation>置顶或取消置顶所选消息</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -26264,7 +26264,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+3"/>
         <source>View the selected message&apos;s source</source>
-        <translation type="unfinished"></translation>
+        <translation>查看所选消息的源码</translation>
     </message>
     <message>
         <location line="+3"/>
