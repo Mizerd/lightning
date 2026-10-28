@@ -1124,6 +1124,32 @@ The deep contract is `docs/matrixrtc.md` and `docs/voice-calls.md`; §16 carries
 the lane's refuted hypotheses and must be read before touching any of it. What
 EXISTS, so nobody rebuilds it:
 
+**OpenID exposure in multi-SFU calls.** Joining a call asks the account's
+homeserver for one OpenID token and sends that same token, the room id and
+device id to each selected focus service's `/sfu/get`. A joined room member
+with a current, valid, non-expired membership in the *room-wide call session*
+can advertise a remote service: `multi_sfu` selects that member's first
+focus; an `oldest_membership` peer can select the oldest call member's first
+focus for the legacy publisher and its subscribers. A room member without a
+current membership in this call, a departed member, an expired membership or
+a membership for another `call_id` cannot add a service. The publisher uses
+our own discovered service when the call permits multi-SFU and our server
+advertises one; legacy/no-own-focus fallback may use a remote service.
+Only HTTPS services with public hosts and public DNS answers are contacted;
+redirects are refused, and there are at most eight distinct focus connections
+total, including the publisher. Thus at most eight remote services can receive
+the same OpenID token (normally at most seven when the publisher is our own
+service). A malicious participant who joins this call can still choose an
+otherwise valid public HTTPS service and receive that token. The token is not
+the Matrix access token, but the recipient may use it to verify the account's
+identity with the homeserver until the homeserver's `expires_in` duration
+elapses. That duration comes from the homeserver; Lightning neither extends
+it nor imposes a fixed one-hour lifetime. Legacy session memberships default
+to four hours without `expires`, and each event's expiry is capped at 24 hours
+past its server timestamp; refreshes can keep a call membership current.
+These membership lifetimes control *which services are selected*, not the
+OpenID token's expiry.
+
 - **MatrixRTC group calls over LiveKit**, with audio, camera and screen share
   working in both directions against Element (live-validated 2026-08-25).
   Per-participant frame encryption, raised hands interoperating with Element,

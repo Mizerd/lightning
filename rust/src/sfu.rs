@@ -21,7 +21,7 @@
 //! is never logged and never reaches QML. One connection at a time, owned
 //! by a generation counter, so a late frame cannot reach the next session.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -1367,7 +1367,8 @@ pub(crate) fn send_command_for(
                 bridge.sfu_generation.load(Ordering::SeqCst),
                 session.generation, generation) {
                 if let Some(category) = try_queue_command(&session.commands,
-                    &session.dropped_commands, connection_id, command) {
+                    &session.dropped_commands, &bridge.events, generation,
+                    connection_id, command) {
                     enqueue(&bridge.events, json!({
                         "type": "sfu_state", "generation": generation,
                         "connection_id": connection_id,
@@ -1380,10 +1381,12 @@ pub(crate) fn send_command_for(
 }
 
 /// Returns a failure category only when a dropped negotiation message must
-/// fail the call. Every dropped command is counted and logged without content.
+/// fail the call. Every dropped command emits a counted, payload-free event.
 fn try_queue_command(
     queue: &tokio::sync::mpsc::Sender<SfuCommand>,
     dropped_count: &AtomicU64,
+    events: &Arc<Mutex<VecDeque<String>>>,
+    generation: u64,
     connection_id: u32,
     command: SfuCommand,
 ) -> Option<&'static str> {
@@ -1397,7 +1400,11 @@ fn try_queue_command(
             "command_queue_closed",
     };
     let dropped = dropped_count.fetch_add(1, Ordering::Relaxed) + 1;
-    eprintln!("lightning: sfu command queue warning connection={connection_id} dropped={dropped}");
+    enqueue(events, json!({
+        "type": "sfu_command_dropped", "generation": generation,
+        "connection_id": connection_id, "dropped": dropped,
+        "category": category,
+    }));
     negotiation.then_some(category)
 }
 
@@ -1493,14 +1500,22 @@ mod tests {
     async fn full_command_queue_counts_drops_and_identifies_lost_answer() {
         let (sender, _receiver) = tokio::sync::mpsc::channel(1);
         let drops = AtomicU64::new(0);
-        assert_eq!(try_queue_command(&sender, &drops, 1,
+        let events = Arc::new(Mutex::new(VecDeque::new()));
+        assert_eq!(try_queue_command(&sender, &drops, &events, 7, 1,
             SfuCommand::Candidate { candidate_init: String::new(), target: 1 }), None);
-        assert_eq!(try_queue_command(&sender, &drops, 1,
+        assert_eq!(try_queue_command(&sender, &drops, &events, 7, 1,
             SfuCommand::Candidate { candidate_init: String::new(), target: 1 }), None);
-        assert_eq!(try_queue_command(&sender, &drops, 1,
+        assert_eq!(try_queue_command(&sender, &drops, &events, 7, 1,
             SfuCommand::Answer { sdp: String::new(), target: 1 }),
             Some("command_queue_full"));
         assert_eq!(drops.load(Ordering::Relaxed), 2);
+        let reports: Vec<serde_json::Value> = events.lock().unwrap().iter()
+            .map(|entry| serde_json::from_str(entry).unwrap()).collect();
+        assert_eq!(reports.len(), 2);
+        assert_eq!(reports[0], json!({"type": "sfu_command_dropped",
+            "generation": 7, "connection_id": 1, "dropped": 1,
+            "category": "command_queue_full"}));
+        assert_eq!(reports[1]["dropped"], 2);
     }
 
     // The server-injected-frame trailer crosses the bridge, bounded.

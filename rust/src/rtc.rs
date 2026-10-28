@@ -548,15 +548,20 @@ pub(crate) fn parse_session_membership(
     if application != APPLICATION_CALL {
         return None;
     }
+    if object.get("scope")?.as_str()? != "m.room" {
+        return None;
+    }
     let device_id = sane_string(object.get("device_id"), MAX_WIRE_LEN)?;
     // `call_id` is required but empty for the room call, so not `sane`.
     let call_id = object.get("call_id")?.as_str()?;
     if call_id.len() > MAX_WIRE_LEN || call_id.chars().any(|c| c.is_control()) {
         return None;
     }
-    // `focus_active.type` is required by the reference validator.
+    // Only LiveKit room-call memberships can select a LiveKit JWT service.
     let active = object.get("focus_active")?.as_object()?;
-    active.get("type")?.as_str()?;
+    if active.get("type")?.as_str()? != "livekit" {
+        return None;
+    }
     let focus_selection = FocusSelection::parse(
         active.get("focus_selection").and_then(|value| value.as_str()));
 
@@ -746,6 +751,14 @@ pub(crate) fn aggregate_session(
     });
     out.truncate(MAX_MEMBERS);
     out
+}
+
+/// Only this room-wide call may authorize a focus connection. Another
+/// `call_id` is a different session even when its state event is in the room.
+fn room_call_members(members: Vec<RtcMember>, now_ms: u64) -> Vec<RtcMember> {
+    aggregate_session(members.into_iter()
+        .filter(|member| member.slot_id == "m.call#ROOM")
+        .collect(), now_ms)
 }
 
 /// Pick the focus per `focus_selection: "oldest_membership"`: the SFU
@@ -1401,6 +1414,17 @@ async fn read_session(
         if let Some(mut member) =
             parse_session_membership(content, sender, event_ts)
         {
+            let Ok(user_id) = matrix_sdk::ruma::UserId::parse(&member.user_id)
+            else { continue };
+            // A state event can outlive the sender's room membership. Sable
+            // also requires the advertiser to remain joined before using its
+            // focus for a backend connection.
+            if !room.get_member_no_sync(&user_id).await.ok().flatten()
+                .is_some_and(|profile| profile.membership()
+                    == &matrix_sdk::ruma::events::room::member::MembershipState::Join)
+            {
+                continue;
+            }
             // The envelope's event id, which a raised hand annotates.
             member.event_id = object
                 .get("event_id")
@@ -1417,7 +1441,7 @@ async fn read_session(
 
     let (slot_present, slot_closed) = read_slot(room).await;
 
-    let mut members = aggregate_session(members, now_ms);
+    let mut members = room_call_members(members, now_ms);
     // Resolve profiles after aggregation, and with `_no_sync` so a facepile
     // costs no network round trips.
     for member in &mut members {
@@ -4689,6 +4713,25 @@ mod tests {
         let out = aggregate_session(vec![live, dead], 1_000);
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].user_id, "@a:x");
+    }
+
+    #[test]
+    fn expired_or_different_call_membership_cannot_select_remote_focus() {
+        let focus = |host: &str| LivekitTransport {
+            service_url: format!("https://{host}/"), alias: None,
+        };
+        let mut expired = member_at("@expired:x", "D1", 10, 100);
+        expired.focus_selection = FocusSelection::MultiSfu;
+        expired.foci = vec![focus("expired.example")];
+        let mut other_call = member_at("@other:x", "D2", 20, 9_000);
+        other_call.slot_id = "m.call#another-call".to_owned();
+        other_call.focus_selection = FocusSelection::MultiSfu;
+        other_call.foci = vec![focus("other-call.example")];
+        let members = room_call_members(vec![expired, other_call], 1_000);
+        let own = focus("own.example");
+        let plan = plan_foci(&members, "@me:x:ME", Some(own.clone()));
+        assert_eq!(plan.publisher, Some(own));
+        assert!(plan.subscribers.is_empty());
     }
 
     #[test]

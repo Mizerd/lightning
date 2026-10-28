@@ -62,6 +62,7 @@
 #include <limits>
 
 Q_LOGGING_CATEGORY(lcRust, "matrix.rust")
+Q_LOGGING_CATEGORY(lcRustSfu, "lightning.calls.group")
 // LIGHTNING_TOKEN_TRACE: session-token rotations, where and when each was
 // written, and why a session was declared signed out. Generations, outcomes,
 // backend names and milliseconds only, never a token or a digest of one.
@@ -12187,6 +12188,15 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         // media-only signal with both identity fields attached.
         if (m_callMediaCapable)
             Q_EMIT sfuConnectionEvent(event.toVariantMap());
+        if (type == QLatin1String("sfu_command_dropped")) {
+            qCWarning(lcRustSfu) << "sfu command queue warning connection="
+                              << event.value(QStringLiteral("connection_id")).toInt()
+                              << "dropped="
+                              << event.value(QStringLiteral("dropped")).toVariant()
+                              << "category="
+                              << event.value(QStringLiteral("category")).toString();
+            return true;
+        }
         if (event.value(QStringLiteral("connection_id")).toInt() != 0)
             return true;
     }

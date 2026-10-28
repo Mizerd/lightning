@@ -12,6 +12,7 @@
 #include <QSignalSpy>
 
 #include <QAbstractItemModel>
+#include <limits>
 
 #include "calls/CallController.h"
 #include "calls/CallMediaBackend.h"
@@ -981,10 +982,12 @@ private Q_SLOTS:
         a.rtcIdentity = QStringLiteral("@a:example.org:A");
         a.focusSelection = QStringLiteral("multi_sfu");
         a.focusServiceUrl = oldest;
+        a.expiresAtMs = std::numeric_limits<qint64>::max();
         RtcParticipant b;
         b.rtcIdentity = QStringLiteral("@b:example.org:B");
         b.focusSelection = QStringLiteral("multi_sfu");
         b.focusServiceUrl = second;
+        b.expiresAtMs = std::numeric_limits<qint64>::max();
         session.participants = {a, b};
         rtc.refresh(room);
         client.answerSession(client.lastSessionOp, session);
@@ -1017,6 +1020,7 @@ private Q_SLOTS:
         lightning.rtcIdentity = QStringLiteral("@peer:example.org:DEV");
         lightning.focusSelection = QStringLiteral("multi_sfu");
         lightning.focusServiceUrl = oldest;
+        lightning.expiresAtMs = std::numeric_limits<qint64>::max();
         session.participants = {lightning};
         rtc.refresh(room);
         client.answerSession(client.lastSessionOp, session);
@@ -1029,6 +1033,37 @@ private Q_SLOTS:
         QCOMPARE(client.publishedMultiSfu.last(), false);
         client.answerPublish(op, true, QString());
         QCOMPARE(client.focusPlans.last(), QStringList({oldest}));
+    }
+
+    void expiredCallMembershipCannotRequestRemoteFocus()
+    {
+        RecordingCallClient client;
+        RtcController rtc;
+        rtc.setClient(&client);
+        const QString room = QStringLiteral("!expired:example.org");
+        const QString own = QStringLiteral("https://own.example.org");
+        const QString remote = QStringLiteral("https://remote.example.org");
+        rtc.discover(room);
+        client.answerTransports({own});
+        RtcSessionData session;
+        session.roomId = room;
+        session.focusServiceUrl = remote;
+        RtcParticipant stale;
+        stale.focusSelection = QStringLiteral("multi_sfu");
+        stale.focusServiceUrl = remote;
+        stale.expiresAtMs = QDateTime::currentMSecsSinceEpoch() - 1;
+        session.participants = {stale};
+        rtc.refresh(room);
+        client.answerSession(client.lastSessionOp, session);
+        QCOMPARE(rtc.focusUrlFor(room), own);
+        QVERIFY(rtc.subscriberFocusUrlsFor(room).isEmpty());
+        SfuCallController call;
+        call.setClient(&client);
+        call.setRtcController(&rtc);
+        const quint64 op = call.beginMembershipPublishForTest(room, own);
+        QVERIFY(op != 0);
+        client.answerPublish(op, true, QString());
+        QCOMPARE(client.focusPlans.last(), QStringList({own}));
     }
 
     void multiSfuPlanCreatesPublisherAndTwoFocusRoutes()
@@ -1047,10 +1082,12 @@ private Q_SLOTS:
         a.rtcIdentity = QStringLiteral("@a:example.org:A");
         a.focusSelection = QStringLiteral("multi_sfu");
         a.focusServiceUrl = own;
+        a.expiresAtMs = std::numeric_limits<qint64>::max();
         RtcParticipant b;
         b.rtcIdentity = QStringLiteral("@b:other.org:B");
         b.focusSelection = QStringLiteral("multi_sfu");
         b.focusServiceUrl = other;
+        b.expiresAtMs = std::numeric_limits<qint64>::max();
         session.participants = {a, b};
         session.focusServiceUrl = other; // oldest membership is remote
         rtc.refresh(room);
@@ -1088,6 +1125,7 @@ private Q_SLOTS:
         legacy.rtcIdentity = QStringLiteral("@old:example.org:OLD");
         legacy.focusSelection = QStringLiteral("oldest_membership");
         legacy.focusServiceUrl = foreign;
+        legacy.expiresAtMs = std::numeric_limits<qint64>::max();
         session.participants = {legacy};
         rtc.refresh(room);
         client.answerSession(client.lastSessionOp, session);

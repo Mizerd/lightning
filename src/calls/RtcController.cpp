@@ -145,15 +145,14 @@ bool RtcController::callingAvailable() const
     // session that names a focus counts even without MSC4143 discovery.
     bool sessionNamesAFocus = false;
     for (auto it = m_sessions.cbegin(); it != m_sessions.cend(); ++it) {
-        if (!it->slotClosed && !it->focusServiceUrl.isEmpty()) {
+        if (!sessionFocusFor(it.key()).isEmpty()) {
             sessionNamesAFocus = true;
             break;
         }
     }
     return supported()
         && (sessionNamesAFocus
-            || (m_discovered && (!m_serviceUrls.isEmpty()
-                                 || !m_participantFocus.isEmpty())));
+            || (m_discovered && !m_serviceUrls.isEmpty()));
 }
 
 bool RtcController::discoveryWorthRetrying() const
@@ -172,7 +171,12 @@ QString RtcController::sessionFocusFor(const QString &roomId) const
     const auto it = m_sessions.constFind(roomId);
     if (it == m_sessions.cend() || it->slotClosed)
         return {};
-    return it->focusServiceUrl;
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    for (const RtcParticipant &member : it->participants) {
+        if (member.expiresAtMs > now)
+            return member.focusServiceUrl;
+    }
+    return {};
 }
 
 bool RtcController::transportReachableFor(const QString &roomId) const
@@ -181,9 +185,7 @@ bool RtcController::transportReachableFor(const QString &roomId) const
     // and without MSC4143 (most homeservers) it is the only focus there is.
     // The homeserver's answer applies everywhere; a participant-advertised
     // focus only to its own room.
-    return !sessionFocusFor(roomId).isEmpty()
-        || !m_serviceUrls.isEmpty()
-        || !m_participantFocus.value(roomId).isEmpty();
+    return !sessionFocusFor(roomId).isEmpty() || !m_serviceUrls.isEmpty();
 }
 
 void RtcController::setMediaEncryptionAvailable(bool available)
@@ -1010,7 +1012,7 @@ QString RtcController::focusUrlFor(const QString &roomId) const
         return oldest;
     if (!ownFocusUrlFor().isEmpty())
         return ownFocusUrlFor();
-    return m_participantFocus.value(roomId);
+    return {};
 }
 
 QString RtcController::ownFocusUrlFor() const
@@ -1021,10 +1023,11 @@ QString RtcController::ownFocusUrlFor() const
 bool RtcController::usesLegacyFocusFor(const QString &roomId) const
 {
     const auto session = m_sessions.constFind(roomId);
-    if (session == m_sessions.cend())
+    if (session == m_sessions.cend() || session->slotClosed)
         return false;
     for (const RtcParticipant &member : session->participants) {
-        if (!member.ownDevice
+        if (member.expiresAtMs > QDateTime::currentMSecsSinceEpoch()
+            && !member.ownDevice
             && member.focusSelection != QLatin1String("multi_sfu"))
             return true;
     }
@@ -1035,11 +1038,12 @@ QStringList RtcController::subscriberFocusUrlsFor(const QString &roomId) const
 {
     QStringList urls;
     const auto session = m_sessions.constFind(roomId);
-    if (session == m_sessions.cend())
+    if (session == m_sessions.cend() || session->slotClosed)
         return urls;
     const QString oldest = sessionFocusFor(roomId);
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
     for (const RtcParticipant &member : session->participants) {
-        if (member.ownDevice)
+        if (member.ownDevice || member.expiresAtMs <= now)
             continue;
         const QString url = member.focusSelection == QLatin1String("multi_sfu")
             ? member.focusServiceUrl
