@@ -8,6 +8,7 @@ Q_LOGGING_CATEGORY(lcContext, "lightning.timeline.context")
 
 ContextController::ContextController(QObject *parent)
     : QObject(parent)
+    , m_scrollTraceEnabled(qEnvironmentVariableIsSet("LIGHTNING_SCROLL_TRACE"))
 {
 }
 
@@ -80,6 +81,11 @@ bool ContextController::open(const QString &roomId, const QString &eventId)
         m_client->closeEventContext();
     m_roomId = roomId;
     m_eventId = eventId;
+    m_tracedPhases.clear();
+    if (m_scrollTraceEnabled) {
+        m_openTimer.start();
+        tracePhase(QStringLiteral("request"));
+    }
     m_failureCategory.clear();
     resetEdges();
     // Bind the model before dispatching so the snapshot reset is applied,
@@ -97,6 +103,8 @@ void ContextController::close()
         m_client->closeEventContext();
     m_roomId.clear();
     m_eventId.clear();
+    m_openTimer.invalidate();
+    m_tracedPhases.clear();
     m_failureCategory.clear();
     m_model.setRoomId(QString{});
     resetEdges();
@@ -146,12 +154,24 @@ int ContextController::targetRow() const
     return m_eventId.isEmpty() ? -1 : m_model.rowForStableId(m_eventId);
 }
 
+void ContextController::tracePhase(const QString &phase)
+{
+    if (!m_scrollTraceEnabled || !m_openTimer.isValid()
+        || m_tracedPhases.contains(phase))
+        return;
+    m_tracedPhases.insert(phase);
+    qCInfo(lcContext).nospace() << "context-phase phase=" << phase
+                                << " elapsed_ms="
+                                << (m_openTimer.nsecsElapsed() / 1000000.0);
+}
+
 void ContextController::onTimelineReset(const QString &timelineId)
 {
     // Only the requested view's first reset promotes to Ready; composite-id
     // identity is the staleness gate.
     if (m_state != Opening || timelineId != this->timelineId())
         return;
+    tracePhase(QStringLiteral("context-model-ready"));
     const int row = targetRow();
     if (row < 0) {
         // The server answered without the event (redacted, filtered, or not

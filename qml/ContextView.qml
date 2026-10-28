@@ -31,6 +31,9 @@ Rectangle {
     property var currentRoom: ({})
 
     property string highlightEventId: ""
+    property bool targetPositioned: false
+    property bool targetBuilt: false
+    property bool landingPending: false
     Timer {
         id: highlightTimer
         interval: 2400
@@ -43,12 +46,31 @@ Rectangle {
         view.highlightEventId = app.eventContext.eventId
         highlightTimer.restart()
         list.positionViewAtIndex(row, ListView.Center)
+        view.targetPositioned = true
+        view.landingPending = view.targetBuilt
     }
     Connections {
         target: app.eventContext
+        function onStateChanged() {
+            if (app.eventContext.state === ContextController.Opening) {
+                view.targetPositioned = false
+                view.targetBuilt = false
+                view.landingPending = false
+            }
+        }
         function onTargetLocated(row) {
             // The ListView needs a turn to build delegates for the new model.
             Qt.callLater(function() { view.placeTarget(row) })
+        }
+    }
+    Connections {
+        target: view.Window.window
+        enabled: view.landingPending
+        function onFrameSwapped() {
+            if (!view.landingPending || !view.targetPositioned || !view.targetBuilt)
+                return
+            view.landingPending = false
+            app.eventContext.tracePhase("landed")
         }
     }
     Connections {
@@ -138,6 +160,10 @@ Rectangle {
                 objectName: "contextList"
                 anchors.fill: parent
                 visible: app.eventContext.state === ContextController.Ready
+                onVisibleChanged: {
+                    if (visible)
+                        app.eventContext.tracePhase("view-swap")
+                }
                 clip: true
                 spacing: 0
                 model: app.eventContext.model
@@ -218,6 +244,14 @@ Rectangle {
                 }
 
                 delegate: MessageDelegate {
+                    Component.onCompleted: {
+                        if (app.eventContext.state === ContextController.Ready
+                                && index === app.eventContext.targetRow()) {
+                            view.targetBuilt = true
+                            app.eventContext.tracePhase("first-target-row-built")
+                            view.landingPending = view.targetPositioned
+                        }
+                    }
                     width: {
                         var available = ListView.view
                                       ? ListView.view.width

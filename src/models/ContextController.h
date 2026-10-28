@@ -1,6 +1,8 @@
 #pragma once
 
 #include <QObject>
+#include <QElapsedTimer>
+#include <QSet>
 #include <QString>
 #include <QtQmlIntegration/qqmlintegration.h>
 
@@ -84,6 +86,8 @@ public:
     Q_INVOKABLE void loadNewer();
     // Row of the opened event in model(), or -1.
     Q_INVOKABLE int targetRow() const;
+    // Opt-in, ID-free phase marks from the context ListView.
+    Q_INVOKABLE void tracePhase(const QString &phase);
 
     // The active room changed; a view never survives into another room.
     void handleCurrentRoomChanged(const QString &currentRoomId);
@@ -126,4 +130,7 @@ private:
     bool m_newerFailed = false;
     int m_olderPages = 0;
     int m_newerPages = 0;
+    bool m_scrollTraceEnabled = false;
+    QElapsedTimer m_openTimer;
+    QSet<QString> m_tracedPhases;
 };
