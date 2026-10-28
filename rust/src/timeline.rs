@@ -4270,14 +4270,16 @@ fn annotate_decrypted_set(
 
 /// A reset is history rather than a notification, but its rows still need the
 /// verdict for mention presentation. It is built before the diff stream runs.
-async fn annotate_snapshot_verdicts(
+async fn annotate_snapshot_verdicts<'a, I>(
     room: &matrix_sdk::Room,
     fallback_verdicts: &crate::push_verdict::SyncVerdicts,
-    items: &[Arc<TimelineItem>],
+    items: I,
     snapshot: &mut [serde_json::Value],
-) {
+) where
+    I: IntoIterator<Item = &'a Arc<TimelineItem>>,
+{
     let context = room.push_context().await.ok().flatten();
-    for (item, slot) in items.iter().zip(snapshot.iter_mut()) {
+    for (item, slot) in items.into_iter().zip(snapshot.iter_mut()) {
         let Some(raw) = item.as_event().and_then(|event| event.original_json()) else {
             continue;
         };
