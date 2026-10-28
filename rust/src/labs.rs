@@ -799,6 +799,7 @@ const CLASSES: &[(&str, EventClass)] = {
         ("settings_sync_changed", UiOnly),
         ("settings_sync_read", UiOnly),
         ("settings_sync_written", UiOnly),
+        ("sfu_command_dropped", UiOnly),
         ("sfu_joined", UiOnly),
         ("sfu_participants", UiOnly),
         ("sfu_permission", UiOnly),

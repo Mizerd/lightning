@@ -548,8 +548,12 @@ pub(crate) fn parse_session_membership(
     if application != APPLICATION_CALL {
         return None;
     }
-    if object.get("scope")?.as_str()? != "m.room" {
-        return None;
+    // A scope other than the room call (an `m.user` call) is not ours to
+    // join; an absent scope is the room call, as older memberships omit it.
+    if let Some(scope) = object.get("scope") {
+        if scope.as_str() != Some("m.room") {
+            return None;
+        }
     }
     let device_id = sane_string(object.get("device_id"), MAX_WIRE_LEN)?;
     // `call_id` is required but empty for the room call, so not `sane`.
@@ -1416,12 +1420,16 @@ async fn read_session(
         {
             let Ok(user_id) = matrix_sdk::ruma::UserId::parse(&member.user_id)
             else { continue };
-            // A state event can outlive the sender's room membership. Sable
-            // also requires the advertiser to remain joined before using its
-            // focus for a backend connection.
-            if !room.get_member_no_sync(&user_id).await.ok().flatten()
+            // A state event can outlive the sender's room membership (Sable
+            // likewise requires the advertiser to remain joined). Drop only a
+            // POSITIVE record of not being joined: under sliding sync member
+            // events are lazy-loaded, so a missing record is "unknown", and
+            // treating it as "left" would drop a real participant from the
+            // whole session (keys, facepile, audio), not just from focus
+            // selection.
+            if room.get_member_no_sync(&user_id).await.ok().flatten()
                 .is_some_and(|profile| profile.membership()
-                    == &matrix_sdk::ruma::events::room::member::MembershipState::Join)
+                    != &matrix_sdk::ruma::events::room::member::MembershipState::Join)
             {
                 continue;
             }

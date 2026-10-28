@@ -119,7 +119,9 @@ RtcParticipant person(const QString &user, const QString &device,
     p.rtcIdentity = user + QLatin1Char(':') + device;
     p.intent = QStringLiteral("audio");
     p.joinedAtMs = joined;
-    p.expiresAtMs = joined + 3600000;
+    // Current for the next hour: expiry is absolute wall-clock time, and the
+    // controller ignores a session whose known expiries have all passed.
+    p.expiresAtMs = QDateTime::currentMSecsSinceEpoch() + 3600000;
     p.wireFormat = QStringLiteral("session");
     p.ownUser = ownUser;
     p.ownDevice = ownDevice;
