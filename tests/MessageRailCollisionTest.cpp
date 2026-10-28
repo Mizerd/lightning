@@ -1463,9 +1463,9 @@ private Q_SLOTS:
         f.insert(QStringLiteral("sentReceipt"), true);
 
         Delegate d;
-        QVERIFY(build(app, f, d));
-        QQmlProperty::write(d.root, QStringLiteral("isDirectRoom"), true);
-        QCoreApplication::processEvents();
+        // Direct before the first layout pass (see build()), or the row's
+        // height is measured for the non-bubble layout.
+        QVERIFY(build(app, f, d, kRowWidth, /*direct=*/true));
         QVERIFY(QQmlProperty::read(d.root, QStringLiteral("bubbleMode")).toBool());
 
         auto *bubble = d.root->findChild<QQuickItem *>(

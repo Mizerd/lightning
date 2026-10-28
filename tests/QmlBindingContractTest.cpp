@@ -1394,8 +1394,12 @@ private Q_SLOTS:
             "                        || (model.mentionsMe === true\n"
             "                            && (model.pushHighlighted === true\n"
             "                                || model.pushVerdictKnown !== true)))")));
+        // One accent for a direct mention and a rule-matched @room alike.
         QVERIFY(delegate.contains(QStringLiteral(
-            "? AppTheme.bolt : AppTheme.borderStrong")));
+            "                    visible: bubble.mentionBarVisible\n")));
+        QVERIFY(delegate.contains(QStringLiteral(
+            "                    radius: 1\n"
+            "                    color: AppTheme.bolt\n")));
     }
 
     // QML pushes the link colour to MessageHtml's mention style. The C++

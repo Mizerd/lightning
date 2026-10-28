@@ -212,6 +212,10 @@ private Q_SLOTS:
     {
         Fixture f;
         QVERIFY(make(f));
+        // No older page: this case is about the dialog's own keys, and a
+        // "Load older" footer would be a Tab stop inside the list.
+        QVERIFY(f.activity->setProperty("activityHasMore", false));
+        QCoreApplication::processEvents();
         auto *w = qobject_cast<QQuickWindow *>(f.window);
         QVERIFY(w);
         QTest::keyClick(w, Qt::Key_J, Qt::ControlModifier);
@@ -334,6 +338,10 @@ private Q_SLOTS:
     {
         Fixture f;
         QVERIFY(make(f, false));
+        // No older page: this case is about the dialog's own keys, and a
+        // "Load older" footer would be a Tab stop inside the list.
+        QVERIFY(f.activity->setProperty("activityHasMore", false));
+        QCoreApplication::processEvents();
         auto *w = qobject_cast<QQuickWindow *>(f.window);
         auto *composer = f.window->findChild<QQuickItem *>(QStringLiteral("composer"));
         QVERIFY(w);
