@@ -849,14 +849,22 @@ mod transports_endpoint {
     }
 
     fn endpoint(client: &Client) -> Result<String, String> {
-        // The MXID's server name, checked to be host-shaped before it goes into a
-        // URL, so a hostile value cannot redirect the request.
         let server_name = client
             .user_id()
             .ok_or_else(|| "no session".to_owned())?
             .server_name()
             .as_str()
             .to_owned();
+        endpoint_for(&server_name)
+    }
+
+    /// The well-known URL for an MXID's server name, port included when the
+    /// name has one, as matrix-js-sdk (Element, Element Call) builds it: the
+    /// peers in a call find their SFUs this way, so we must too. The name is
+    /// checked to be host-shaped before it goes into a URL, and the parsed
+    /// authority must reproduce it exactly, so a hostile value cannot
+    /// redirect the request.
+    pub(super) fn endpoint_for(server_name: &str) -> Result<String, String> {
         if server_name.is_empty()
             || server_name.len() > 255
             || server_name.contains('/')
@@ -870,10 +878,15 @@ mod transports_endpoint {
         }
         // Always https: this file chooses the SFU every call is routed through.
         let url = format!("https://{server_name}/.well-known/matrix/client");
-        // Parsed, so a value that slipped the checks cannot target another host.
         let parsed = url::Url::parse(&url).map_err(|_| "bad url".to_owned())?;
-        if parsed.scheme() != "https" || parsed.host_str() != Some(&server_name)
-        {
+        let authority = match (parsed.host_str(), parsed.port()) {
+            (Some(host), Some(port)) => format!("{host}:{port}"),
+            (Some(host), None) => host.to_owned(),
+            (None, _) => return Err("unusable server name".to_owned()),
+        };
+        // The parser drops an explicit default port: `host:443` is `host`.
+        let explicit_default = format!("{authority}:443") == server_name;
+        if parsed.scheme() != "https" || (authority != server_name && !explicit_default) {
             return Err("unusable server name".to_owned());
         }
         Ok(parsed.to_string())
@@ -5867,6 +5880,40 @@ mod tests {
 
     /// A membership carries its declaring state event's id, taken from the
     /// envelope; a raised hand addresses that event, not the user.
+    /// The well-known URL keeps a port in the server name (as matrix-js-sdk
+    /// does) and still refuses anything that would change the host.
+    #[test]
+    fn the_well_known_url_follows_the_server_name_port_included() {
+        use super::transports_endpoint::endpoint_for;
+        assert_eq!(
+            endpoint_for("example.org").as_deref(),
+            Ok("https://example.org/.well-known/matrix/client")
+        );
+        assert_eq!(
+            endpoint_for("example.org:8448").as_deref(),
+            Ok("https://example.org:8448/.well-known/matrix/client")
+        );
+        assert_eq!(
+            endpoint_for("example.org:443").as_deref(),
+            Ok("https://example.org/.well-known/matrix/client")
+        );
+        assert_eq!(
+            endpoint_for("127.0.0.2:18101").as_deref(),
+            Ok("https://127.0.0.2:18101/.well-known/matrix/client")
+        );
+        for hostile in [
+            "evil.example/x",
+            "user@evil.example",
+            "evil.example?x",
+            "evil.example#x",
+            "a b",
+            "",
+            "example.org:notaport",
+        ] {
+            assert!(endpoint_for(hostile).is_err(), "{hostile:?} must be refused");
+        }
+    }
+
     #[test]
     fn a_membership_read_from_content_alone_claims_no_event_id() {
         let content = json!({
