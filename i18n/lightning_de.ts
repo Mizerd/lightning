@@ -652,28 +652,28 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     <message>
         <location line="+24"/>
         <source>Unread</source>
-        <translation type="unfinished">Ungelesen</translation>
+        <translation>Ungelesen</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Participating</source>
-        <translation type="unfinished"></translation>
+        <translation>Mitmachen</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+397"/>
         <source>Following</source>
-        <translation type="unfinished"></translation>
+        <translation>Nachfolgend</translation>
     </message>
     <message>
         <location line="-396"/>
         <source>All known</source>
-        <translation type="unfinished"></translation>
+        <translation>Alles bekannt</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Threads found through activity in this account. Older and unrelated threads may be missing. Muted rooms are hidden. Opening this list does not mark threads read.</source>
-        <translation type="unfinished"></translation>
+        <translation>Durch Aktivität in diesem Konto gefundene Threads. Möglicherweise fehlen ältere und nicht verwandte Threads. Stummgeschaltete Räume werden ausgeblendet. Beim Öffnen dieser Liste werden die Threads nicht als gelesen markiert.</translation>
     </message>
     <message>
         <location line="+13"/>
@@ -693,17 +693,17 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     <message>
         <location line="+18"/>
         <source>No followed threads found in recent activity.</source>
-        <translation type="unfinished"></translation>
+        <translation>Keine verfolgten Threads in der letzten Aktivität gefunden.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>No unread threads found in recent activity.</source>
-        <translation type="unfinished"></translation>
+        <translation>Keine ungelesenen Threads in den letzten Aktivitäten gefunden.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>No threads found in recent activity.</source>
-        <translation type="unfinished"></translation>
+        <translation>Keine Threads in der letzten Aktivität gefunden.</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -750,42 +750,42 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     <message>
         <location line="+32"/>
         <source>Threads activity</source>
-        <translation type="unfinished"></translation>
+        <translation>Thread-Aktivität</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Loading…</source>
-        <translation type="unfinished">Wird geladen …</translation>
+        <translation>Wird geladen …</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Retry older activity</source>
-        <translation type="unfinished"></translation>
+        <translation>Ältere Aktivität erneut versuchen</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Load older activity</source>
-        <translation type="unfinished"></translation>
+        <translation>Ältere Aktivitäten laden</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Thread in %1, %2: %3</source>
-        <translation type="unfinished"></translation>
+        <translation>Thread in %1, %2: %3</translation>
     </message>
     <message>
         <location line="+45"/>
         <source>Root: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Root: %1</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Root context loads when opened</source>
-        <translation type="unfinished"></translation>
+        <translation>Der Root-Kontext wird beim Öffnen geladen</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Mention</source>
-        <translation type="unfinished"></translation>
+        <translation>Erwähnung</translation>
     </message>
 </context>
 <context>
@@ -1644,87 +1644,87 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     <message>
         <location filename="../qml/AttachmentImageEditDialog.qml" line="+26"/>
         <source>Edit image before sending</source>
-        <translation type="unfinished"></translation>
+        <translation>Bearbeiten Sie das Bild vor dem Senden</translation>
     </message>
     <message>
         <location line="+26"/>
         <source>The image edit failed.</source>
-        <translation type="unfinished"></translation>
+        <translation>Die Bildbearbeitung ist fehlgeschlagen.</translation>
     </message>
     <message>
         <location line="+47"/>
         <source>Editing this animation sends one still PNG frame.</source>
-        <translation type="unfinished"></translation>
+        <translation>Beim Bearbeiten dieser Animation wird ein Standbild im PNG-Format gesendet.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The original file stays unchanged. The preview is the image that will be sent.</source>
-        <translation type="unfinished"></translation>
+        <translation>Die Originaldatei bleibt unverändert. Die Vorschau ist das Bild, das gesendet wird.</translation>
     </message>
     <message>
         <location line="+72"/>
         <source>Rotate left</source>
-        <translation type="unfinished"></translation>
+        <translation>Nach links drehen</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Rotate right</source>
-        <translation type="unfinished"></translation>
+        <translation>Nach rechts drehen</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Mirror</source>
-        <translation type="unfinished"></translation>
+        <translation>Spiegel</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Undo</source>
-        <translation type="unfinished">Rückgängig</translation>
+        <translation>Rückgängig</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Crop: left, top, right and bottom</source>
-        <translation type="unfinished"></translation>
+        <translation>Zuschneiden: links, oben, rechts und unten</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Left</source>
-        <translation type="unfinished"></translation>
+        <translation>Links</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Top</source>
-        <translation type="unfinished">Oben</translation>
+        <translation>Oben</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Right</source>
-        <translation type="unfinished"></translation>
+        <translation>Richtig</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Bottom</source>
-        <translation type="unfinished">Unten</translation>
+        <translation>Unten</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Reset</source>
-        <translation type="unfinished">Zurücksetzen</translation>
+        <translation>Zurücksetzen</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Cancel</source>
-        <translation type="unfinished">Abbrechen</translation>
+        <translation>Abbrechen</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Use edited image</source>
-        <translation type="unfinished"></translation>
+        <translation>Bearbeitetes Bild verwenden</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>The edited image could not be queued.</source>
-        <translation type="unfinished"></translation>
+        <translation>Das bearbeitete Bild konnte nicht in die Warteschlange gestellt werden.</translation>
     </message>
 </context>
 <context>
@@ -1782,54 +1782,54 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     <message>
         <location line="+53"/>
         <source>The attachment is no longer available.</source>
-        <translation type="unfinished"></translation>
+        <translation>Der Anhang ist nicht mehr verfügbar.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>This image cannot be edited yet.</source>
-        <translation type="unfinished"></translation>
+        <translation>Dieses Bild kann noch nicht bearbeitet werden.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Invalid image edit.</source>
-        <translation type="unfinished"></translation>
+        <translation>Ungültige Bildbearbeitung.</translation>
     </message>
     <message>
         <location line="+9"/>
         <location line="+32"/>
         <source>This image is too large to edit.</source>
-        <translation type="unfinished"></translation>
+        <translation>Dieses Bild ist zu groß zum Bearbeiten.</translation>
     </message>
     <message>
         <location line="-17"/>
         <source>This image format cannot be edited.</source>
-        <translation type="unfinished"></translation>
+        <translation>Dieses Bildformat kann nicht bearbeitet werden.</translation>
     </message>
     <message>
         <location line="+25"/>
         <source>This image could not be decoded safely.</source>
-        <translation type="unfinished"></translation>
+        <translation>Dieses Bild konnte nicht sicher dekodiert werden.</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>The crop is empty.</source>
-        <translation type="unfinished"></translation>
+        <translation>Der Zuschnitt ist leer.</translation>
     </message>
     <message>
         <location line="+9"/>
         <location line="+5"/>
         <source>The image edit failed.</source>
-        <translation type="unfinished"></translation>
+        <translation>Die Bildbearbeitung ist fehlgeschlagen.</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Too many annotation points.</source>
-        <translation type="unfinished"></translation>
+        <translation>Zu viele Anmerkungspunkte.</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Invalid annotation point.</source>
-        <translation type="unfinished"></translation>
+        <translation>Ungültiger Anmerkungspunkt.</translation>
     </message>
     <message>
         <location line="+13"/>
@@ -1837,7 +1837,7 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <location line="+7"/>
         <location line="+4"/>
         <source>The image edit could not be saved.</source>
-        <translation type="unfinished"></translation>
+        <translation>Die Bildbearbeitung konnte nicht gespeichert werden.</translation>
     </message>
 </context>
 <context>
@@ -9992,62 +9992,62 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     <message>
         <location filename="../qml/LayoutPresetPreview.qml" line="+25"/>
         <source>Layout preview: room rail, message grouping and composer</source>
-        <translation type="unfinished"></translation>
+        <translation>Layoutvorschau: Raumleiste, Nachrichtengruppierung und Nachrichteneditor</translation>
     </message>
     <message>
         <location line="+46"/>
         <source>General</source>
-        <translation type="unfinished">Allgemein</translation>
+        <translation>Allgemein</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Design</source>
-        <translation type="unfinished">Design</translation>
+        <translation>Design</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Team</source>
-        <translation type="unfinished"></translation>
+        <translation>Team</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Mira · 10:42</source>
-        <translation type="unfinished"></translation>
+        <translation>Mira · 10:42</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Thread opens here</source>
-        <translation type="unfinished"></translation>
+        <translation>Thread wird hier eröffnet</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Thread opens beside</source>
-        <translation type="unfinished"></translation>
+        <translation>Thread öffnet sich daneben</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>The draft is ready</source>
-        <translation type="unfinished"></translation>
+        <translation>Der Entwurf ist fertig</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>I added the notes</source>
-        <translation type="unfinished"></translation>
+        <translation>Ich habe die Notizen hinzugefügt</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>You · 10:43</source>
-        <translation type="unfinished"></translation>
+        <translation>Du · 10:43</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Thanks!</source>
-        <translation type="unfinished"></translation>
+        <translation>Danke!</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Message…</source>
-        <translation type="unfinished"></translation>
+        <translation>Nachricht…</translation>
     </message>
 </context>
 <context>
@@ -12126,7 +12126,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     <message>
         <location line="+27"/>
         <source>Edit image %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Bild %1 bearbeiten</translation>
     </message>
     <message>
         <location line="+13"/>
@@ -12257,12 +12257,12 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     <message>
         <location line="+16"/>
         <source>Collapse message box</source>
-        <translation type="unfinished"></translation>
+        <translation>Meldungsfeld ausblenden</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Expand message box</source>
-        <translation type="unfinished"></translation>
+        <translation>Meldungsfeld erweitern</translation>
     </message>
     <message>
         <location line="+31"/>
@@ -12660,7 +12660,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     <message>
         <location line="-2275"/>
         <source>Original message removed</source>
-        <translation type="unfinished"></translation>
+        <translation>Ursprüngliche Nachricht entfernt</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -12942,12 +12942,12 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     <message>
         <location line="+14"/>
         <source>Remove from saved messages</source>
-        <translation type="unfinished"></translation>
+        <translation>Aus gespeicherten Nachrichten entfernen</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Save message</source>
-        <translation type="unfinished"></translation>
+        <translation>Nachricht speichern</translation>
     </message>
     <message>
         <location line="+13"/>
@@ -14533,7 +14533,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     <message>
         <location line="+9"/>
         <source>Off also hides reactions from Lightning&apos;s Activity feed, including the Reactions tab and its badge. This rule is saved to your account for other devices and clients. Lightning does not show desktop notifications for reactions.</source>
-        <translation type="unfinished"></translation>
+        <translation>Aus blendet auch Reaktionen aus dem Aktivitäts-Feed von Lightning aus, einschließlich der Registerkarte „Reaktionen“ und ihres Abzeichens. Diese Regel wird für andere Geräte und Clients in Ihrem Konto gespeichert. Lightning zeigt keine Desktop-Benachrichtigungen für Reaktionen an.</translation>
     </message>
     <message>
         <location line="+8"/>
@@ -15904,80 +15904,80 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     <message>
         <location line="-133"/>
         <source>Saved messages</source>
-        <translation type="unfinished"></translation>
+        <translation>Gespeicherte Nachrichten</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Open your saved message hub</source>
-        <translation type="unfinished"></translation>
+        <translation>Öffnen Sie Ihren gespeicherten Nachrichten-Hub</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+10"/>
         <source>Available after signing in</source>
-        <translation type="unfinished"></translation>
+        <translation>Verfügbar nach der Anmeldung</translation>
     </message>
     <message>
         <location line="-2"/>
         <source>Threads activity</source>
-        <translation type="unfinished"></translation>
+        <translation>Thread-Aktivität</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Review threads across rooms</source>
-        <translation type="unfinished"></translation>
+        <translation>Überprüfen Sie Threads in allen Räumen</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Use Lightning layout</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning-Layout verwenden</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Use compact layout</source>
-        <translation type="unfinished"></translation>
+        <translation>Verwenden Sie ein kompaktes Layout</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Move thread to side view</source>
-        <translation type="unfinished"></translation>
+        <translation>Thread in die Seitenansicht verschieben</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Move thread to main view</source>
-        <translation type="unfinished"></translation>
+        <translation>Thread in die Hauptansicht verschieben</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Current thread</source>
-        <translation type="unfinished"></translation>
+        <translation>Aktueller Thread</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+11"/>
         <location line="+9"/>
         <source>Open a thread first</source>
-        <translation type="unfinished"></translation>
+        <translation>Eröffne zuerst einen Thread</translation>
     </message>
     <message>
         <location line="-11"/>
         <source>Return to room</source>
-        <translation type="unfinished"></translation>
+        <translation>Zurück in den Raum</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Close the current thread</source>
-        <translation type="unfinished"></translation>
+        <translation>Schließe den aktuellen Thread</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Open thread root in room</source>
-        <translation type="unfinished"></translation>
+        <translation>Thread-Wurzel im Raum öffnen</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Jump to the original message</source>
-        <translation type="unfinished"></translation>
+        <translation>Zur ursprünglichen Nachricht springen</translation>
     </message>
     <message>
         <location line="+80"/>
@@ -16282,7 +16282,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     <message>
         <location filename="../qml/RoomActionsMenu.qml" line="+42"/>
         <source>Select room</source>
-        <translation type="unfinished"></translation>
+        <translation>Raum auswählen</translation>
     </message>
     <message>
         <location line="+37"/>
@@ -16297,12 +16297,12 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     <message>
         <location line="+8"/>
         <source>Remove from low priority</source>
-        <translation type="unfinished"></translation>
+        <translation>Von niedriger Priorität entfernen</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Move to low priority</source>
-        <translation type="unfinished"></translation>
+        <translation>Zur niedrigen Priorität wechseln</translation>
     </message>
     <message>
         <location line="+15"/>
@@ -16429,7 +16429,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     <message>
         <location line="+4"/>
         <source>%1 · permissions or security changed</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 · Berechtigungen oder Sicherheit geändert</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -18664,12 +18664,12 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     <message>
         <location line="+6"/>
         <source>Collapsed groups</source>
-        <translation type="unfinished"></translation>
+        <translation>Reduzierte Gruppen</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Keep important rooms visible</source>
-        <translation type="unfinished"></translation>
+        <translation>Halten Sie wichtige Räume sichtbar</translation>
     </message>
 </context>
 <context>
@@ -18930,7 +18930,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     <message numerus="yes">
         <location line="+35"/>
         <source>%n selected</source>
-        <translation type="unfinished">
+        <translation>
             <numerusform>%n ausgewählt</numerusform>
             <numerusform>%n ausgewählt</numerusform>
         </translation>
@@ -18938,115 +18938,115 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     <message>
         <location line="+1"/>
         <source>Read</source>
-        <translation type="unfinished"></translation>
+        <translation>Lesen</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Favourite</source>
-        <translation type="unfinished"></translation>
+        <translation>Favorit</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Unfavourite</source>
-        <translation type="unfinished"></translation>
+        <translation>Aus Favoriten entfernen</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Low priority</source>
-        <translation type="unfinished">Niedrige Priorität</translation>
+        <translation>Niedrige Priorität</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Remove low priority</source>
-        <translation type="unfinished"></translation>
+        <translation>Niedrige Priorität entfernen</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Notify all</source>
-        <translation type="unfinished"></translation>
+        <translation>Alle benachrichtigen</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Mentions</source>
-        <translation type="unfinished">Erwähnungen</translation>
+        <translation>Erwähnungen</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Mute</source>
-        <translation type="unfinished">Stummschalten</translation>
+        <translation>Stummschalten</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Default</source>
-        <translation type="unfinished"></translation>
+        <translation>Standard</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Leave…</source>
-        <translation type="unfinished"></translation>
+        <translation>Verlassen…</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Retry failed</source>
-        <translation type="unfinished">Fehlgeschlagene wiederholen</translation>
+        <translation>Fehlgeschlagene wiederholen</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Done</source>
-        <translation type="unfinished">Fertig</translation>
+        <translation>Fertig</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>%1 succeeded · %2 failed · %3 pending</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 erfolgreich · %2 fehlgeschlagen · %3 ausstehend</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>%1: %2</source>
-        <translation type="unfinished">%1: %2</translation>
+        <translation>%1: %2</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Succeeded</source>
-        <translation type="unfinished"></translation>
+        <translation>Erfolgreich</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Failed</source>
-        <translation type="unfinished">Fehlgeschlagen</translation>
+        <translation>Fehlgeschlagen</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Pending</source>
-        <translation type="unfinished"></translation>
+        <translation>Ausstehend</translation>
     </message>
     <message numerus="yes">
         <location line="+9"/>
         <source>Leave %n room(s)?</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n Raum verlassen?</numerusform>
+            <numerusform>%n Räume verlassen?</numerusform>
         </translation>
     </message>
     <message>
         <location line="+9"/>
         <source>You will leave all selected rooms. You may need an invitation to rejoin private rooms.</source>
-        <translation type="unfinished"></translation>
+        <translation>Sie verlassen alle ausgewählten Räume. Möglicherweise benötigen Sie eine Einladung, um private Räume wieder zu betreten.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>You are the last known admin in one selected room. Assign another admin before leaving if the room needs one.</source>
-        <translation type="unfinished"></translation>
+        <translation>Sie sind der letzte bekannte Administrator in einem ausgewählten Raum. Weisen Sie vor dem Verlassen des Raums einen anderen Administrator zu, wenn der Raum einen benötigt.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Cancel</source>
-        <translation type="unfinished">Abbrechen</translation>
+        <translation>Abbrechen</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Leave rooms</source>
-        <translation type="unfinished"></translation>
+        <translation>Räume verlassen</translation>
     </message>
     <message>
         <location line="+119"/>
@@ -19545,50 +19545,50 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     <message>
         <location filename="../src/app/SavedMessagesController.cpp" line="+127"/>
         <source>Saved messages could not be loaded. Retry.</source>
-        <translation type="unfinished"></translation>
+        <translation>Gespeicherte Nachrichten konnten nicht geladen werden. Wiederholen.</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Saved messages could not be updated. Retry.</source>
-        <translation type="unfinished"></translation>
+        <translation>Gespeicherte Nachrichten konnten nicht aktualisiert werden. Wiederholen.</translation>
     </message>
     <message>
         <location line="+63"/>
         <location line="+9"/>
         <location line="+11"/>
         <source>Saved messages data is unavailable.</source>
-        <translation type="unfinished"></translation>
+        <translation>Gespeicherte Nachrichtendaten sind nicht verfügbar.</translation>
     </message>
     <message>
         <location line="+53"/>
         <location line="+20"/>
         <source>Saved messages are full. Remove an older item first.</source>
-        <translation type="unfinished"></translation>
+        <translation>Die gespeicherten Nachrichten sind voll. Entfernen Sie zuerst ein älteres Element.</translation>
     </message>
     <message>
         <location line="+150"/>
         <source>Sticker</source>
-        <translation type="unfinished">Sticker</translation>
+        <translation>Sticker</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Image</source>
-        <translation type="unfinished">Bild</translation>
+        <translation>Bild</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Video</source>
-        <translation type="unfinished">Video</translation>
+        <translation>Video</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Audio</source>
-        <translation type="unfinished">Audio</translation>
+        <translation>Audio</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>File</source>
-        <translation type="unfinished">Datei</translation>
+        <translation>Datei</translation>
     </message>
 </context>
 <context>
@@ -19597,113 +19597,113 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <location filename="../qml/SavedMessagesPanel.qml" line="+49"/>
         <location line="+121"/>
         <source>Saved messages</source>
-        <translation type="unfinished"></translation>
+        <translation>Gespeicherte Nachrichten</translation>
     </message>
     <message>
         <location line="-104"/>
         <source>Undo remove</source>
-        <translation type="unfinished"></translation>
+        <translation>Entfernen rückgängig machen</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Close</source>
-        <translation type="unfinished">Schließen</translation>
+        <translation>Schließen</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Filter saved messages</source>
-        <translation type="unfinished"></translation>
+        <translation>Gespeicherte Nachrichten filtern</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>All rooms</source>
-        <translation type="unfinished">Alle Räume</translation>
+        <translation>Alle Räume</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>All</source>
-        <translation type="unfinished">Alle</translation>
+        <translation>Alle</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Text</source>
-        <translation type="unfinished">Text</translation>
+        <translation>Text</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Media</source>
-        <translation type="unfinished">Medien</translation>
+        <translation>Medien</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Retry loading</source>
-        <translation type="unfinished"></translation>
+        <translation>Versuchen Sie den Ladevorgang erneut</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Loading saved messages…</source>
-        <translation type="unfinished"></translation>
+        <translation>Gespeicherte Nachrichten werden geladen…</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Saved messages are unavailable on this backend.</source>
-        <translation type="unfinished"></translation>
+        <translation>Gespeicherte Nachrichten sind in diesem Backend nicht verfügbar.</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>No saved messages match these filters.</source>
-        <translation type="unfinished"></translation>
+        <translation>Keine gespeicherten Nachrichten entsprechen diesen Filtern.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>No saved messages yet. Use Save message on a message to add one.</source>
-        <translation type="unfinished"></translation>
+        <translation>Noch keine gespeicherten Nachrichten. Verwenden Sie „Nachricht speichern“ für eine Nachricht, um eine hinzuzufügen.</translation>
     </message>
     <message>
         <location line="+38"/>
         <location line="+35"/>
         <source>Message unavailable or redacted</source>
-        <translation type="unfinished"></translation>
+        <translation>Nachricht nicht verfügbar oder redigiert</translation>
     </message>
     <message>
         <location line="-34"/>
         <source>Loading message</source>
-        <translation type="unfinished"></translation>
+        <translation>Nachricht wird geladen</translation>
     </message>
     <message>
         <location line="+35"/>
         <source>Loading message…</source>
-        <translation type="unfinished"></translation>
+        <translation>Nachricht wird geladen…</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>In a thread</source>
-        <translation type="unfinished"></translation>
+        <translation>In einem Thread</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Open</source>
-        <translation type="unfinished">Öffnen</translation>
+        <translation>Öffnen</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Open saved message</source>
-        <translation type="unfinished"></translation>
+        <translation>Gespeicherte Nachricht öffnen</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Open thread root in room</source>
-        <translation type="unfinished"></translation>
+        <translation>Thread-Wurzel im Raum öffnen</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Open room</source>
-        <translation type="unfinished">Geöffneter Raum</translation>
+        <translation>Geöffneter Raum</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Remove saved message</source>
-        <translation type="unfinished"></translation>
+        <translation>Gespeicherte Nachricht entfernen</translation>
     </message>
 </context>
 <context>
@@ -24378,7 +24378,7 @@ Escape und die einzelnen Buchstaben, die das Nachrichtenmenü bei geöffnetem Zu
     <message>
         <location line="+31"/>
         <source>Preview uses your current font and colours. The preset changes message layout, spacing and where threads open; reset restores only those three choices.</source>
-        <translation type="unfinished"></translation>
+        <translation>Die Vorschau verwendet Ihre aktuelle Schriftart und Farben. Die Voreinstellung ändert das Nachrichtenlayout, den Abstand und den Ort, an dem Threads geöffnet werden. Beim Zurücksetzen werden nur diese drei Auswahlmöglichkeiten wiederhergestellt.</translation>
     </message>
     <message>
         <location line="+72"/>
@@ -26218,27 +26218,27 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message>
         <location line="+3"/>
         <source>Open saved messages</source>
-        <translation type="unfinished"></translation>
+        <translation>Gespeicherte Nachrichten öffnen</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Open Threads activity</source>
-        <translation type="unfinished"></translation>
+        <translation>Thread-Aktivität öffnen</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Switch between Lightning and compact layouts</source>
-        <translation type="unfinished"></translation>
+        <translation>Wechseln Sie zwischen Lightning- und Kompakt-Layouts</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Move the current thread between main and side views</source>
-        <translation type="unfinished"></translation>
+        <translation>Verschieben Sie den aktuellen Thread zwischen Haupt- und Seitenansicht</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Open the current thread root in its room</source>
-        <translation type="unfinished"></translation>
+        <translation>Öffnen Sie den aktuellen Thread-Stamm in seinem Raum</translation>
     </message>
     <message>
         <location line="+29"/>
@@ -26288,7 +26288,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message>
         <location line="+3"/>
         <source>Save or remove the selected message</source>
-        <translation type="unfinished"></translation>
+        <translation>Speichern oder entfernen Sie die ausgewählte Nachricht</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -26408,7 +26408,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message>
         <location line="+9"/>
         <source>Expand or collapse the message box</source>
-        <translation type="unfinished"></translation>
+        <translation>Erweitern oder reduzieren Sie das Meldungsfeld</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -26965,12 +26965,12 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message>
         <location filename="../qml/SpaceMemberChip.qml" line="+84"/>
         <source>Kick from space…</source>
-        <translation type="unfinished">Aus dem Space rauswerfen …</translation>
+        <translation>Aus dem Space rauswerfen …</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Ban from space…</source>
-        <translation type="unfinished">Aus dem Space bannen …</translation>
+        <translation>Aus dem Space bannen …</translation>
     </message>
 </context>
 <context>
@@ -30660,12 +30660,12 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message>
         <location line="-1605"/>
         <source>This room has been replaced.</source>
-        <translation type="unfinished">Dieser Raum wurde ersetzt.</translation>
+        <translation>Dieser Raum wurde ersetzt.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>You do not have permission to post in this room.</source>
-        <translation type="unfinished">Du hast keine Berechtigung, in diesem Raum zu schreiben.</translation>
+        <translation>Du hast keine Berechtigung, in diesem Raum zu schreiben.</translation>
     </message>
     <message>
         <location line="+101"/>
@@ -30764,7 +30764,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <location line="+241"/>
         <location line="+75"/>
         <source>Replies</source>
-        <translation type="unfinished">Antworten</translation>
+        <translation>Antworten</translation>
     </message>
     <message>
         <location line="-410"/>
@@ -30836,17 +30836,17 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message>
         <location line="+25"/>
         <source>Search replies</source>
-        <translation type="unfinished"></translation>
+        <translation>Suchantworten</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Search replies in this thread</source>
-        <translation type="unfinished"></translation>
+        <translation>Suchen Sie nach Antworten in diesem Thread</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Clear thread search</source>
-        <translation type="unfinished"></translation>
+        <translation>Thread-Suche löschen</translation>
     </message>
     <message>
         <location line="+14"/>
@@ -30887,12 +30887,12 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message>
         <location line="+2"/>
         <source>Sent</source>
-        <translation type="unfinished">Gesendet</translation>
+        <translation>Gesendet</translation>
     </message>
     <message>
         <location line="+27"/>
         <source>Edit image %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Bild %1 bearbeiten</translation>
     </message>
     <message>
         <location line="+13"/>
@@ -30918,12 +30918,12 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message>
         <location line="+12"/>
         <source>Collapse message box</source>
-        <translation type="unfinished"></translation>
+        <translation>Meldungsfeld ausblenden</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Expand message box</source>
-        <translation type="unfinished"></translation>
+        <translation>Meldungsfeld erweitern</translation>
     </message>
     <message>
         <location line="+30"/>

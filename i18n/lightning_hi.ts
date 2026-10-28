@@ -647,28 +647,28 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+24"/>
         <source>Unread</source>
-        <translation type="unfinished">अपठित</translation>
+        <translation>अपठित</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Participating</source>
-        <translation type="unfinished"></translation>
+        <translation>भाग लेना</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+397"/>
         <source>Following</source>
-        <translation type="unfinished"></translation>
+        <translation>निम्नलिखित</translation>
     </message>
     <message>
         <location line="-396"/>
         <source>All known</source>
-        <translation type="unfinished"></translation>
+        <translation>सभी ज्ञात</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Threads found through activity in this account. Older and unrelated threads may be missing. Muted rooms are hidden. Opening this list does not mark threads read.</source>
-        <translation type="unfinished"></translation>
+        <translation>इस खाते की गतिविधि में मिले थ्रेड। पुराने या असंबंधित थ्रेड शायद न दिखें। म्यूट किए गए रूम छिपे रहते हैं। इस सूची को खोलने से थ्रेड पढ़े हुए चिह्नित नहीं होते।</translation>
     </message>
     <message>
         <location line="+47"/>
@@ -678,17 +678,17 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+18"/>
         <source>No followed threads found in recent activity.</source>
-        <translation type="unfinished"></translation>
+        <translation>हाल की गतिविधि में कोई फ़ॉलो किया गया थ्रेड नहीं मिला।</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>No unread threads found in recent activity.</source>
-        <translation type="unfinished"></translation>
+        <translation>हाल की गतिविधि में कोई अपठित थ्रेड नहीं मिला।</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>No threads found in recent activity.</source>
-        <translation type="unfinished"></translation>
+        <translation>हाल की गतिविधि में कोई थ्रेड नहीं मिला।</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -718,42 +718,42 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+203"/>
         <source>Threads activity</source>
-        <translation type="unfinished"></translation>
+        <translation>थ्रेड्स गतिविधि</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Loading…</source>
-        <translation type="unfinished">लोड हो रहा है…</translation>
+        <translation>लोड हो रहा है…</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Retry older activity</source>
-        <translation type="unfinished"></translation>
+        <translation>पुरानी गतिविधि पुनः प्रयास करें</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Load older activity</source>
-        <translation type="unfinished"></translation>
+        <translation>पुरानी गतिविधि लोड करें</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Thread in %1, %2: %3</source>
-        <translation type="unfinished"></translation>
+        <translation>थ्रेड: %1, %2: %3</translation>
     </message>
     <message>
         <location line="+45"/>
         <source>Root: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>रूट: %1</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Root context loads when opened</source>
-        <translation type="unfinished"></translation>
+        <translation>खोले जाने पर रूट संदर्भ लोड होता है</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Mention</source>
-        <translation type="unfinished"></translation>
+        <translation>उल्लेख करें</translation>
     </message>
     <message>
         <location line="-553"/>
@@ -1644,87 +1644,87 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../qml/AttachmentImageEditDialog.qml" line="+26"/>
         <source>Edit image before sending</source>
-        <translation type="unfinished"></translation>
+        <translation>भेजने से पहले छवि संपादित करें</translation>
     </message>
     <message>
         <location line="+26"/>
         <source>The image edit failed.</source>
-        <translation type="unfinished"></translation>
+        <translation>छवि संपादन विफल रहा।</translation>
     </message>
     <message>
         <location line="+47"/>
         <source>Editing this animation sends one still PNG frame.</source>
-        <translation type="unfinished"></translation>
+        <translation>इस एनीमेशन को संपादित करने से एक स्थिर पीएनजी फ्रेम भेजा जाता है।</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The original file stays unchanged. The preview is the image that will be sent.</source>
-        <translation type="unfinished"></translation>
+        <translation>मूल फ़ाइल अपरिवर्तित रहती है। पूर्वावलोकन वह छवि है जो भेजी जाएगी.</translation>
     </message>
     <message>
         <location line="+72"/>
         <source>Rotate left</source>
-        <translation type="unfinished"></translation>
+        <translation>बाएँ घुमाएँ</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Rotate right</source>
-        <translation type="unfinished"></translation>
+        <translation>दाएँ घुमाएँ</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Mirror</source>
-        <translation type="unfinished"></translation>
+        <translation>दर्पण</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Undo</source>
-        <translation type="unfinished">पूर्ववत करें</translation>
+        <translation>पूर्ववत करें</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Crop: left, top, right and bottom</source>
-        <translation type="unfinished"></translation>
+        <translation>काटें: बाएँ, ऊपर, दाएँ और नीचे</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Left</source>
-        <translation type="unfinished"></translation>
+        <translation>वाम</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Top</source>
-        <translation type="unfinished">ऊपर</translation>
+        <translation>ऊपर</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Right</source>
-        <translation type="unfinished"></translation>
+        <translation>सही है</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Bottom</source>
-        <translation type="unfinished">नीचे</translation>
+        <translation>नीचे</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Reset</source>
-        <translation type="unfinished">रीसेट करें</translation>
+        <translation>रीसेट करें</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Cancel</source>
-        <translation type="unfinished">रद्द करें</translation>
+        <translation>रद्द करें</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Use edited image</source>
-        <translation type="unfinished"></translation>
+        <translation>संपादित छवि का उपयोग करें</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>The edited image could not be queued.</source>
-        <translation type="unfinished"></translation>
+        <translation>संपादित छवि को कतारबद्ध नहीं किया जा सका।</translation>
     </message>
 </context>
 <context>
@@ -1782,54 +1782,54 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+53"/>
         <source>The attachment is no longer available.</source>
-        <translation type="unfinished"></translation>
+        <translation>अनुलग्नक अब उपलब्ध नहीं है।</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>This image cannot be edited yet.</source>
-        <translation type="unfinished"></translation>
+        <translation>इस छवि को अभी तक संपादित नहीं किया जा सकता है।</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Invalid image edit.</source>
-        <translation type="unfinished"></translation>
+        <translation>अमान्य छवि संपादन।</translation>
     </message>
     <message>
         <location line="+9"/>
         <location line="+32"/>
         <source>This image is too large to edit.</source>
-        <translation type="unfinished"></translation>
+        <translation>यह छवि संपादित करने के लिए बहुत बड़ी है।</translation>
     </message>
     <message>
         <location line="-17"/>
         <source>This image format cannot be edited.</source>
-        <translation type="unfinished"></translation>
+        <translation>इस छवि प्रारूप को संपादित नहीं किया जा सकता।</translation>
     </message>
     <message>
         <location line="+25"/>
         <source>This image could not be decoded safely.</source>
-        <translation type="unfinished"></translation>
+        <translation>इस छवि को सुरक्षित रूप से डिकोड नहीं किया जा सका।</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>The crop is empty.</source>
-        <translation type="unfinished"></translation>
+        <translation>फसल खाली है।</translation>
     </message>
     <message>
         <location line="+9"/>
         <location line="+5"/>
         <source>The image edit failed.</source>
-        <translation type="unfinished"></translation>
+        <translation>छवि संपादन विफल रहा।</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Too many annotation points.</source>
-        <translation type="unfinished"></translation>
+        <translation>बहुत अधिक एनोटेशन बिंदु।</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Invalid annotation point.</source>
-        <translation type="unfinished"></translation>
+        <translation>अमान्य एनोटेशन बिंदु।</translation>
     </message>
     <message>
         <location line="+13"/>
@@ -1837,7 +1837,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <location line="+7"/>
         <location line="+4"/>
         <source>The image edit could not be saved.</source>
-        <translation type="unfinished"></translation>
+        <translation>छवि संपादन सहेजा नहीं जा सका।</translation>
     </message>
 </context>
 <context>
@@ -9992,62 +9992,62 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/LayoutPresetPreview.qml" line="+25"/>
         <source>Layout preview: room rail, message grouping and composer</source>
-        <translation type="unfinished"></translation>
+        <translation>लेआउट पूर्वावलोकन: रूम रेल, संदेश समूहन और संदेश लिखने का क्षेत्र</translation>
     </message>
     <message>
         <location line="+46"/>
         <source>General</source>
-        <translation type="unfinished">सामान्य</translation>
+        <translation>सामान्य</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Design</source>
-        <translation type="unfinished">डिज़ाइन</translation>
+        <translation>डिज़ाइन</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Team</source>
-        <translation type="unfinished"></translation>
+        <translation>टीम</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Mira · 10:42</source>
-        <translation type="unfinished"></translation>
+        <translation>मीरा · 10:42</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Thread opens here</source>
-        <translation type="unfinished"></translation>
+        <translation>थ्रेड यहां खुलता है</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Thread opens beside</source>
-        <translation type="unfinished"></translation>
+        <translation>बगल में थ्रेड खुलता है</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>The draft is ready</source>
-        <translation type="unfinished"></translation>
+        <translation>ड्राफ्ट तैयार है</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>I added the notes</source>
-        <translation type="unfinished"></translation>
+        <translation>मैंने नोट्स जोड़े</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>You · 10:43</source>
-        <translation type="unfinished"></translation>
+        <translation>आप · 10:43</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Thanks!</source>
-        <translation type="unfinished"></translation>
+        <translation>धन्यवाद!</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Message…</source>
-        <translation type="unfinished"></translation>
+        <translation>संदेश...</translation>
     </message>
 </context>
 <context>
@@ -12106,7 +12106,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+27"/>
         <source>Edit image %1</source>
-        <translation type="unfinished"></translation>
+        <translation>छवि%1 संपादित करें</translation>
     </message>
     <message>
         <location line="+13"/>
@@ -12237,12 +12237,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+16"/>
         <source>Collapse message box</source>
-        <translation type="unfinished"></translation>
+        <translation>संदेश बॉक्स को संक्षिप्त करें</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Expand message box</source>
-        <translation type="unfinished"></translation>
+        <translation>संदेश बॉक्स का विस्तार करें</translation>
     </message>
     <message>
         <location line="+31"/>
@@ -12781,7 +12781,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-2285"/>
         <source>Original message removed</source>
-        <translation type="unfinished"></translation>
+        <translation>मूल संदेश हटा दिया गया</translation>
     </message>
     <message>
         <location line="+2298"/>
@@ -12801,12 +12801,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+14"/>
         <source>Remove from saved messages</source>
-        <translation type="unfinished"></translation>
+        <translation>सहेजे गए संदेशों से हटाएँ</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Save message</source>
-        <translation type="unfinished"></translation>
+        <translation>संदेश सहेजें</translation>
     </message>
     <message>
         <location line="+13"/>
@@ -14533,7 +14533,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+9"/>
         <source>Off also hides reactions from Lightning&apos;s Activity feed, including the Reactions tab and its badge. This rule is saved to your account for other devices and clients. Lightning does not show desktop notifications for reactions.</source>
-        <translation type="unfinished"></translation>
+        <translation>ऑफ Lightning की गतिविधि फ़ीड से प्रतिक्रियाओं को भी छुपाता है, जिसमें रिएक्शन टैब और उसका बैज भी शामिल है। यह नियम अन्य डिवाइस और क्लाइंट के लिए आपके खाते में सहेजा गया है। Lightning प्रतिक्रियाओं के लिए डेस्कटॉप सूचनाएं नहीं दिखाता है।</translation>
     </message>
     <message>
         <location line="+8"/>
@@ -15904,80 +15904,80 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-133"/>
         <source>Saved messages</source>
-        <translation type="unfinished"></translation>
+        <translation>सहेजे गए संदेश</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Open your saved message hub</source>
-        <translation type="unfinished"></translation>
+        <translation>अपना सहेजा गया संदेश हब खोलें</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+10"/>
         <source>Available after signing in</source>
-        <translation type="unfinished"></translation>
+        <translation>साइन इन करने के बाद उपलब्ध</translation>
     </message>
     <message>
         <location line="-2"/>
         <source>Threads activity</source>
-        <translation type="unfinished"></translation>
+        <translation>थ्रेड्स गतिविधि</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Review threads across rooms</source>
-        <translation type="unfinished"></translation>
+        <translation>सभी रूम में थ्रेड की समीक्षा करें</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Use Lightning layout</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning लेआउट का उपयोग करें</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Use compact layout</source>
-        <translation type="unfinished"></translation>
+        <translation>कॉम्पैक्ट लेआउट का उपयोग करें</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Move thread to side view</source>
-        <translation type="unfinished"></translation>
+        <translation>थ्रेड को साइड व्यू पर ले जाएं</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Move thread to main view</source>
-        <translation type="unfinished"></translation>
+        <translation>थ्रेड को मुख्य दृश्य पर ले जाएं</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Current thread</source>
-        <translation type="unfinished"></translation>
+        <translation>वर्तमान थ्रेड</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+11"/>
         <location line="+9"/>
         <source>Open a thread first</source>
-        <translation type="unfinished"></translation>
+        <translation>पहले एक थ्रेड खोलें</translation>
     </message>
     <message>
         <location line="-11"/>
         <source>Return to room</source>
-        <translation type="unfinished"></translation>
+        <translation>रूम में लौटें</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Close the current thread</source>
-        <translation type="unfinished"></translation>
+        <translation>वर्तमान थ्रेड को बंद करें</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Open thread root in room</source>
-        <translation type="unfinished"></translation>
+        <translation>रूम में थ्रेड रूट खोलें</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Jump to the original message</source>
-        <translation type="unfinished"></translation>
+        <translation>मूल संदेश पर जाएं</translation>
     </message>
     <message>
         <location line="+80"/>
@@ -16282,7 +16282,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/RoomActionsMenu.qml" line="+42"/>
         <source>Select room</source>
-        <translation type="unfinished"></translation>
+        <translation>रूम चुनें</translation>
     </message>
     <message>
         <location line="+37"/>
@@ -16297,12 +16297,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+8"/>
         <source>Remove from low priority</source>
-        <translation type="unfinished"></translation>
+        <translation>निम्न प्राथमिकता से हटाएँ</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Move to low priority</source>
-        <translation type="unfinished"></translation>
+        <translation>निम्न प्राथमिकता पर जाएँ</translation>
     </message>
     <message>
         <location line="+15"/>
@@ -16429,7 +16429,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+4"/>
         <source>%1 · permissions or security changed</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 · अनुमतियाँ या सुरक्षा बदल गई</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -18664,12 +18664,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+6"/>
         <source>Collapsed groups</source>
-        <translation type="unfinished"></translation>
+        <translation>संक्षिप्त समूह</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Keep important rooms visible</source>
-        <translation type="unfinished"></translation>
+        <translation>महत्वपूर्ण रूम को दृश्यमान रखें</translation>
     </message>
 </context>
 <context>
@@ -18873,7 +18873,7 @@ Signing out and signing in again is the only fix.</source>
     <message numerus="yes">
         <location line="+182"/>
         <source>%n selected</source>
-        <translation type="unfinished">
+        <translation>
             <numerusform>%n चयनित</numerusform>
             <numerusform>%n चयनित</numerusform>
         </translation>
@@ -18881,115 +18881,115 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+1"/>
         <source>Read</source>
-        <translation type="unfinished"></translation>
+        <translation>पढ़ें</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Favourite</source>
-        <translation type="unfinished"></translation>
+        <translation>पसंदीदा</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Unfavourite</source>
-        <translation type="unfinished"></translation>
+        <translation>पसंदीदा से हटाएँ</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Low priority</source>
-        <translation type="unfinished">कम प्राथमिकता</translation>
+        <translation>कम प्राथमिकता</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Remove low priority</source>
-        <translation type="unfinished"></translation>
+        <translation>निम्न प्राथमिकता हटाएँ</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Notify all</source>
-        <translation type="unfinished"></translation>
+        <translation>सभी को सूचित करें</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Mentions</source>
-        <translation type="unfinished">मेंशन</translation>
+        <translation>मेंशन</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Mute</source>
-        <translation type="unfinished"></translation>
+        <translation>म्यूट करें</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Default</source>
-        <translation type="unfinished"></translation>
+        <translation>डिफ़ॉल्ट</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Leave…</source>
-        <translation type="unfinished"></translation>
+        <translation>छोड़ो...</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Retry failed</source>
-        <translation type="unfinished">विफल को फिर आज़माएँ</translation>
+        <translation>विफल को फिर आज़माएँ</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Done</source>
-        <translation type="unfinished">हो गया</translation>
+        <translation>हो गया</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>%1 succeeded · %2 failed · %3 pending</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 सफल · %2 विफल · %3 लंबित</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>%1: %2</source>
-        <translation type="unfinished">%1: %2</translation>
+        <translation>%1: %2</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Succeeded</source>
-        <translation type="unfinished"></translation>
+        <translation>सफल हुआ</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Failed</source>
-        <translation type="unfinished">विफल</translation>
+        <translation>विफल</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Pending</source>
-        <translation type="unfinished"></translation>
+        <translation>लंबित</translation>
     </message>
     <message numerus="yes">
         <location line="+9"/>
         <source>Leave %n room(s)?</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n रूम छोड़ें?</numerusform>
+            <numerusform>%n रूम छोड़ें?</numerusform>
         </translation>
     </message>
     <message>
         <location line="+9"/>
         <source>You will leave all selected rooms. You may need an invitation to rejoin private rooms.</source>
-        <translation type="unfinished"></translation>
+        <translation>आप सभी चयनित रूम छोड़ देंगे। आपको निजी रूम में पुनः शामिल होने के लिए निमंत्रण की आवश्यकता हो सकती है।</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>You are the last known admin in one selected room. Assign another admin before leaving if the room needs one.</source>
-        <translation type="unfinished"></translation>
+        <translation>आप एक चयनित रूम में अंतिम ज्ञात व्यवस्थापक हैं। यदि रूम को किसी अन्य व्यवस्थापक की आवश्यकता हो तो जाने से पहले उसे नियुक्त करें।</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Cancel</source>
-        <translation type="unfinished">रद्द करें</translation>
+        <translation>रद्द करें</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Leave rooms</source>
-        <translation type="unfinished"></translation>
+        <translation>रूम छोड़ो</translation>
     </message>
     <message>
         <location line="+119"/>
@@ -19545,50 +19545,50 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../src/app/SavedMessagesController.cpp" line="+127"/>
         <source>Saved messages could not be loaded. Retry.</source>
-        <translation type="unfinished"></translation>
+        <translation>सहेजे गए संदेश लोड नहीं किए जा सके। पुनः प्रयास करें.</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Saved messages could not be updated. Retry.</source>
-        <translation type="unfinished"></translation>
+        <translation>सहेजे गए संदेशों को अद्यतन नहीं किया जा सका। पुनः प्रयास करें.</translation>
     </message>
     <message>
         <location line="+63"/>
         <location line="+9"/>
         <location line="+11"/>
         <source>Saved messages data is unavailable.</source>
-        <translation type="unfinished"></translation>
+        <translation>सहेजे गए संदेशों का डेटा उपलब्ध नहीं है।</translation>
     </message>
     <message>
         <location line="+53"/>
         <location line="+20"/>
         <source>Saved messages are full. Remove an older item first.</source>
-        <translation type="unfinished"></translation>
+        <translation>सहेजे गए संदेश भरे हुए हैं। पहले कोई पुरानी वस्तु हटाएँ।</translation>
     </message>
     <message>
         <location line="+150"/>
         <source>Sticker</source>
-        <translation type="unfinished">स्टिकर</translation>
+        <translation>स्टिकर</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Image</source>
-        <translation type="unfinished"></translation>
+        <translation>तस्वीर</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Video</source>
-        <translation type="unfinished">वीडियो</translation>
+        <translation>वीडियो</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Audio</source>
-        <translation type="unfinished">ऑडियो</translation>
+        <translation>ऑडियो</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>File</source>
-        <translation type="unfinished">फ़ाइल</translation>
+        <translation>फ़ाइल</translation>
     </message>
 </context>
 <context>
@@ -19597,113 +19597,113 @@ Signing out and signing in again is the only fix.</source>
         <location filename="../qml/SavedMessagesPanel.qml" line="+49"/>
         <location line="+121"/>
         <source>Saved messages</source>
-        <translation type="unfinished"></translation>
+        <translation>सहेजे गए संदेश</translation>
     </message>
     <message>
         <location line="-104"/>
         <source>Undo remove</source>
-        <translation type="unfinished"></translation>
+        <translation>पूर्ववत हटाएं</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Close</source>
-        <translation type="unfinished">बंद करें</translation>
+        <translation>बंद करें</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Filter saved messages</source>
-        <translation type="unfinished"></translation>
+        <translation>सहेजे गए संदेशों को फ़िल्टर करें</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>All rooms</source>
-        <translation type="unfinished">सभी रूम</translation>
+        <translation>सभी रूम</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>All</source>
-        <translation type="unfinished">सभी</translation>
+        <translation>सभी</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Text</source>
-        <translation type="unfinished"></translation>
+        <translation>पाठ</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Media</source>
-        <translation type="unfinished">मीडिया</translation>
+        <translation>मीडिया</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Retry loading</source>
-        <translation type="unfinished"></translation>
+        <translation>लोड करने का पुनः प्रयास करें</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Loading saved messages…</source>
-        <translation type="unfinished"></translation>
+        <translation>सहेजे गए संदेश लोड हो रहे हैं…</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Saved messages are unavailable on this backend.</source>
-        <translation type="unfinished"></translation>
+        <translation>सहेजे गए संदेश इस बैकएंड पर उपलब्ध नहीं हैं।</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>No saved messages match these filters.</source>
-        <translation type="unfinished"></translation>
+        <translation>कोई भी सहेजा गया संदेश इन फ़िल्टर से मेल नहीं खाता।</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>No saved messages yet. Use Save message on a message to add one.</source>
-        <translation type="unfinished"></translation>
+        <translation>अभी तक कोई संदेश सहेजा नहीं गया। किसी संदेश को जोड़ने के लिए उस पर संदेश सहेजें का उपयोग करें।</translation>
     </message>
     <message>
         <location line="+38"/>
         <location line="+35"/>
         <source>Message unavailable or redacted</source>
-        <translation type="unfinished"></translation>
+        <translation>संदेश अनुपलब्ध है या संशोधित किया गया है</translation>
     </message>
     <message>
         <location line="-34"/>
         <source>Loading message</source>
-        <translation type="unfinished"></translation>
+        <translation>संदेश लोड हो रहा है</translation>
     </message>
     <message>
         <location line="+35"/>
         <source>Loading message…</source>
-        <translation type="unfinished"></translation>
+        <translation>संदेश लोड हो रहा है...</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>In a thread</source>
-        <translation type="unfinished"></translation>
+        <translation>एक थ्रेड में</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Open</source>
-        <translation type="unfinished">खोलें</translation>
+        <translation>खोलें</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Open saved message</source>
-        <translation type="unfinished"></translation>
+        <translation>सहेजा गया संदेश खोलें</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Open thread root in room</source>
-        <translation type="unfinished"></translation>
+        <translation>रूम में थ्रेड रूट खोलें</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Open room</source>
-        <translation type="unfinished">खुला रूम</translation>
+        <translation>खुला रूम</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Remove saved message</source>
-        <translation type="unfinished"></translation>
+        <translation>सहेजे गए संदेश को हटा दें</translation>
     </message>
 </context>
 <context>
@@ -24160,7 +24160,7 @@ Escape, and the single letters the message menu uses while it is open, are reser
     <message>
         <location line="+18"/>
         <source>Preview uses your current font and colours. The preset changes message layout, spacing and where threads open; reset restores only those three choices.</source>
-        <translation type="unfinished"></translation>
+        <translation>पूर्वावलोकन आपके वर्तमान फ़ॉन्ट और रंगों का उपयोग करता है। प्रीसेट संदेश लेआउट, रिक्ति और जहां थ्रेड खुलते हैं उसे बदल देता है; रीसेट केवल उन तीन विकल्पों को पुनर्स्थापित करता है।</translation>
     </message>
     <message>
         <location line="+20"/>
@@ -26218,27 +26218,27 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+3"/>
         <source>Open saved messages</source>
-        <translation type="unfinished"></translation>
+        <translation>सहेजे गए संदेश खोलें</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Open Threads activity</source>
-        <translation type="unfinished"></translation>
+        <translation>थ्रेड गतिविधि खोलें</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Switch between Lightning and compact layouts</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning और कॉम्पैक्ट लेआउट के बीच स्विच करें</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Move the current thread between main and side views</source>
-        <translation type="unfinished"></translation>
+        <translation>वर्तमान थ्रेड को मुख्य और पार्श्व दृश्यों के बीच ले जाएँ</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Open the current thread root in its room</source>
-        <translation type="unfinished"></translation>
+        <translation>इसके रूम में वर्तमान थ्रेड रूट खोलें</translation>
     </message>
     <message>
         <location line="+29"/>
@@ -26288,7 +26288,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+3"/>
         <source>Save or remove the selected message</source>
-        <translation type="unfinished"></translation>
+        <translation>चयनित संदेश को सहेजें या हटाएँ</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -26408,7 +26408,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+9"/>
         <source>Expand or collapse the message box</source>
-        <translation type="unfinished"></translation>
+        <translation>संदेश बॉक्स को विस्तृत या संक्षिप्त करें</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -26965,12 +26965,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/SpaceMemberChip.qml" line="+84"/>
         <source>Kick from space…</source>
-        <translation type="unfinished">स्पेस से निकालें…</translation>
+        <translation>स्पेस से निकालें…</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Ban from space…</source>
-        <translation type="unfinished">स्पेस से प्रतिबंधित करें…</translation>
+        <translation>स्पेस से प्रतिबंधित करें…</translation>
     </message>
 </context>
 <context>
@@ -30660,12 +30660,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="-1605"/>
         <source>This room has been replaced.</source>
-        <translation type="unfinished">यह रूम बदल दिया गया है।</translation>
+        <translation>यह रूम बदल दिया गया है।</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>You do not have permission to post in this room.</source>
-        <translation type="unfinished">आपको इस रूम में पोस्ट करने की अनुमति नहीं है।</translation>
+        <translation>आपको इस रूम में पोस्ट करने की अनुमति नहीं है।</translation>
     </message>
     <message>
         <location line="+101"/>
@@ -30764,7 +30764,7 @@ Note: importing keys does not verify this session.</source>
         <location line="+241"/>
         <location line="+75"/>
         <source>Replies</source>
-        <translation type="unfinished">उत्तर</translation>
+        <translation>उत्तर</translation>
     </message>
     <message>
         <location line="-410"/>
@@ -30836,17 +30836,17 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+25"/>
         <source>Search replies</source>
-        <translation type="unfinished"></translation>
+        <translation>उत्तर खोजें</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Search replies in this thread</source>
-        <translation type="unfinished"></translation>
+        <translation>इस थ्रेड में उत्तर खोजें</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Clear thread search</source>
-        <translation type="unfinished"></translation>
+        <translation>थ्रेड खोज साफ़ करें</translation>
     </message>
     <message>
         <location line="+14"/>
@@ -30887,12 +30887,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+2"/>
         <source>Sent</source>
-        <translation type="unfinished">भेजा गया</translation>
+        <translation>भेजा गया</translation>
     </message>
     <message>
         <location line="+27"/>
         <source>Edit image %1</source>
-        <translation type="unfinished"></translation>
+        <translation>छवि%1 संपादित करें</translation>
     </message>
     <message>
         <location line="+13"/>
@@ -30918,12 +30918,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+12"/>
         <source>Collapse message box</source>
-        <translation type="unfinished"></translation>
+        <translation>संदेश बॉक्स को संक्षिप्त करें</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Expand message box</source>
-        <translation type="unfinished"></translation>
+        <translation>संदेश बॉक्स का विस्तार करें</translation>
     </message>
     <message>
         <location line="+30"/>
