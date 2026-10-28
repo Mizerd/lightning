@@ -812,6 +812,17 @@ bool emitTransport(SfuCallController &call, int target, const QString &state)
 
 } // namespace
 
+// Rows for one identity (the model also holds our own, local row).
+static int rowsFor(QAbstractItemModel *model, const QString &identity)
+{
+    const int role = model->roleNames().key("identity", -1);
+    int n = 0;
+    for (int r = 0; r < model->rowCount(); ++r)
+        if (model->data(model->index(r, 0), role).toString() == identity)
+            ++n;
+    return n;
+}
+
 class CallControllerTest : public QObject
 {
     Q_OBJECT
@@ -891,7 +902,7 @@ private Q_SLOTS:
         QVariantMap gone = sfuParticipant(identity, QString(), {});
         gone.insert(QStringLiteral("state"), QStringLiteral("disconnected"));
         c.deliver({gone});
-        QCOMPARE(c.call.participantModel()->rowCount(), 1);
+        QCOMPARE(rowsFor(c.call.participantModel(), identity), 1);
         QCOMPARE(c.call.streamIdForIdentityForTest(identity),
                  QStringLiteral("c1:subscriber-sid"));
         QCOMPARE(c.call.trackKeyForSourceForTest(identity,
@@ -913,7 +924,7 @@ private Q_SLOTS:
         const int key = c.newest();
         QVERIFY(key >= 0);
         c.call.ingestSubscriberParticipantsForTest(1, {}, true);
-        QCOMPARE(c.call.participantModel()->rowCount(), 1);
+        QCOMPARE(rowsFor(c.call.participantModel(), identity), 1);
         QCOMPARE(c.call.streamIdForIdentityForTest(identity),
                  QStringLiteral("publisher-sid"));
         QCOMPARE(c.call.trackKeyForSourceForTest(identity,

@@ -152,7 +152,8 @@ bool RtcController::callingAvailable() const
     }
     return supported()
         && (sessionNamesAFocus
-            || (m_discovered && !m_serviceUrls.isEmpty()));
+            || (m_discovered && (!m_serviceUrls.isEmpty()
+                                 || !m_participantFocus.isEmpty())));
 }
 
 bool RtcController::discoveryWorthRetrying() const
@@ -176,7 +177,13 @@ QString RtcController::sessionFocusFor(const QString &roomId) const
 
 bool RtcController::transportReachableFor(const QString &roomId) const
 {
-    return !sessionFocusFor(roomId).isEmpty() || !m_serviceUrls.isEmpty();
+    // The room's own session focus first: it is where the participants are,
+    // and without MSC4143 (most homeservers) it is the only focus there is.
+    // The homeserver's answer applies everywhere; a participant-advertised
+    // focus only to its own room.
+    return !sessionFocusFor(roomId).isEmpty()
+        || !m_serviceUrls.isEmpty()
+        || !m_participantFocus.value(roomId).isEmpty();
 }
 
 void RtcController::setMediaEncryptionAvailable(bool available)
@@ -993,10 +1000,17 @@ QVariantList RtcController::participantFaces(const QString &roomId,
 
 QString RtcController::focusUrlFor(const QString &roomId) const
 {
+    // multi_sfu: publish on our own homeserver's focus. Legacy peers, or no
+    // focus of our own: the oldest membership's focus (where the participants
+    // are), then a participant-advertised one (servers without MSC4143).
     const QString oldest = sessionFocusFor(roomId);
-    if (usesLegacyFocusFor(roomId) || ownFocusUrlFor().isEmpty())
-        return oldest.isEmpty() ? ownFocusUrlFor() : oldest;
-    return ownFocusUrlFor();
+    if (!usesLegacyFocusFor(roomId) && !ownFocusUrlFor().isEmpty())
+        return ownFocusUrlFor();
+    if (!oldest.isEmpty())
+        return oldest;
+    if (!ownFocusUrlFor().isEmpty())
+        return ownFocusUrlFor();
+    return m_participantFocus.value(roomId);
 }
 
 QString RtcController::ownFocusUrlFor() const
