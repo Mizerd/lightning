@@ -3620,12 +3620,12 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
     <message>
         <location line="+2"/>
         <source>%1, low priority</source>
-        <translation type="unfinished"></translation>
+        <translation>%1, prioridade baixa</translation>
     </message>
     <message>
         <location line="+104"/>
         <source>%1 · Low priority</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 · Prioridade baixa</translation>
     </message>
     <message>
         <location line="+75"/>
@@ -10996,7 +10996,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
     <message>
         <location line="+18"/>
         <source>Message saved.</source>
-        <translation type="unfinished"></translation>
+        <translation>Mensagem guardada.</translation>
     </message>
     <message>
         <location line="+25"/>
@@ -24861,7 +24861,7 @@ Escape e as letras únicas que o menu de mensagens usa enquanto está aberto sã
     <message>
         <location line="+61"/>
         <source>Flat rows with a small avatar above each sender&apos;s messages, Nheko&apos;s close row spacing, and threads in the main view. Your fonts, text size and colours are unchanged.</source>
-        <translation type="unfinished"></translation>
+        <translation>Linhas planas com um pequeno avatar acima das mensagens de cada remetente, o espaçamento reduzido entre linhas do Nheko e os tópicos na visualização principal. Os seus tipos de letra, o tamanho do texto e as cores não são alterados.</translation>
     </message>
     <message>
         <location line="+5"/>

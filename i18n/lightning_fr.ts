@@ -3620,12 +3620,12 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
     <message>
         <location line="+2"/>
         <source>%1, low priority</source>
-        <translation type="unfinished"></translation>
+        <translation>%1, priorité basse</translation>
     </message>
     <message>
         <location line="+104"/>
         <source>%1 · Low priority</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 · Priorité basse</translation>
     </message>
     <message>
         <location line="+75"/>
@@ -10996,7 +10996,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     <message>
         <location line="+18"/>
         <source>Message saved.</source>
-        <translation type="unfinished"></translation>
+        <translation>Message enregistré.</translation>
     </message>
     <message>
         <location line="+25"/>
@@ -24861,7 +24861,7 @@ L&apos;échappement et les lettres uniques utilisées par le menu de messages lo
     <message>
         <location line="+61"/>
         <source>Flat rows with a small avatar above each sender&apos;s messages, Nheko&apos;s close row spacing, and threads in the main view. Your fonts, text size and colours are unchanged.</source>
-        <translation type="unfinished"></translation>
+        <translation>Des lignes plates avec un petit avatar au-dessus des messages de chaque expéditeur, l’espacement serré entre les lignes de Nheko et les fils dans la vue principale. Vos polices, la taille du texte et les couleurs restent inchangées.</translation>
     </message>
     <message>
         <location line="+5"/>

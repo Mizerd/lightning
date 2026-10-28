@@ -3620,12 +3620,12 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     <message>
         <location line="+2"/>
         <source>%1, low priority</source>
-        <translation type="unfinished"></translation>
+        <translation>%1, niedrige Priorität</translation>
     </message>
     <message>
         <location line="+104"/>
         <source>%1 · Low priority</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 · Niedrige Priorität</translation>
     </message>
     <message>
         <location line="+75"/>
@@ -10996,7 +10996,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     <message>
         <location line="+18"/>
         <source>Message saved.</source>
-        <translation type="unfinished"></translation>
+        <translation>Nachricht gespeichert.</translation>
     </message>
     <message>
         <location line="+25"/>
@@ -24388,7 +24388,7 @@ Escape und die einzelnen Buchstaben, die das Nachrichtenmenü bei geöffnetem Zu
     <message>
         <location line="+61"/>
         <source>Flat rows with a small avatar above each sender&apos;s messages, Nheko&apos;s close row spacing, and threads in the main view. Your fonts, text size and colours are unchanged.</source>
-        <translation type="unfinished"></translation>
+        <translation>Flache Zeilen mit einem kleinen Avatar über den Nachrichten jedes Absenders, engem Zeilenabstand wie in Nheko und Threads in der Hauptansicht. Deine Schriftarten, Textgröße und Farben bleiben unverändert.</translation>
     </message>
     <message>
         <location line="+5"/>

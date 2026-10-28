@@ -3637,12 +3637,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+2"/>
         <source>%1, low priority</source>
-        <translation type="unfinished"></translation>
+        <translation>%1, низкий приоритет</translation>
     </message>
     <message>
         <location line="+104"/>
         <source>%1 · Low priority</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 · Низкий приоритет</translation>
     </message>
     <message>
         <location line="+75"/>
@@ -11032,7 +11032,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+18"/>
         <source>Message saved.</source>
-        <translation type="unfinished"></translation>
+        <translation>Сообщение сохранено.</translation>
     </message>
     <message>
         <location line="+25"/>
@@ -24944,7 +24944,7 @@ Escape и отдельные буквы, которые меню сообщен�
     <message>
         <location line="+61"/>
         <source>Flat rows with a small avatar above each sender&apos;s messages, Nheko&apos;s close row spacing, and threads in the main view. Your fonts, text size and colours are unchanged.</source>
-        <translation type="unfinished"></translation>
+        <translation>Плоские строки с маленьким аватаром над сообщениями каждого отправителя, плотный интервал между строками, как в Nheko, и обсуждения в основном виде. Ваши шрифты, размер текста и цвета не изменятся.</translation>
     </message>
     <message>
         <location line="+5"/>

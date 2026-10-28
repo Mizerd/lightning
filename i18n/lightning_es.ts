@@ -3620,12 +3620,12 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
     <message>
         <location line="+2"/>
         <source>%1, low priority</source>
-        <translation type="unfinished"></translation>
+        <translation>%1, prioridad baja</translation>
     </message>
     <message>
         <location line="+104"/>
         <source>%1 · Low priority</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 · Prioridad baja</translation>
     </message>
     <message>
         <location line="+75"/>
@@ -10996,7 +10996,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     <message>
         <location line="+18"/>
         <source>Message saved.</source>
-        <translation type="unfinished"></translation>
+        <translation>Mensaje guardado.</translation>
     </message>
     <message>
         <location line="+25"/>
@@ -24861,7 +24861,7 @@ Escape y las letras individuales que utiliza el menú de mensajes mientras está
     <message>
         <location line="+61"/>
         <source>Flat rows with a small avatar above each sender&apos;s messages, Nheko&apos;s close row spacing, and threads in the main view. Your fonts, text size and colours are unchanged.</source>
-        <translation type="unfinished"></translation>
+        <translation>Filas planas con un avatar pequeño encima de los mensajes de cada remitente, el espaciado reducido entre filas de Nheko y los hilos en la vista principal. Tus fuentes, el tamaño del texto y los colores permanecen sin cambios.</translation>
     </message>
     <message>
         <location line="+5"/>

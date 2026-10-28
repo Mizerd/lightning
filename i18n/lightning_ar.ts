@@ -3686,12 +3686,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+2"/>
         <source>%1, low priority</source>
-        <translation type="unfinished"></translation>
+        <translation>%1، أولوية منخفضة</translation>
     </message>
     <message>
         <location line="+104"/>
         <source>%1 · Low priority</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 · أولوية منخفضة</translation>
     </message>
     <message>
         <location line="+75"/>
@@ -11131,7 +11131,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+18"/>
         <source>Message saved.</source>
-        <translation type="unfinished"></translation>
+        <translation>تم حفظ الرسالة.</translation>
     </message>
     <message>
         <location line="+25"/>
@@ -25184,7 +25184,7 @@ Escape، والأحرف الفردية التي تستخدمها قائمة ال
     <message>
         <location line="+61"/>
         <source>Flat rows with a small avatar above each sender&apos;s messages, Nheko&apos;s close row spacing, and threads in the main view. Your fonts, text size and colours are unchanged.</source>
-        <translation type="unfinished"></translation>
+        <translation>صفوف مسطحة مع صورة رمزية صغيرة فوق رسائل كل مرسِل، وتباعد صفوف متقارب كما في Nheko، وخيوط في العرض الرئيسي. تبقى خطوطك وحجم النص والألوان دون تغيير.</translation>
     </message>
     <message>
         <location line="+5"/>

@@ -3620,12 +3620,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+2"/>
         <source>%1, low priority</source>
-        <translation type="unfinished"></translation>
+        <translation>%1, कम प्राथमिकता</translation>
     </message>
     <message>
         <location line="+104"/>
         <source>%1 · Low priority</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 · कम प्राथमिकता</translation>
     </message>
     <message>
         <location line="+75"/>
@@ -10996,7 +10996,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+18"/>
         <source>Message saved.</source>
-        <translation type="unfinished"></translation>
+        <translation>संदेश सहेजा गया।</translation>
     </message>
     <message>
         <location line="+25"/>
@@ -24861,7 +24861,7 @@ Escape, and the single letters the message menu uses while it is open, are reser
     <message>
         <location line="+61"/>
         <source>Flat rows with a small avatar above each sender&apos;s messages, Nheko&apos;s close row spacing, and threads in the main view. Your fonts, text size and colours are unchanged.</source>
-        <translation type="unfinished"></translation>
+        <translation>हर भेजने वाले के संदेशों के ऊपर छोटे अवतार वाली सपाट पंक्तियाँ, Nheko की तरह पंक्तियों के बीच कम जगह और मुख्य दृश्य में थ्रेड। आपके फ़ॉन्ट, टेक्स्ट का आकार और रंग नहीं बदलेंगे।</translation>
     </message>
     <message>
         <location line="+5"/>

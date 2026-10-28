@@ -3603,12 +3603,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+2"/>
         <source>%1, low priority</source>
-        <translation type="unfinished"></translation>
+        <translation>%1，低优先级</translation>
     </message>
     <message>
         <location line="+104"/>
         <source>%1 · Low priority</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 · 低优先级</translation>
     </message>
     <message>
         <location line="+75"/>
@@ -10960,7 +10960,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+18"/>
         <source>Message saved.</source>
-        <translation type="unfinished"></translation>
+        <translation>消息已保存。</translation>
     </message>
     <message>
         <location line="+25"/>
@@ -24778,7 +24778,7 @@ Escape, and the single letters the message menu uses while it is open, are reser
     <message>
         <location line="+61"/>
         <source>Flat rows with a small avatar above each sender&apos;s messages, Nheko&apos;s close row spacing, and threads in the main view. Your fonts, text size and colours are unchanged.</source>
-        <translation type="unfinished"></translation>
+        <translation>采用平铺的消息行，在每位发送者的消息上方显示小头像，行间距与 Nheko 一样紧凑，并在主视图中显示话题。你的字体、文字大小和颜色保持不变。</translation>
     </message>
     <message>
         <location line="+5"/>

@@ -3603,12 +3603,12 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
     <message>
         <location line="+2"/>
         <source>%1, low priority</source>
-        <translation type="unfinished"></translation>
+        <translation>%1, prioritas rendah</translation>
     </message>
     <message>
         <location line="+104"/>
         <source>%1 · Low priority</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 · Prioritas rendah</translation>
     </message>
     <message>
         <location line="+75"/>
@@ -10960,7 +10960,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
     <message>
         <location line="+18"/>
         <source>Message saved.</source>
-        <translation type="unfinished"></translation>
+        <translation>Pesan tersimpan.</translation>
     </message>
     <message>
         <location line="+25"/>
@@ -24778,7 +24778,7 @@ Escape, dan satu huruf yang digunakan menu pesan saat terbuka, dicadangkan dan t
     <message>
         <location line="+61"/>
         <source>Flat rows with a small avatar above each sender&apos;s messages, Nheko&apos;s close row spacing, and threads in the main view. Your fonts, text size and colours are unchanged.</source>
-        <translation type="unfinished"></translation>
+        <translation>Baris datar dengan avatar kecil di atas pesan setiap pengirim, jarak antarbaris rapat seperti di Nheko, dan utas di tampilan utama. Fon, ukuran teks, dan warna Anda tetap sama.</translation>
     </message>
     <message>
         <location line="+5"/>

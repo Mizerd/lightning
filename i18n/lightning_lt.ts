@@ -3637,12 +3637,12 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     <message>
         <location line="+2"/>
         <source>%1, low priority</source>
-        <translation type="unfinished"></translation>
+        <translation>%1, žemas prioritetas</translation>
     </message>
     <message>
         <location line="+104"/>
         <source>%1 · Low priority</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 · Žemas prioritetas</translation>
     </message>
     <message>
         <location line="+75"/>
@@ -11032,7 +11032,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+18"/>
         <source>Message saved.</source>
-        <translation type="unfinished"></translation>
+        <translation>Žinutė įrašyta.</translation>
     </message>
     <message>
         <location line="+25"/>
@@ -24793,7 +24793,7 @@ Escape ir atskiros raidės, kurias naudoja žinučių meniu, kai jis atidarytas,
     <message>
         <location line="+61"/>
         <source>Flat rows with a small avatar above each sender&apos;s messages, Nheko&apos;s close row spacing, and threads in the main view. Your fonts, text size and colours are unchanged.</source>
-        <translation type="unfinished"></translation>
+        <translation>Plokščios eilutės su mažu avataru virš kiekvieno siuntėjo žinučių, glaudūs tarpai tarp eilučių kaip Nheko ir gijos pagrindiniame rodinyje. Jūsų šriftai, teksto dydis ir spalvos nesikeičia.</translation>
     </message>
     <message>
         <location line="+5"/>
