@@ -964,6 +964,8 @@ private Q_SLOTS:
     void onSfuConnectionEvent(const QVariantMap &event);
     void updateSubscriberParticipants(int id, const QVariantList &rows,
                                       bool replace);
+    void logRemoteSubscription(int id, const QString &sid,
+                               const QString &trackSid, const QString &kind) const;
     quint64 connectFocusPlan();
     void clearSubscriberEngines();
     /// `sifTrailer` is LiveKit's `JoinResponse.sif_trailer`, already bounded

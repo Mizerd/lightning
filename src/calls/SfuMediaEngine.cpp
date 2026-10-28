@@ -10012,7 +10012,10 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
     qCInfo(lcSfuMedia)
         << "call diagnosis: a receive chain is RUNNING for stream=" << streamId
         << "mid=" << trackMid << "kind=" << mediaKind;
-    marshal(engine, [engine, mediaKind, streamId, trackMid] {
+    const quint64 generation = engine->m_generation.load();
+    marshal(engine, [engine, generation, mediaKind, streamId, trackMid] {
+        if (engine->m_generation.load() != generation)
+            return;
         // The UI keys tiles off MatrixRTC membership (who is present); this
         // says who is actually sending, and on which track.
         Q_EMIT engine->remoteTrackAdded(streamId, trackMid, mediaKind);

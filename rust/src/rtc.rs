@@ -2102,15 +2102,11 @@ pub(crate) fn publish_membership(
     let lifecycle = timelines.lifecycle();
 
     bridge.spawn_room_action(async move {
-        let own_identity = format!("{user_id}:{device_id}");
-        let selection = if read_session(&room, now_ms(), false).await.members
-            .iter().any(|member| member.rtc_identity != own_identity
-                && member.focus_selection != FocusSelection::MultiSfu)
-        {
-            FocusSelection::OldestMembership
-        } else {
-            FocusSelection::MultiSfu
-        };
+        // Our compatibility membership always describes where we publish.
+        // Mixed calls may initially select the oldest focus, but a publish
+        // denial moves this device home; legacy peers still use the oldest
+        // focus while multi-SFU peers follow this advertised focus.
+        let selection = FocusSelection::MultiSfu;
         let room_version = room
             .clone_info()
             .room_version()

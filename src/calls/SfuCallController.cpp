@@ -509,19 +509,7 @@ void SfuCallController::setMediaEngine(SfuMediaEngine *engine)
             &SfuCallController::onEngineLocalCandidate);
     connect(m_engine, &SfuMediaEngine::remoteTrackAdded, this,
             [this](const QString &sid, const QString &mid, const QString &kind) {
-                QString identity = sid;
-                for (const QVariant &value : std::as_const(m_participants)) {
-                    const QVariantMap row = value.toMap();
-                    if (row.value(QStringLiteral("sid")).toString() == sid) {
-                        identity = row.value(QStringLiteral("identity")).toString();
-                        break;
-                    }
-                }
-                const QByteArray hash = QCryptographicHash::hash(
-                    identity.toUtf8(), QCryptographicHash::Sha256).toHex().left(12);
-                qCInfo(lcSfuCall) << "remote subscription receive chain"
-                    << "connection=" << 0 << "participantHash=" << hash
-                    << "midSet=" << !mid.isEmpty() << "kind=" << kind;
+                logRemoteSubscription(0, sid, mid, kind);
             });
     connect(m_engine, &SfuMediaEngine::failed, this,
             &SfuCallController::onEngineFailed);
@@ -2478,6 +2466,40 @@ void SfuCallController::clearSubscriberEngines()
 #endif
 }
 
+void SfuCallController::logRemoteSubscription(
+    int id, const QString &sid, const QString &trackSid, const QString &kind) const
+{
+    const QString routedSid = id == 0 ? sid
+        : QStringLiteral("c%1:").arg(id) + sid;
+    for (const QVariant &value : m_participants) {
+        const QVariantMap row = value.toMap();
+        if (row.value(QStringLiteral("sid")).toString() != routedSid)
+            continue;
+        const QString identity = row.value(QStringLiteral("identity")).toString();
+        if (identity.isEmpty())
+            break;
+        bool trackMatched = false;
+        for (const QVariant &trackValue : row.value(QStringLiteral("tracks")).toList()) {
+            const QString knownSid = trackValue.toMap()
+                .value(QStringLiteral("sid")).toString();
+            const QString routedTrackSid = id == 0 ? trackSid
+                : QStringLiteral("c%1:").arg(id) + trackSid;
+            if (!trackSid.isEmpty() && knownSid == routedTrackSid) {
+                trackMatched = true;
+                break;
+            }
+        }
+        const QByteArray hash = QCryptographicHash::hash(
+            identity.toUtf8(), QCryptographicHash::Sha256).toHex().left(12);
+        qCInfo(lcSfuCall) << "remote receive pad installed"
+            << "connection=" << id << "participantHash=" << hash
+            << "trackMatched=" << trackMatched << "kind=" << kind;
+        return;
+    }
+    qCInfo(lcSfuCall) << "remote receive pad unattributed"
+                      << "connection=" << id << "kind=" << kind;
+}
+
 void SfuCallController::updateSubscriberParticipants(
     int id, const QVariantList &rows, bool replace)
 {
@@ -2587,21 +2609,7 @@ quint64 SfuCallController::connectFocusPlan()
                 });
         connect(engine, &SfuMediaEngine::remoteTrackAdded, this,
                 [this, id](const QString &sid, const QString &mid, const QString &kind) {
-                    QString identity = sid;
-                    const QString routedSid = QStringLiteral("c%1:").arg(id) + sid;
-                    for (const QVariant &value : std::as_const(m_participants)) {
-                        const QVariantMap row = value.toMap();
-                        if (row.value(QStringLiteral("sid")).toString()
-                            == routedSid) {
-                            identity = row.value(QStringLiteral("identity")).toString();
-                            break;
-                        }
-                    }
-                    const QByteArray hash = QCryptographicHash::hash(
-                        identity.toUtf8(), QCryptographicHash::Sha256).toHex().left(12);
-                    qCInfo(lcSfuCall) << "remote subscription receive chain"
-                        << "connection=" << id << "participantHash=" << hash
-                        << "midSet=" << !mid.isEmpty() << "kind=" << kind;
+                    logRemoteSubscription(id, sid, mid, kind);
                 });
         connect(engine, &SfuMediaEngine::failed, this,
                 [this, engine, id, callGeneration](const QString &category) {
@@ -2658,6 +2666,9 @@ void SfuCallController::onSfuConnectionEvent(const QVariantMap &event)
     }
     if (type == QLatin1String("sfu_joined")) {
         engine->start();
+        // start() resets the engine's output mute. A deafened caller must
+        // never hear a subscriber focus during its first media frames.
+        engine->setOutputMuted(m_deafened);
         const QByteArray trailer = QByteArray::fromBase64(
             event.value(QStringLiteral("sif_trailer")).toString().toLatin1(),
             QByteArray::AbortOnBase64DecodingErrors);
