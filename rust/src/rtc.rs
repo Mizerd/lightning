@@ -281,6 +281,96 @@ pub(crate) struct LivekitTransport {
     pub alias: Option<String>,
 }
 
+/// Legacy members publish on the oldest member's focus. Compatibility
+/// members publish on their advertised focus. Unknown values are not treated
+/// as multi-SFU, since that could route a subscriber to a wrong service.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FocusSelection {
+    OldestMembership,
+    MultiSfu,
+    Unknown,
+}
+
+impl FocusSelection {
+    fn parse(value: Option<&str>) -> Self {
+        match value {
+            Some("oldest_membership") => Self::OldestMembership,
+            Some("multi_sfu") => Self::MultiSfu,
+            _ => Self::Unknown,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::OldestMembership => "oldest_membership",
+            Self::MultiSfu => "multi_sfu",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct FocusPlan {
+    pub publisher: Option<LivekitTransport>,
+    /// One service per distinct remote focus, including the publishing
+    /// service when another member also publishes there.
+    pub subscribers: Vec<LivekitTransport>,
+    pub mode: FocusSelection,
+}
+
+/// Plan from verified, ordered memberships. The caller supplies our own
+/// homeserver's preferred focus, never another member's discovery answer.
+/// The transport cap also bounds the number of future signalling sessions.
+pub(crate) fn plan_foci(
+    members: &[RtcMember],
+    own: &str,
+    own_preferred: Option<LivekitTransport>,
+) -> FocusPlan {
+    let remote: Vec<&RtcMember> = members.iter()
+        .filter(|member| member.rtc_identity != own)
+        .collect();
+    let mode = if remote.iter().any(|member| {
+        member.focus_selection == FocusSelection::OldestMembership
+    }) {
+        FocusSelection::OldestMembership
+    } else if remote.iter().any(|member| {
+        member.focus_selection == FocusSelection::MultiSfu
+    }) {
+        FocusSelection::MultiSfu
+    } else {
+        FocusSelection::OldestMembership
+    };
+    let oldest = select_focus(members);
+    let publisher = if mode == FocusSelection::MultiSfu {
+        own_preferred
+    } else {
+        oldest.clone().or(own_preferred)
+    };
+    let mut subscribers = Vec::new();
+    for member in remote {
+        let focus = focus_for_member(member, oldest.as_ref());
+        if let Some(focus) = focus {
+            if subscribers.len() < MAX_TRANSPORTS && !subscribers.contains(&focus) {
+                subscribers.push(focus);
+            }
+        }
+    }
+    FocusPlan { publisher, subscribers, mode }
+}
+
+/// Resolve a participant's track to the connection that can carry it. The
+/// media key remains attached to the participant identity, never this URL.
+pub(crate) fn focus_for_member(
+    member: &RtcMember,
+    oldest: Option<&LivekitTransport>,
+) -> Option<LivekitTransport> {
+    match member.focus_selection {
+        FocusSelection::MultiSfu => member.foci.first().cloned(),
+        FocusSelection::OldestMembership => oldest.cloned(),
+        FocusSelection::Unknown => None,
+    }
+}
+
 impl LivekitTransport {
     fn to_json(&self) -> serde_json::Value {
         let mut value = json!({
@@ -373,6 +463,7 @@ pub(crate) struct RtcMember {
     pub expires_at_ms: u64,
     /// Foci this device advertises, in its own preference order.
     pub foci: Vec<LivekitTransport>,
+    pub focus_selection: FocusSelection,
     pub kind: MembershipKind,
     /// Room-resolved profile, filled in after parsing (see `read_session`).
     pub display_name: String,
@@ -404,6 +495,7 @@ impl RtcMember {
             "kind": self.kind.as_str(),
             "foci": self.foci.iter().map(LivekitTransport::to_json)
                 .collect::<Vec<_>>(),
+            "focus_selection": self.focus_selection.as_str(),
         })
     }
 }
@@ -462,7 +554,10 @@ pub(crate) fn parse_session_membership(
         return None;
     }
     // `focus_active.type` is required by the reference validator.
-    object.get("focus_active")?.as_object()?.get("type")?.as_str()?;
+    let active = object.get("focus_active")?.as_object()?;
+    active.get("type")?.as_str()?;
+    let focus_selection = FocusSelection::parse(
+        active.get("focus_selection").and_then(|value| value.as_str()));
 
     let user_id = sane(sender, MAX_WIRE_LEN)?.to_owned();
 
@@ -505,6 +600,7 @@ pub(crate) fn parse_session_membership(
         created_ts,
         expires_at_ms,
         foci: parse_transport_list(object.get("foci_preferred")),
+        focus_selection,
         kind: MembershipKind::Session,
         display_name: String::new(),
         avatar_mxc: String::new(),
@@ -582,6 +678,7 @@ pub(crate) fn parse_rtc_membership(
         // expiry); a 4 h fallback would drop live participants.
         expires_at_ms: u64::MAX,
         foci,
+        focus_selection: FocusSelection::MultiSfu,
         kind: MembershipKind::Rtc,
         display_name: String::new(),
         avatar_mxc: String::new(),
@@ -1496,9 +1593,11 @@ pub(crate) fn request_transports(
         };
 
         let mut participant_focus = None;
+        let mut session_members = Vec::new();
         if let Some(room) = room.as_ref() {
             let session = read_session(room, now_ms(), false).await;
             participant_focus = select_focus(&session.members);
+            session_members = session.members;
         }
 
         if !timelines.lifecycle_current(lifecycle) {
@@ -1509,6 +1608,11 @@ pub(crate) fn request_transports(
             Ok(list) => (list, String::new()),
             Err(category) => (Vec::new(), category),
         };
+        let own_identity = client.user_id().zip(client.device_id())
+            .map(|(user, device)| format!("{user}:{device}"))
+            .unwrap_or_default();
+        let plan = plan_foci(&session_members, &own_identity,
+                             server_transports.first().cloned());
 
         enqueue(&events, json!({
             "type": "rtc_transports",
@@ -1523,6 +1627,12 @@ pub(crate) fn request_transports(
                 .map(LivekitTransport::to_json).collect::<Vec<_>>(),
             "participant_focus": participant_focus.as_ref()
                 .map(LivekitTransport::to_json),
+            "focus_plan": {
+                "mode": plan.mode.as_str(),
+                "publisher": plan.publisher.as_ref().map(LivekitTransport::to_json),
+                "subscribers": plan.subscribers.iter()
+                    .map(LivekitTransport::to_json).collect::<Vec<_>>(),
+            },
         }));
     });
     Ok(())
@@ -4146,6 +4256,7 @@ mod tests {
             created_ts: created,
             expires_at_ms: expires,
             foci: Vec::new(),
+            focus_selection: FocusSelection::OldestMembership,
             kind: MembershipKind::Session,
             display_name: String::new(),
             avatar_mxc: String::new(),
@@ -4600,6 +4711,79 @@ mod tests {
         let ordered = aggregate_session(vec![newer, older], 1_000);
         let focus = select_focus(&ordered).expect("a focus");
         assert_eq!(focus.service_url, "https://older.example.org/");
+    }
+
+    #[test]
+    fn report_shaped_multi_sfu_plan_publishes_locally_and_reuses_subscribers() {
+        let focus = |host: &str| LivekitTransport {
+            service_url: format!("https://{host}/"), alias: None,
+        };
+        let mut c = member_at("@c:server-c", "C", 10, 9_000);
+        c.focus_selection = FocusSelection::MultiSfu;
+        c.foci = vec![focus("c.example")];
+        let mut b = member_at("@b:server-a", "B", 20, 9_000);
+        b.focus_selection = FocusSelection::MultiSfu;
+        b.foci = vec![focus("a.example")];
+        let mut b2 = member_at("@b2:server-a", "B2", 25, 9_000);
+        b2.focus_selection = FocusSelection::MultiSfu;
+        b2.foci = b.foci.clone();
+        let own = member_at("@me:server-a", "ME", 30, 9_000);
+        let members = aggregate_session(vec![own, b2, b, c], 100);
+        let plan = plan_foci(&members, "@me:server-a:ME", Some(focus("a.example")));
+        assert_eq!(plan.mode, FocusSelection::MultiSfu);
+        assert_eq!(plan.publisher, Some(focus("a.example")));
+        assert_eq!(plan.subscribers, vec![focus("c.example"), focus("a.example")]);
+    }
+
+    #[test]
+    fn mixed_focus_modes_keep_oldest_publisher_and_subscribe_to_both() {
+        let focus = |host: &str| LivekitTransport {
+            service_url: format!("https://{host}/"), alias: None,
+        };
+        let mut oldest = member_at("@c:server-c", "C", 10, 9_000);
+        oldest.foci = vec![focus("c.example")];
+        let mut modern = member_at("@b:server-a", "B", 20, 9_000);
+        modern.focus_selection = FocusSelection::MultiSfu;
+        modern.foci = vec![focus("a.example")];
+        let members = aggregate_session(vec![modern, oldest], 100);
+        let plan = plan_foci(&members, "@me:server-a:ME", Some(focus("a.example")));
+        assert_eq!(plan.mode, FocusSelection::OldestMembership);
+        assert_eq!(plan.publisher, Some(focus("c.example")));
+        assert_eq!(plan.subscribers, vec![focus("c.example"), focus("a.example")]);
+    }
+
+    #[test]
+    fn membership_fixture_parses_multi_sfu_selection() {
+        let content = json!({
+            "application": "m.call", "call_id": "", "scope": "m.room",
+            "device_id": "B", "focus_active": {
+                "type": "livekit", "focus_selection": "multi_sfu"
+            },
+            "foci_preferred": [{"type": "livekit",
+                "livekit_service_url": "https://a.example"}]
+        });
+        let member = parse_session_membership(&content, "@b:server-a", 100)
+            .expect("membership");
+        assert_eq!(member.focus_selection, FocusSelection::MultiSfu);
+        assert_eq!(member.foci[0].service_url, "https://a.example/");
+    }
+
+    #[test]
+    fn remote_tracks_route_by_membership_across_two_connections() {
+        let focus = |host: &str| LivekitTransport {
+            service_url: format!("https://{host}/"), alias: None,
+        };
+        let mut b = member_at("@b:server-a", "B", 20, 9_000);
+        b.focus_selection = FocusSelection::MultiSfu;
+        b.foci = vec![focus("a.example")];
+        let mut c = member_at("@c:server-c", "C", 10, 9_000);
+        c.focus_selection = FocusSelection::MultiSfu;
+        c.foci = vec![focus("c.example")];
+        let members = aggregate_session(vec![b, c], 100);
+        let oldest = select_focus(&members);
+        assert_eq!(focus_for_member(&members[0], oldest.as_ref()), Some(focus("c.example")));
+        assert_eq!(focus_for_member(&members[1], oldest.as_ref()), Some(focus("a.example")));
+        assert_ne!(members[0].rtc_identity, members[1].rtc_identity);
     }
 
     #[test]

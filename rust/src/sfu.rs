@@ -629,6 +629,7 @@ async fn run_session(
     generation_now: Arc<AtomicU64>,
     media_capable: Arc<AtomicBool>,
     credentials: SfuCredentials,
+    service_host_hash: String,
     mut commands: tokio::sync::mpsc::UnboundedReceiver<SfuCommand>,
 ) {
     let current = {
@@ -999,6 +1000,13 @@ async fn run_session(
                         emit(json!({
                             "type": "sfu_joined",
                             "generation": generation,
+                            "service_host_hash": service_host_hash,
+                            "can_publish": join.participant.as_ref()
+                                .and_then(|p| p.permission.as_ref())
+                                .map(|p| p.can_publish),
+                            "can_subscribe": join.participant.as_ref()
+                                .and_then(|p| p.permission.as_ref())
+                                .map(|p| p.can_subscribe),
                             "identity": join.participant.as_ref()
                                 .map(|p| p.identity.clone())
                                 .unwrap_or_default(),
@@ -1061,6 +1069,7 @@ async fn run_session(
                         emit(json!({
                             "type": "sfu_track_published",
                             "generation": generation,
+                            "service_host_hash": service_host_hash,
                             "cid": sane(&published.cid, 256)
                                 .unwrap_or_default(),
                             "sid": published.track.as_ref()
@@ -1162,6 +1171,16 @@ pub(crate) fn connect(
         .device_id()
         .ok_or_else(|| "no session".to_owned())?
         .to_string();
+    // Stable diagnostic label for this service. Hash the hostname only;
+    // path, query, JWT and OpenID token never enter a log or event.
+    let service_host_hash = url::Url::parse(&service_url).ok()
+        .and_then(|url| url.host_str().map(ToOwned::to_owned))
+        .map(|host| {
+            use sha2::Digest as _;
+            let digest = sha2::Sha256::digest(host.as_bytes());
+            digest[..6].iter().map(|byte| format!("{byte:02x}"))
+                .collect::<String>()
+        }).unwrap_or_default();
 
     disconnect(bridge);
 
@@ -1185,7 +1204,7 @@ pub(crate) fn connect(
                     "op_id": op_id, "state": "authorized", "category": "",
                 }));
                 run_session(events, generation, generation_now, media_capable,
-                            credentials, rx)
+                            credentials, service_host_hash, rx)
                     .await;
             }
             Err(category) => {

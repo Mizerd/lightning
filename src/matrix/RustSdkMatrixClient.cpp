@@ -12106,6 +12106,21 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         return true;
     }
     if (type == QLatin1String("sfu_joined")) {
+        const QString service = event.value(QStringLiteral("service_host_hash")).toString();
+        qCInfo(lcRust) << "sfu join serviceHostHash=" << service
+                       << "canPublish=" << event.value(QStringLiteral("can_publish")).toVariant()
+                       << "canSubscribe=" << event.value(QStringLiteral("can_subscribe")).toVariant();
+        const auto rows = event.value(QStringLiteral("participants")).toArray();
+        for (const auto &row : rows) {
+            const auto participant = row.toObject();
+            if (participant.value(QStringLiteral("identity"))
+                    == event.value(QStringLiteral("identity")))
+                continue;
+            // Identity is intentionally absent from the log. This confirms
+            // what this connection advertised; SDP subscription is later.
+            qCInfo(lcRust) << "sfu remote tracks announced serviceHostHash=" << service
+                           << "count=" << participant.value(QStringLiteral("tracks")).toArray().size();
+        }
         // Server-injected-frame trailer, already capped in the bridge. Decoded
         // strictly and re-bounded: a malformed value must disarm (empty), never
         // arm a truncated trailer. Not secret, but not logged either.
@@ -12130,6 +12145,8 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         return true;
     }
     if (type == QLatin1String("sfu_track_published")) {
+        qCInfo(lcRust) << "sfu TrackPublished serviceHostHash="
+                       << event.value(QStringLiteral("service_host_hash")).toString();
         Q_EMIT sfuTrackPublished(
             event.value(QStringLiteral("cid")).toString(),
             event.value(QStringLiteral("sid")).toString());
