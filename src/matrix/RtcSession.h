@@ -27,6 +27,10 @@ struct RtcParticipant {
     /// Alternate hashed identity for a legacy session membership. Rust
     /// derives it from the vouched-for sender and bounded member id.
     QString hashedRtcIdentity;
+    /// This member's publishing service and focus selection, parsed from the
+    /// bounded MatrixRTC membership in Rust.
+    QString focusServiceUrl;
+    QString focusSelection;
     /// "audio" or "video": the declared intent, collapsed to that closed set.
     /// Not a statement that a camera is on.
     QString intent;

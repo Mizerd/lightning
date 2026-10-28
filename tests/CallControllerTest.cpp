@@ -167,6 +167,18 @@ public:
     // which arrives on a different transport from the SFU's participant
     // list, so a test can deliver them in either order.
     bool supportsMatrixRtc() const override { return true; }
+    quint64 rtcTransports(const QString &roomId) override
+    {
+        Q_UNUSED(roomId);
+        lastTransportsOp = ++opCounter;
+        return lastTransportsOp;
+    }
+    void answerTransports(const QStringList &urls)
+    {
+        Q_EMIT rtcTransportsReceived(lastTransportsOp, true, QString(),
+                                      urls, QString());
+    }
+    quint64 lastTransportsOp = 0;
     quint64 rtcSession(const QString &roomId, bool preferServer) override
     {
         sessionReads.append(roomId);
@@ -288,6 +300,17 @@ public:
         sfuConnects.append(qMakePair(serviceUrl, roomId));
         return ++opCounter;
     }
+    quint64 sfuConnectMany(const QStringList &focusUrls,
+                           const QString &roomId) override
+    {
+        if (focusUrls.isEmpty())
+            return 0;
+        focusPlans.append(focusUrls);
+        return sfuConnect(focusUrls.first(), roomId);
+    }
+    QList<QStringList> focusPlans;
+    void sfuDisconnect() override { ++sfuDisconnects; }
+    int sfuDisconnects = 0;
     QList<QPair<QString, QString>> sfuConnects;
     void emitCandidates(const QString &roomId, const QString &callId,
                         bool own, const QVariantList &candidates)
@@ -845,6 +868,118 @@ private:
     }
 
 private Q_SLOTS:
+    void multiSfuPlanCreatesPublisherAndTwoFocusRoutes()
+    {
+        RecordingCallClient client;
+        RtcController rtc;
+        rtc.setClient(&client);
+        const QString room = QStringLiteral("!multi:example.org");
+        const QString own = QStringLiteral("https://own.example.org");
+        const QString other = QStringLiteral("https://other.example.org");
+        rtc.discover(room);
+        client.answerTransports({own});
+        RtcSessionData session;
+        session.roomId = room;
+        RtcParticipant a;
+        a.rtcIdentity = QStringLiteral("@a:example.org:A");
+        a.focusSelection = QStringLiteral("multi_sfu");
+        a.focusServiceUrl = own;
+        RtcParticipant b;
+        b.rtcIdentity = QStringLiteral("@b:other.org:B");
+        b.focusSelection = QStringLiteral("multi_sfu");
+        b.focusServiceUrl = other;
+        session.participants = {a, b};
+        session.focusServiceUrl = other; // oldest membership is remote
+        rtc.refresh(room);
+        client.answerSession(client.lastSessionOp, session);
+        QCOMPARE(rtc.focusUrlFor(room), own);
+        QCOMPARE(rtc.subscriberFocusUrlsFor(room), QStringList({own, other}));
+
+        SfuCallController call;
+        call.setClient(&client);
+        call.setRtcController(&rtc);
+        const quint64 op = call.beginMembershipPublishForTest(room,
+                                                               rtc.focusUrlFor(room));
+        client.answerPublish(op, true, QString());
+        QCOMPARE(client.focusPlans.last(), QStringList({own, other}));
+        QCOMPARE(call.connectionFocusUrlsForTest(), QStringList({own, other}));
+        call.leave();
+        QVERIFY(call.connectionFocusUrlsForTest().isEmpty());
+        QVERIFY(client.sfuDisconnects > 0);
+    }
+
+    void foreignPublisherDenialMovesHomeOnceAndRejectsStaleGeneration()
+    {
+        RecordingCallClient client;
+        RtcController rtc;
+        rtc.setClient(&client);
+        const QString room = QStringLiteral("!mixed:example.org");
+        const QString own = QStringLiteral("https://own.example.org");
+        const QString foreign = QStringLiteral("https://old.example.org");
+        rtc.discover(room);
+        client.answerTransports({own});
+        RtcSessionData session;
+        session.roomId = room;
+        session.focusServiceUrl = foreign;
+        RtcParticipant legacy;
+        legacy.rtcIdentity = QStringLiteral("@old:example.org:OLD");
+        legacy.focusSelection = QStringLiteral("oldest_membership");
+        legacy.focusServiceUrl = foreign;
+        session.participants = {legacy};
+        rtc.refresh(room);
+        client.answerSession(client.lastSessionOp, session);
+        QCOMPARE(rtc.focusUrlFor(room), foreign);
+
+        SfuCallController call;
+        call.setClient(&client);
+        call.setRtcController(&rtc);
+        const quint64 op = call.beginMembershipPublishForTest(room, foreign);
+        client.answerPublish(op, true, QString());
+        QCOMPARE(client.focusPlans.size(), 1);
+        client.emitSfuState(QStringLiteral("failed"),
+                            QStringLiteral("publish_denied"));
+        QCOMPARE(client.focusPlans.size(), 2);
+        QCOMPARE(client.focusPlans.last(), QStringList({own, foreign}));
+
+        Q_EMIT client.sfuConnectionEvent(QVariantMap{
+            {QStringLiteral("type"), QStringLiteral("sfu_state")},
+            {QStringLiteral("generation"), 7},
+            {QStringLiteral("connection_id"), 0},
+        });
+        QCOMPARE(call.sfuGenerationForTest(), quint64(7));
+        client.emitSfuState(QStringLiteral("failed"),
+                            QStringLiteral("publish_denied"));
+        QCOMPARE(client.focusPlans.size(), 2);
+        QCOMPARE(call.state(), SfuCallController::State::Failed);
+        QCOMPARE(call.sfuGenerationForTest(), quint64(0));
+        Q_EMIT client.sfuConnectionEvent(QVariantMap{
+            {QStringLiteral("type"), QStringLiteral("sfu_state")},
+            {QStringLiteral("generation"), 7},
+            {QStringLiteral("connection_id"), 0},
+        });
+        QCOMPARE(call.sfuGenerationForTest(), quint64(0));
+    }
+
+    void twoSubscriberConnectionsKeepEqualSidsSeparate()
+    {
+        SfuCallController call;
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        const QString a = QStringLiteral("@a:x:A");
+        const QString b = QStringLiteral("@b:y:B");
+        const QVariantList first{
+            sfuParticipant(a, QStringLiteral("PA_SAME"), {})};
+        const QVariantList second{
+            sfuParticipant(b, QStringLiteral("PA_SAME"), {})};
+        QVERIFY(QMetaObject::invokeMethod(&call, "updateSubscriberParticipants",
+            Qt::DirectConnection, Q_ARG(int, 1), Q_ARG(QVariantList, first),
+            Q_ARG(bool, true)));
+        QVERIFY(QMetaObject::invokeMethod(&call, "updateSubscriberParticipants",
+            Qt::DirectConnection, Q_ARG(int, 2), Q_ARG(QVariantList, second),
+            Q_ARG(bool, true)));
+        QCOMPARE(call.streamIdForIdentityForTest(a), QStringLiteral("c1:PA_SAME"));
+        QCOMPARE(call.streamIdForIdentityForTest(b), QStringLiteral("c2:PA_SAME"));
+    }
+
     // A media key that arrives before join() must survive the join: the peer
     // sends its key as soon as it sees our membership, and nothing re-sends.
     // Not covered here: join() clearing the list before applyParkedKeys().

@@ -330,15 +330,11 @@ pub(crate) fn plan_foci(
         .filter(|member| member.rtc_identity != own)
         .collect();
     let mode = if remote.iter().any(|member| {
-        member.focus_selection == FocusSelection::OldestMembership
+        member.focus_selection != FocusSelection::MultiSfu
     }) {
         FocusSelection::OldestMembership
-    } else if remote.iter().any(|member| {
-        member.focus_selection == FocusSelection::MultiSfu
-    }) {
-        FocusSelection::MultiSfu
     } else {
-        FocusSelection::OldestMembership
+        FocusSelection::MultiSfu
     };
     let oldest = select_focus(members);
     let publisher = if mode == FocusSelection::MultiSfu {
@@ -350,7 +346,11 @@ pub(crate) fn plan_foci(
     for member in remote {
         let focus = focus_for_member(member, oldest.as_ref());
         if let Some(focus) = focus {
-            if subscribers.len() < MAX_TRANSPORTS && !subscribers.contains(&focus) {
+            let distinct_with_publisher = subscribers.len()
+                + usize::from(publisher.as_ref() != Some(&focus)
+                    && !subscribers.contains(publisher.as_ref().unwrap_or(&focus)));
+            if distinct_with_publisher < MAX_TRANSPORTS
+                && !subscribers.contains(&focus) {
                 subscribers.push(focus);
             }
         }
@@ -2012,10 +2012,11 @@ pub(crate) fn membership_state_key(
 /// The membership content we publish, in the legacy session format that
 /// every deployed server and Element understand (matrix-sdk 0.18 cannot
 /// send sticky events).
-fn own_membership_content(
+fn own_membership_content_with_mode(
     device_id: &str,
     user_id: &str,
     focus: Option<&LivekitTransport>,
+    selection: FocusSelection,
     intent: &str,
     created_ts: Option<u64>,
     expires_ms: u64,
@@ -2035,7 +2036,7 @@ fn own_membership_content(
         "m.call.intent": intent,
         "focus_active": {
             "type": "livekit",
-            "focus_selection": "oldest_membership",
+            "focus_selection": selection.as_str(),
         },
         "foci_preferred": focus
             .map(|f| vec![f.to_json()])
@@ -2047,6 +2048,15 @@ fn own_membership_content(
         content["created_ts"] = json!(created);
     }
     content
+}
+
+#[cfg(test)]
+fn own_membership_content(
+    device_id: &str, user_id: &str, focus: Option<&LivekitTransport>,
+    intent: &str, created_ts: Option<u64>, expires_ms: u64,
+) -> serde_json::Value {
+    own_membership_content_with_mode(device_id, user_id, focus,
+        FocusSelection::OldestMembership, intent, created_ts, expires_ms)
 }
 
 /// Publish or refresh our membership in a room's call.
@@ -2092,6 +2102,15 @@ pub(crate) fn publish_membership(
     let lifecycle = timelines.lifecycle();
 
     bridge.spawn_room_action(async move {
+        let own_identity = format!("{user_id}:{device_id}");
+        let selection = if read_session(&room, now_ms(), false).await.members
+            .iter().any(|member| member.rtc_identity != own_identity
+                && member.focus_selection != FocusSelection::MultiSfu)
+        {
+            FocusSelection::OldestMembership
+        } else {
+            FocusSelection::MultiSfu
+        };
         let room_version = room
             .clone_info()
             .room_version()
@@ -2131,8 +2150,8 @@ pub(crate) fn publish_membership(
         };
         // Measured from created_ts (see expires_for_refresh).
         let expires_ms = expires_for_refresh(period_ms, created_ts, now_ms());
-        let content = own_membership_content(
-            &device_id, &user_id, focus.as_ref(), intent, created_ts,
+        let content = own_membership_content_with_mode(
+            &device_id, &user_id, focus.as_ref(), selection, intent, created_ts,
             expires_ms);
 
         let result = tokio::time::timeout(
@@ -2227,8 +2246,8 @@ pub(crate) fn publish_membership(
             // A second write with the short expiry, replacing our own state event under
             // the same key (one membership, created_ts unchanged). Measured from
             // created_ts like the first write; see fallback_expires_ms.
-            let short = own_membership_content(
-                &device_id, &user_id, focus.as_ref(), intent, created_ts,
+            let short = own_membership_content_with_mode(
+                &device_id, &user_id, focus.as_ref(), selection, intent, created_ts,
                 fallback_expires_ms(created_ts, now_ms()));
             let retry = tokio::time::timeout(
                 DISCOVERY_TIMEOUT,
@@ -4750,6 +4769,38 @@ mod tests {
         assert_eq!(plan.mode, FocusSelection::OldestMembership);
         assert_eq!(plan.publisher, Some(focus("c.example")));
         assert_eq!(plan.subscribers, vec![focus("c.example"), focus("a.example")]);
+    }
+
+    #[test]
+    fn first_member_advertises_multi_sfu_on_own_focus() {
+        let own = LivekitTransport {
+            service_url: "https://own.example/".to_owned(), alias: None,
+        };
+        let plan = plan_foci(&[], "@me:x:DEV", Some(own.clone()));
+        assert_eq!(plan.mode, FocusSelection::MultiSfu);
+        assert_eq!(plan.publisher, Some(own.clone()));
+        let content = own_membership_content_with_mode(
+            "DEV", "@me:x", Some(&own), plan.mode, "audio", None,
+            MEMBERSHIP_EXPIRY_MS);
+        assert_eq!(content["focus_active"]["focus_selection"], "multi_sfu");
+    }
+
+    #[test]
+    fn focus_plan_caps_distinct_services_including_publisher() {
+        let members: Vec<RtcMember> = (0..12).map(|n| {
+            let mut member = member_at("@peer:x", &format!("D{n}"),
+                                       n + 1, 9_000);
+            member.focus_selection = FocusSelection::MultiSfu;
+            member.foci = vec![LivekitTransport {
+                service_url: format!("https://focus{n}.example/"), alias: None,
+            }];
+            member
+        }).collect();
+        let own = LivekitTransport {
+            service_url: "https://own.example/".to_owned(), alias: None,
+        };
+        let plan = plan_foci(&members, "@me:x:DEV", Some(own));
+        assert!(plan.subscribers.len() <= 7);
     }
 
     #[test]

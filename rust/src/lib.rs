@@ -10614,6 +10614,72 @@ pub unsafe extern "C" fn mx_rust_sfu_connect(
     })
 }
 
+/// Start one publisher (id 0) and up to seven additional distinct foci.
+/// The JSON is an array of {id, url}; validation occurs in sfu::connect_many.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_sfu_connect_many(
+    ptr: *mut c_void, connections_json: *const c_char,
+    room_id: *const c_char, op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let raw = unsafe { cstr_arg(connections_json) }?;
+        if raw.len() > 8192 { return Err("focus plan too large".to_owned()); }
+        let rows: Vec<serde_json::Value> = serde_json::from_str(&raw)
+            .map_err(|_| "invalid focus plan".to_owned())?;
+        let connections = rows.iter().map(|row| {
+            let id = row.get("id").and_then(|v| v.as_u64())
+                .and_then(|v| u32::try_from(v).ok())
+                .ok_or_else(|| "invalid connection id".to_owned())?;
+            let url = row.get("url").and_then(|v| v.as_str())
+                .ok_or_else(|| "invalid focus url".to_owned())?;
+            Ok((id, url.to_owned()))
+        }).collect::<Result<Vec<_>, String>>()?;
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        sfu::connect_many(bridge, connections, room_id, op_id)
+            .map(|_| String::new())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_sfu_local_description_for(
+    ptr: *mut c_void, generation: u64, connection_id: u32,
+    kind: *const c_char, target: *const c_char, sdp: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let kind = unsafe { cstr_arg(kind) }?;
+        let target = unsafe { cstr_arg(target) }?;
+        let sdp = unsafe { cstr_arg(sdp) }?;
+        if sdp.trim().is_empty() { return Err("empty sdp".to_owned()); }
+        let target = sfu::target_from_str(&target);
+        let command = match kind.as_str() {
+            "offer" => sfu::SfuCommand::Offer { sdp, target },
+            "answer" => sfu::SfuCommand::Answer { sdp, target },
+            _ => return Err("invalid description kind".to_owned()),
+        };
+        sfu::send_command_for(bridge, generation, connection_id, command);
+        Ok(String::new())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_sfu_local_candidate_for(
+    ptr: *mut c_void, generation: u64, connection_id: u32,
+    target: *const c_char, candidate_init: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let target = unsafe { cstr_arg(target) }?;
+        let candidate_init = unsafe { cstr_arg(candidate_init) }?;
+        sfu::send_command_for(bridge, generation, connection_id,
+            sfu::SfuCommand::Candidate {
+                candidate_init, target: sfu::target_from_str(&target),
+            });
+        Ok(String::new())
+    })
+}
+
 /// Hand the SFU a local session description for one peer connection.
 /// `target` is "publisher" (our tracks) or "subscriber" (everyone else's).
 #[no_mangle]
@@ -10693,6 +10759,27 @@ pub unsafe extern "C" fn mx_rust_sfu_add_track(
     })
 }
 
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_sfu_add_track_for(
+    ptr: *mut c_void, generation: u64, connection_id: u32,
+    cid: *const c_char, name: *const c_char, kind: i32,
+    width: u32, height: u32, screen_share: u8, encrypted: u8,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let cid = unsafe { cstr_arg(cid) }?;
+        let name = unsafe { cstr_arg(name) }?;
+        sfu::send_command_for(bridge, generation, connection_id,
+            sfu::SfuCommand::AddTrack {
+                cid, name, width, height,
+                kind: if kind == 1 { 1 } else { 0 },
+                screen_share: screen_share != 0,
+                encrypted: encrypted != 0,
+            });
+        Ok(String::new())
+    })
+}
+
 /// Tell the SFU a published track is muted. This is only the signal; the
 /// engine's valve already stops the bytes locally.
 #[no_mangle]
@@ -10708,6 +10795,20 @@ pub unsafe extern "C" fn mx_rust_sfu_mute_track(
             sid,
             muted: muted != 0,
         });
+        Ok(String::new())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_sfu_mute_track_for(
+    ptr: *mut c_void, generation: u64, connection_id: u32,
+    sid: *const c_char, muted: u8,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let sid = unsafe { cstr_arg(sid) }?;
+        sfu::send_command_for(bridge, generation, connection_id,
+            sfu::SfuCommand::MuteTrack { sid, muted: muted != 0 });
         Ok(String::new())
     })
 }

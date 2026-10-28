@@ -163,6 +163,9 @@ public:
     /// homeserver's answer, else the participant-advertised focus. Empty means
     /// no transport is known.
     Q_INVOKABLE QString focusUrlFor(const QString &roomId) const;
+    QString ownFocusUrlFor() const;
+    QStringList subscriberFocusUrlsFor(const QString &roomId) const;
+    bool usesLegacyFocusFor(const QString &roomId) const;
 
     /// Why joining this room's call is refused right now.
     Q_INVOKABLE JoinBlock joinBlock(const QString &roomId) const;

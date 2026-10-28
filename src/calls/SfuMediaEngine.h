@@ -305,6 +305,10 @@ public:
     /// Out of line: m_videoRouter is a QPointer to a forward-declared type,
     /// and an inline use would require the complete type in every includer.
     void setVideoRouter(SfuVideoRouter *router);
+    /// Namespace receive-side UI routing keys across independent LiveKit
+    /// services. Set before start(); decrypt rings continue to use raw SIDs.
+    void setReceiveNamespace(const QString &prefix)
+    { m_receiveNamespace = prefix; }
     /// Also read from streaming threads; the router locks internally.
     SfuVideoRouter *videoRouter() const;
 
@@ -1737,6 +1741,7 @@ private:
     /// Not owned. QPointer so a destroyed router is never dereferenced from a
     /// late streaming-thread callback.
     QPointer<SfuVideoRouter> m_videoRouter;
+    QString m_receiveNamespace;
 
     // Opt-in RTP statistics trace (LIGHTNING_CALL_STATS_TRACE). The frame
     // counters sit above RTP and miss loss, keyframe requests and bitrate

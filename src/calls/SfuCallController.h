@@ -37,6 +37,8 @@
 
 #include <QElapsedTimer>
 #include <QHash>
+#include <QByteArray>
+#include <QVariantMap>
 #include <QObject>
 #include <QPointer>
 #include <QRect>
@@ -755,6 +757,11 @@ public:
     quint64 beginMembershipPublishForTest(const QString &roomId,
                                           const QString &focusUrl,
                                           bool announce = false);
+    QStringList connectionFocusUrlsForTest() const
+    { return m_connectionFocusUrls; }
+    quint64 sfuGenerationForTest() const { return m_sfuGeneration; }
+    QString streamIdForIdentityForTest(const QString &identity) const
+    { return streamIdForIdentity(identity); }
     /// Shorten the reaction window so its expiry, duplicate rule and parked
     /// staleness run quickly; the real timer and clauses still run.
     void setReactionWindowMsForTest(int ms)
@@ -954,6 +961,11 @@ private Q_SLOTS:
                                const QString &eventId, const QString &delayId,
                                const QString &delayedCategory);
     void onSfuState(const QString &state, const QString &category);
+    void onSfuConnectionEvent(const QVariantMap &event);
+    void updateSubscriberParticipants(int id, const QVariantList &rows,
+                                      bool replace);
+    quint64 connectFocusPlan();
+    void clearSubscriberEngines();
     /// `sifTrailer` is LiveKit's `JoinResponse.sif_trailer`, already bounded
     /// by the bridge (empty when absent or unusable).
     void onSfuJoined(const QString &identity,
@@ -1288,6 +1300,15 @@ private:
     /// exists.
     SfuVideoRouter *m_videoRouter = nullptr;
     QPointer<SfuMediaEngine> m_engine;
+    QHash<int, QPointer<SfuMediaEngine>> m_subscriberEngines;
+    QHash<int, QHash<QString, QVariantMap>> m_subscriberParticipants;
+    QHash<int, QString> m_connectionOwnIdentity;
+    QStringList m_connectionFocusUrls;
+    quint64 m_sfuGeneration = 0;
+    quint64 m_callGeneration = 0;
+    bool m_publishFallbackTried = false;
+    /// The same participant ring is installed in every receive engine.
+    QHash<QString, QHash<int, QByteArray>> m_inboundRingKeys;
     QPointer<ScreenCastPortal> m_portal;
     QPointer<CameraPortal> m_cameraPortal;
     /// The camera is on but its portal grant has not arrived: `m_cameraOn` is

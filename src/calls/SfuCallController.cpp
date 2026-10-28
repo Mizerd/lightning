@@ -17,6 +17,7 @@
 #include <qpa/qplatformscreen.h>
 #endif
 #include <QDateTime>
+#include <QCryptographicHash>
 #include <QDir>
 #include <QFileInfo>
 #include <QJsonArray>
@@ -373,6 +374,8 @@ void SfuCallController::setClient(MatrixClient *client)
             &SfuCallController::onHomeserverReachable);
     connect(m_client, &MatrixClient::sfuStateChanged, this,
             &SfuCallController::onSfuState);
+    connect(m_client, &MatrixClient::sfuConnectionEvent, this,
+            &SfuCallController::onSfuConnectionEvent);
     connect(m_client, &MatrixClient::sfuJoined, this,
             &SfuCallController::onSfuJoined);
     connect(m_client, &MatrixClient::sfuParticipantsChanged, this,
@@ -470,6 +473,23 @@ void SfuCallController::setRtcController(RtcController *rtc)
                 // which often arrives after the SFU announced the joiner.
                 // rebuildModels() diffs, so an unchanged read emits nothing.
                 rebuildModels();
+                if (m_state == State::Connected && m_sfuGeneration != 0
+                    && !m_publishFallbackTried) {
+                    const QString selected = m_rtc->focusUrlFor(roomId);
+                    if (!selected.isEmpty() && selected != m_focusUrl) {
+                        m_focusUrl = selected;
+                        republishMembership();
+                    }
+                }
+                if (m_state == State::Connected && m_sfuGeneration != 0) {
+                    QStringList desired{m_focusUrl};
+                    for (const QString &url : m_rtc->subscriberFocusUrlsFor(roomId)) {
+                        if (!desired.contains(url) && desired.size() < 8)
+                            desired.append(url);
+                    }
+                    if (desired != m_connectionFocusUrls)
+                        beginReconnect(QStringLiteral("focus_plan_changed"));
+                }
             });
 }
 
@@ -487,6 +507,22 @@ void SfuCallController::setMediaEngine(SfuMediaEngine *engine)
             &SfuCallController::onEngineLocalDescription);
     connect(m_engine, &SfuMediaEngine::localCandidate, this,
             &SfuCallController::onEngineLocalCandidate);
+    connect(m_engine, &SfuMediaEngine::remoteTrackAdded, this,
+            [this](const QString &sid, const QString &mid, const QString &kind) {
+                QString identity = sid;
+                for (const QVariant &value : std::as_const(m_participants)) {
+                    const QVariantMap row = value.toMap();
+                    if (row.value(QStringLiteral("sid")).toString() == sid) {
+                        identity = row.value(QStringLiteral("identity")).toString();
+                        break;
+                    }
+                }
+                const QByteArray hash = QCryptographicHash::hash(
+                    identity.toUtf8(), QCryptographicHash::Sha256).toHex().left(12);
+                qCInfo(lcSfuCall) << "remote subscription receive chain"
+                    << "connection=" << 0 << "participantHash=" << hash
+                    << "midSet=" << !mid.isEmpty() << "kind=" << kind;
+            });
     connect(m_engine, &SfuMediaEngine::failed, this,
             &SfuCallController::onEngineFailed);
     // ICE: a failed transport reconnects the call, and a new session's
@@ -1776,7 +1812,8 @@ QString SfuCallController::userFacingError(const QString &category) const
     // `sfu_forbidden` is the same refusal at the websocket upgrade; the log
     // keeps the categories apart.
     if (category == QLatin1String("forbidden")
-        || category == QLatin1String("sfu_forbidden"))
+        || category == QLatin1String("sfu_forbidden")
+        || category == QLatin1String("publish_denied"))
         return tr("The calling service refused to connect you to this call.");
     // `unsupported` is a 404 from the SFU's JWT service, which the oldest
     // membership chooses, usually on someone else's infrastructure; it is not
@@ -2111,6 +2148,7 @@ bool SfuCallController::join(const QString &roomId, bool withVideo)
     m_lastReactionSentMs = 0;
     m_participants.clear();
     m_remoteTrackMuted.clear();
+    m_inboundRingKeys.clear();
     // A blocked-media badge must not outlive its call.
     if (!m_blockedStreams.isEmpty()) {
         m_blockedStreams.clear();
@@ -2176,7 +2214,12 @@ bool SfuCallController::join(const QString &roomId, bool withVideo)
     m_engine->setEncryptionRequired(m_roomEncrypted);
     m_engine->clearKeys();
 
-    // The focus others advertise, or the homeserver's own; empty is legal.
+    ++m_callGeneration;
+    m_publishFallbackTried = false;
+    m_sfuGeneration = 0;
+    m_connectionFocusUrls.clear();
+    clearSubscriberEngines();
+    // Multi-SFU publishes locally; any legacy peer retains oldest selection.
     m_focusUrl = m_rtc->focusUrlFor(roomId);
 
     setState(State::Preparing);
@@ -2409,12 +2452,264 @@ void SfuCallController::onMembershipPublished(quint64 opId, bool ok,
         return;
     }
     setState(State::Authorizing);
-    const quint64 connectOp = m_client->sfuConnect(m_focusUrl, m_roomId);
+    const quint64 connectOp = connectFocusPlan();
     qCInfo(lcSfuCall) << "sfu connect op=" << connectOp;
     if (connectOp == 0) {
         teardown(State::Failed, tr("Couldn't connect to the call."));
         Q_EMIT callFailed(m_lastError);
     }
+}
+
+void SfuCallController::clearSubscriberEngines()
+{
+    m_subscriberParticipants.clear();
+    m_connectionOwnIdentity.clear();
+#ifdef HAVE_LIGHTNING_WEBRTC
+    const auto engines = m_subscriberEngines;
+    m_subscriberEngines.clear();
+    for (const auto &engine : engines) {
+        if (!engine.isNull()) {
+            engine->stop();
+            engine->deleteLater();
+        }
+    }
+#else
+    m_subscriberEngines.clear();
+#endif
+}
+
+void SfuCallController::updateSubscriberParticipants(
+    int id, const QVariantList &rows, bool replace)
+{
+    if (replace) {
+        QVariantList departed;
+        for (const QString &identity : m_subscriberParticipants.value(id).keys()) {
+            departed.append(QVariantMap{
+                {QStringLiteral("identity"), identity},
+                {QStringLiteral("state"), QStringLiteral("disconnected")},
+            });
+        }
+        if (!departed.isEmpty())
+            onSfuParticipants(departed);
+        m_subscriberParticipants.remove(id);
+    }
+    auto &known = m_subscriberParticipants[id];
+    QVariantList forwarded;
+    for (const QVariant &value : rows) {
+        QVariantMap row = value.toMap();
+        const QString identity = row.value(QStringLiteral("identity")).toString();
+        const QString expectedOwn = m_client
+            ? m_client->currentUserId() + QLatin1Char(':')
+                + m_client->currentDeviceId() : QString();
+        if (identity.isEmpty() || identity == m_connectionOwnIdentity.value(id)
+            || identity == m_ownIdentity || identity == expectedOwn)
+            continue;
+        if (row.value(QStringLiteral("state")).toString()
+            == QLatin1String("disconnected")) {
+            known.remove(identity);
+        } else if (known.size() < kMaxParticipants || known.contains(identity)) {
+            const QString prefix = QStringLiteral("c%1:").arg(id);
+            const QString sid = row.value(QStringLiteral("sid")).toString();
+            if (!sid.isEmpty())
+                row.insert(QStringLiteral("sid"), prefix + sid);
+            QVariantList tracks;
+            for (const QVariant &trackValue : row.value(QStringLiteral("tracks")).toList()) {
+                QVariantMap track = trackValue.toMap();
+                const QString trackSid = track.value(QStringLiteral("sid")).toString();
+                if (!trackSid.isEmpty())
+                    track.insert(QStringLiteral("sid"), prefix + trackSid);
+                tracks.append(track);
+            }
+            row.insert(QStringLiteral("tracks"), tracks);
+            known.insert(identity, row);
+        } else {
+            continue;
+        }
+        forwarded.append(row);
+    }
+    onSfuParticipants(forwarded);
+}
+
+quint64 SfuCallController::connectFocusPlan()
+{
+    if (!m_client || m_focusUrl.isEmpty())
+        return 0;
+    clearSubscriberEngines();
+    m_sfuGeneration = 0;
+    m_connectionFocusUrls = {m_focusUrl};
+    for (const QString &url : m_rtc ? m_rtc->subscriberFocusUrlsFor(m_roomId)
+                                    : QStringList()) {
+        if (!m_connectionFocusUrls.contains(url)
+            && m_connectionFocusUrls.size() < 8)
+            m_connectionFocusUrls.append(url);
+    }
+#ifdef HAVE_LIGHTNING_WEBRTC
+    for (int id = 1; id < m_connectionFocusUrls.size(); ++id) {
+        auto *engine = new SfuMediaEngine(this);
+        m_subscriberEngines.insert(id, engine);
+        engine->setVideoRouter(m_videoRouter);
+        engine->setReceiveNamespace(QStringLiteral("c%1:").arg(id));
+        engine->setEncryptionRequired(m_roomEncrypted);
+        if (!m_engine.isNull()) {
+            engine->setPreferredDevices(m_engine->cameraChoice(),
+                                        m_engine->microphoneChoice(),
+                                        m_engine->speakerChoice());
+            engine->setTestSourceMode(m_engine->testSourceMode());
+        }
+        engine->setOutputMuted(m_deafened);
+        for (auto ring = m_inboundRingKeys.cbegin();
+             ring != m_inboundRingKeys.cend(); ++ring) {
+            for (auto key = ring.value().cbegin(); key != ring.value().cend(); ++key)
+                engine->setInboundKey(ring.key(), key.key(), key.value());
+        }
+        const quint64 callGeneration = m_callGeneration;
+        connect(engine, &SfuMediaEngine::localDescription, this,
+                [this, engine, id, callGeneration](int target,
+                    const QString &kind, const QString &sdp) {
+                    if (!m_client || m_callGeneration != callGeneration
+                        || m_subscriberEngines.value(id) != engine)
+                        return;
+                    m_client->sfuLocalDescriptionFor(
+                        m_sfuGeneration, id, kind,
+                        target == 0 ? QStringLiteral("publisher")
+                                    : QStringLiteral("subscriber"), sdp);
+                });
+        connect(engine, &SfuMediaEngine::localCandidate, this,
+                [this, engine, id, callGeneration](int target,
+                    const QString &candidate) {
+                    if (!m_client || m_callGeneration != callGeneration
+                        || m_subscriberEngines.value(id) != engine)
+                        return;
+                    m_client->sfuLocalCandidateFor(
+                        m_sfuGeneration, id,
+                        target == 0 ? QStringLiteral("publisher")
+                                    : QStringLiteral("subscriber"), candidate);
+                });
+        connect(engine, &SfuMediaEngine::remoteTrackAdded, this,
+                [this, id](const QString &sid, const QString &mid, const QString &kind) {
+                    QString identity = sid;
+                    const QString routedSid = QStringLiteral("c%1:").arg(id) + sid;
+                    for (const QVariant &value : std::as_const(m_participants)) {
+                        const QVariantMap row = value.toMap();
+                        if (row.value(QStringLiteral("sid")).toString()
+                            == routedSid) {
+                            identity = row.value(QStringLiteral("identity")).toString();
+                            break;
+                        }
+                    }
+                    const QByteArray hash = QCryptographicHash::hash(
+                        identity.toUtf8(), QCryptographicHash::Sha256).toHex().left(12);
+                    qCInfo(lcSfuCall) << "remote subscription receive chain"
+                        << "connection=" << id << "participantHash=" << hash
+                        << "midSet=" << !mid.isEmpty() << "kind=" << kind;
+                });
+        connect(engine, &SfuMediaEngine::failed, this,
+                [this, engine, id, callGeneration](const QString &category) {
+                    if (m_callGeneration == callGeneration
+                        && m_subscriberEngines.value(id) == engine && active())
+                        beginReconnect(category);
+                });
+        connect(engine, &SfuMediaEngine::transportStateChanged, this,
+                [this, engine, id, callGeneration](int target,
+                                                   const QString &state) {
+                    if (m_callGeneration != callGeneration
+                        || m_subscriberEngines.value(id) != engine || !active())
+                        return;
+                    if (target == 1) {
+                        qCInfo(lcSfuCall) << "subscriber transport"
+                                          << "connection=" << id
+                                          << "state=" << state;
+                        if (state == QLatin1String("failed"))
+                            beginReconnect(QStringLiteral("subscriber_ice_failed"));
+                    }
+                });
+    }
+#endif
+    return m_client->sfuConnectMany(m_connectionFocusUrls, m_roomId);
+}
+
+void SfuCallController::onSfuConnectionEvent(const QVariantMap &event)
+{
+    if (!active())
+        return;
+    const quint64 generation = event.value(QStringLiteral("generation")).toULongLong();
+    const int id = event.contains(QStringLiteral("connection_id"))
+        ? event.value(QStringLiteral("connection_id")).toInt() : -1;
+    if (id < 0 || id >= m_connectionFocusUrls.size() || generation == 0)
+        return;
+    if (m_sfuGeneration == 0)
+        m_sfuGeneration = generation;
+    if (generation != m_sfuGeneration || id == 0)
+        return;
+#ifdef HAVE_LIGHTNING_WEBRTC
+    auto *engine = m_subscriberEngines.value(id).data();
+    if (!engine)
+        return;
+    const QString type = event.value(QStringLiteral("type")).toString();
+    if (type == QLatin1String("sfu_state")) {
+        const QString state = event.value(QStringLiteral("state")).toString();
+        if (state == QLatin1String("failed")
+            || state == QLatin1String("reconnecting")
+            || state == QLatin1String("closed")
+            || state == QLatin1String("ended")) {
+            onSfuState(state, event.value(QStringLiteral("category")).toString());
+        }
+        return;
+    }
+    if (type == QLatin1String("sfu_joined")) {
+        engine->start();
+        const QByteArray trailer = QByteArray::fromBase64(
+            event.value(QStringLiteral("sif_trailer")).toString().toLatin1(),
+            QByteArray::AbortOnBase64DecodingErrors);
+        engine->setServerInjectedTrailer(trailer);
+        engine->setIceServers(event.value(QStringLiteral("ice_servers")).toList());
+        const QString self = event.value(QStringLiteral("identity")).toString();
+        m_connectionOwnIdentity.insert(id, self);
+        updateSubscriberParticipants(
+            id, event.value(QStringLiteral("participants")).toList(), true);
+        noteParticipantIdentities();
+        return;
+    }
+    if (type == QLatin1String("sfu_participants")) {
+        updateSubscriberParticipants(
+            id, event.value(QStringLiteral("participants")).toList(), false);
+    } else if (type == QLatin1String("sfu_remote_description")) {
+        if (event.value(QStringLiteral("target")).toString()
+            == QLatin1String("subscriber")) {
+            engine->applyRemoteDescription(SfuMediaEngine::Target::Subscriber,
+                event.value(QStringLiteral("kind")).toString(),
+                event.value(QStringLiteral("sdp")).toString());
+        }
+    } else if (type == QLatin1String("sfu_remote_candidate")) {
+        if (event.value(QStringLiteral("target")).toString()
+            == QLatin1String("subscriber")) {
+            engine->applyRemoteCandidate(SfuMediaEngine::Target::Subscriber,
+                event.value(QStringLiteral("candidate_init")).toString());
+        }
+    } else if (type == QLatin1String("sfu_speakers")) {
+        QVariantList rows;
+        for (const QVariant &value : event.value(QStringLiteral("speakers")).toList()) {
+            QVariantMap row = value.toMap();
+            const QString sid = row.value(QStringLiteral("sid")).toString();
+            if (!sid.isEmpty())
+                row.insert(QStringLiteral("sid"), QStringLiteral("c%1:").arg(id) + sid);
+            rows.append(row);
+        }
+        onSfuSpeakers(rows);
+    } else if (type == QLatin1String("sfu_quality")) {
+        QVariantList rows;
+        for (const QVariant &value : event.value(QStringLiteral("updates")).toList()) {
+            QVariantMap row = value.toMap();
+            const QString sid = row.value(QStringLiteral("sid")).toString();
+            if (!sid.isEmpty())
+                row.insert(QStringLiteral("sid"), QStringLiteral("c%1:").arg(id) + sid);
+            rows.append(row);
+        }
+        onSfuConnectionQuality(rows);
+    }
+#else
+    Q_UNUSED(event);
+#endif
 }
 
 void SfuCallController::onSfuState(const QString &state,
@@ -2424,6 +2719,24 @@ void SfuCallController::onSfuState(const QString &state,
                       << "active=" << active();
     if (!active())
         return;
+    if (state == QLatin1String("failed")
+        && category == QLatin1String("publish_denied")
+        && !m_publishFallbackTried && m_rtc && m_client) {
+        const QString own = m_rtc->ownFocusUrlFor();
+        if (!own.isEmpty() && own != m_focusUrl) {
+            m_publishFallbackTried = true;
+            m_client->sfuDisconnect();
+            m_focusUrl = own;
+            // The advertised focus follows the publisher. Keep this write's
+            // operation id before the next async call can fail.
+            republishMembership();
+            const quint64 retryOp = connectFocusPlan();
+            qCInfo(lcSfuCall) << "publisher moved to own focus after denial"
+                               << "retryOp=" << retryOp;
+            if (retryOp != 0)
+                return;
+        }
+    }
     // A reconnect has its own reading of every report; see
     // onReconnectSfuState().
     if (m_state == State::Reconnecting) {
@@ -2464,6 +2777,7 @@ void SfuCallController::onSfuState(const QString &state,
         // logged as "refused"; DNS, TLS and routing failures are not.
         const bool serviceAnswered =
             category == QLatin1String("forbidden")
+            || category == QLatin1String("publish_denied")
             || category == QLatin1String("sfu_forbidden")
             || category == QLatin1String("unsupported")
             || category == QLatin1String("sfu_not_found")
@@ -2536,6 +2850,7 @@ bool SfuCallController::sfuFailureIsRefusal(const QString &category)
     static const QSet<QString> refusals = {
         QStringLiteral("forbidden"),
         QStringLiteral("sfu_forbidden"),
+        QStringLiteral("publish_denied"),
         QStringLiteral("membership_forbidden"),
         QStringLiteral("unsupported"),
         QStringLiteral("sfu_not_found"),
@@ -2605,7 +2920,10 @@ void SfuCallController::suspendSfuSession()
     // twice). Captures stop until the rejoin publishes again.
     if (!m_engine.isNull())
         m_engine->suspend();
+    clearSubscriberEngines();
 #endif
+    m_sfuGeneration = 0;
+    m_connectionFocusUrls.clear();
     // Sends a Leave if that socket still works, so the SFU drops the old
     // session at once rather than at its own timeout, and bumps the bridge's
     // session so nothing the old one has queued can reach us.
@@ -2692,7 +3010,7 @@ void SfuCallController::launchReconnectAttempt()
     m_reconnectAttemptTimer.start();
     // The same focus and room as the call's membership, which is unchanged:
     // to everyone else this device never left the call.
-    const quint64 op = m_client->sfuConnect(m_focusUrl, m_roomId);
+    const quint64 op = connectFocusPlan();
     qCInfo(lcSfuCall) << "reconnect attempt" << m_reconnectAttempts
                       << "dispatched op=" << op
                       << "elapsedMs=" << m_reconnectClock.elapsed();
@@ -2875,6 +3193,15 @@ void SfuCallController::onSfuJoined(const QString &identity,
     // On a rejoin this replaces the list the lost session left: the same
     // people, and our own row under the same identity with a new sid.
     m_participants = participants.mid(0, kMaxParticipants);
+    // A subscriber focus may finish its join before the publisher. Restore
+    // those snapshots after replacing the publisher's own list.
+    for (auto it = m_subscriberParticipants.cbegin();
+         it != m_subscriberParticipants.cend(); ++it) {
+        QVariantList rows;
+        for (const QVariantMap &row : it.value())
+            rows.append(row);
+        mergeParticipants(rows);
+    }
     noteParticipantIdentities();
     rebuildModels();
     if (rejoin) {
@@ -2945,11 +3272,11 @@ void SfuCallController::publishTracks()
     // declaring and publishing must use the same id.
     const QString audioCid =
         QUuid::createUuid().toString(QUuid::WithoutBraces);
-    m_client->sfuAddTrack(audioCid, QStringLiteral("microphone"), 0,
-                          /*width=*/0, /*height=*/0, false, m_roomEncrypted);
-    m_engine->publishAudio(audioCid);
     m_audioCid = audioCid;
     m_publishedTrackIds.append(audioCid);
+    m_client->sfuAddTrackFor(m_sfuGeneration, 0, audioCid, QStringLiteral("microphone"), 0,
+                          /*width=*/0, /*height=*/0, false, m_roomEncrypted);
+    m_engine->publishAudio(audioCid);
     // Declared is not published: warn if LiveKit never confirms the track.
     // Local counters look healthy either way.
     QTimer::singleShot(8000, this, [this, audioCid] {
@@ -3216,8 +3543,8 @@ void SfuCallController::onEngineLocalDescription(int target,
                       << "active=" << active();
     if (!active() || !m_client)
         return;
-    m_client->sfuLocalDescription(
-        kind,
+    m_client->sfuLocalDescriptionFor(
+        m_sfuGeneration, 0, kind,
         target == 0 ? QStringLiteral("publisher")
                     : QStringLiteral("subscriber"),
         sdp);
@@ -3235,7 +3562,8 @@ void SfuCallController::onEngineLocalCandidate(int target,
     }
     if (!active() || !m_client)
         return;
-    m_client->sfuLocalCandidate(
+    m_client->sfuLocalCandidateFor(
+        m_sfuGeneration, 0,
         target == 0 ? QStringLiteral("publisher")
                     : QStringLiteral("subscriber"),
         candidateInit);
@@ -3556,17 +3884,36 @@ void SfuCallController::onMediaKeyReceived(const QString &roomId,
     // LiveKit sid is bound to it later (noteParticipantIdentities), since key,
     // participant list and membership arrive in any order.
     const QString ringName = mediaKeyRingName(sender, claimedDeviceId);
+    if (!m_inboundRingKeys.contains(ringName)
+        && m_inboundRingKeys.size() >= kMaxParticipants)
+        return;
+    m_inboundRingKeys[ringName].insert(keyIndex, raw);
     m_engine->setInboundKey(ringName, keyIndex, raw);
+    for (const auto &receiver : std::as_const(m_subscriberEngines)) {
+        if (!receiver.isNull())
+            receiver->setInboundKey(ringName, keyIndex, raw);
+    }
     // Also alias the ring to the default SFU identity `{user}:{device}` (what
     // clients assume when a membership omits `membershipID`, and what the JWT
     // service assigns), plus the membership-derived identity when known.
     m_engine->noteParticipantIdentity(
         sender + QLatin1Char(':') + claimedDeviceId, ringName);
+    for (const auto &receiver : std::as_const(m_subscriberEngines)) {
+        if (!receiver.isNull())
+            receiver->noteParticipantIdentity(
+                sender + QLatin1Char(':') + claimedDeviceId, ringName);
+    }
     if (m_rtc) {
         const QString identity =
             m_rtc->rtcIdentityFor(m_roomId, sender, claimedDeviceId);
         if (!identity.isEmpty())
             m_engine->noteParticipantIdentity(identity, ringName);
+        if (!identity.isEmpty()) {
+            for (const auto &receiver : std::as_const(m_subscriberEngines)) {
+                if (!receiver.isNull())
+                    receiver->noteParticipantIdentity(identity, ringName);
+            }
+        }
     }
     // If the participant list already names their sid, bind it now.
     noteParticipantIdentities();
@@ -3820,10 +4167,23 @@ void SfuCallController::noteParticipantIdentities()
         const QString sid = participant.value(QStringLiteral("sid")).toString();
         if (identity.isEmpty() || sid.isEmpty())
             continue;
+        SfuMediaEngine *receiver = m_engine.data();
+        QString rawSid = sid;
+        for (auto it = m_subscriberEngines.cbegin();
+             it != m_subscriberEngines.cend(); ++it) {
+            const QString prefix = QStringLiteral("c%1:").arg(it.key());
+            if (sid.startsWith(prefix)) {
+                receiver = it.value().data();
+                rawSid = sid.mid(prefix.size());
+                break;
+            }
+        }
+        if (!receiver)
+            continue;
         // sid -> identity first, unconditionally: both come from the same SFU
         // row, so it needs nothing else, and frames are dropped until it
         // exists.
-        m_engine->noteParticipantIdentity(sid, identity);
+        receiver->noteParticipantIdentity(rawSid, identity);
         // ...and to the sending device when the membership knows it (covers
         // hashed identities). Never guessed: a wrong device would decrypt with
         // another participant's key.
@@ -3833,7 +4193,7 @@ void SfuCallController::noteParticipantIdentities()
             person.value(QStringLiteral("userId")).toString(),
             person.value(QStringLiteral("deviceId")).toString());
         if (!name.isEmpty()) {
-            m_engine->noteParticipantIdentity(sid, name);
+            receiver->noteParticipantIdentity(rawSid, name);
             continue;
         }
         // The SFU reports a participant our membership store does not know
@@ -4688,9 +5048,14 @@ void SfuCallController::teardown(State finalState, const QString &error)
 
 #ifdef HAVE_LIGHTNING_WEBRTC
     // Media first: release devices before anything that can fail or block.
+    clearSubscriberEngines();
     if (!m_engine.isNull())
         m_engine->stop();
 #endif
+    ++m_callGeneration;
+    m_sfuGeneration = 0;
+    m_connectionFocusUrls.clear();
+    m_inboundRingKeys.clear();
     if (m_portal)
         m_portal->cancel();
     // Cancel any camera grant in flight (the dialog is modal to the desktop,
@@ -4873,6 +5238,10 @@ void SfuCallController::applyAudioState()
         return;
     m_engine->setMicrophoneMuted(m_micMuted);
     m_engine->setOutputMuted(m_deafened);
+    for (const auto &receiver : std::as_const(m_subscriberEngines)) {
+        if (!receiver.isNull())
+            receiver->setOutputMuted(m_deafened);
+    }
     // Mic gain rides the same path as mute and deafen, applied at session
     // start rather than on `connected`, which arrives after RTP is already
     // flowing.
@@ -5039,17 +5408,17 @@ void SfuCallController::publishCameraTrack(int pipewireFd)
                                    ? m_settings->effectiveCameraResolution()
                                    : SfuMediaEngine::kCameraHeight);
     const int cameraH = m_engine->cameraMaxHeight();
+    m_cameraCid = cid;
+    m_publishedTrackIds.append(cid);
     // Declare the camera ceiling (see SfuMediaEngine) so the SFU does not
     // infer simulcast.
-    m_client->sfuAddTrack(cid, QStringLiteral("camera"), 1,
+    m_client->sfuAddTrackFor(m_sfuGeneration, 0, cid, QStringLiteral("camera"), 1,
                           (cameraH * 16) / 9, cameraH,
                           false, m_roomEncrypted);
     // The engine takes ownership of the fd; see SfuMediaEngine::publishVideo().
     m_cameraViaPortal = pipewireFd >= 0;
     m_engine->publishVideo(cid, /*screenShare=*/false, /*nodeId=*/-1,
                            pipewireFd);
-    m_cameraCid = cid;
-    m_publishedTrackIds.append(cid);
 #else
     closePortalFd(pipewireFd);
 #endif
@@ -5164,14 +5533,14 @@ bool SfuCallController::startScreenShare(int pipewireNodeId, int pipewireFd,
                                          : 0);
     const int shareH = m_engine->shareMaxHeight();
     const int shareW = (shareH * 16) / 9;
-    m_client->sfuAddTrack(cid, QStringLiteral("screen"), 1,
+    m_screenCid = cid;
+    m_publishedTrackIds.append(cid);
+    m_screenSharing = true;
+    m_client->sfuAddTrackFor(m_sfuGeneration, 0, cid, QStringLiteral("screen"), 1,
                           shareW, shareH,
                           true, m_roomEncrypted);
     m_engine->publishVideo(cid, /*screenShare=*/true, pipewireNodeId,
                            pipewireFd, windowHandle, captureRect);
-    m_screenCid = cid;
-    m_publishedTrackIds.append(cid);
-    m_screenSharing = true;
 
     // Share audio is a separate track (LiveKit SCREEN_SHARE_AUDIO), which is
     // how Element renders it and lets it mute and stop independently. Only
@@ -5217,14 +5586,14 @@ void SfuCallController::publishShareAudioTrack()
                       << m_roomEncrypted << "mode=" << m_shareAudioMode
                       << "chosen=" << m_shareAudioApps.size();
     // kind=0 (audio) with screen_share=true maps to SCREEN_SHARE_AUDIO.
-    m_client->sfuAddTrack(audioCid, QStringLiteral("screenaudio"),
+    m_shareAudioCid = audioCid;
+    m_publishedTrackIds.append(audioCid);
+    m_client->sfuAddTrackFor(m_sfuGeneration, 0, audioCid, QStringLiteral("screenaudio"),
                           /*kind=*/0, 0, 0,
                           /*screenShare=*/true, m_roomEncrypted);
     // Record the cid before publishing: publishShareAudio() can emit
     // failed() synchronously, re-entering onEngineFailed, whose cleanup
     // keys on this cid.
-    m_shareAudioCid = audioCid;
-    m_publishedTrackIds.append(audioCid);
     resetShareAudioLevel();
     // Before the bin is built, so a track re-published mid-share (a mode
     // change) keeps the user's mute from its first buffer.
@@ -5804,7 +6173,7 @@ void SfuCallController::syncMicMuteToSfu()
         // loop.
         if (track.value(QStringLiteral("muted")).toBool() == m_micMuted)
             return;
-        m_client->sfuMuteTrack(sid, m_micMuted);
+        m_client->sfuMuteTrackFor(m_sfuGeneration, 0, sid, m_micMuted);
         return;
     }
 }
@@ -5833,7 +6202,7 @@ void SfuCallController::muteOwnTrackIfLive(const QString &source)
             continue; // not named yet; the next ParticipantUpdate re-runs this
         // No `return`: if two live tracks of this source are listed, both
         // must be silenced.
-        m_client->sfuMuteTrack(sid, true);
+        m_client->sfuMuteTrackFor(m_sfuGeneration, 0, sid, true);
     }
 }
 
@@ -6295,6 +6664,14 @@ bool SfuCallController::applyEngineParticipantVolume(const QString &identity,
     // engineParticipantVolumeForTest().
     m_engineParticipantVolume.insert(identity, percent);
 #ifdef HAVE_LIGHTNING_WEBRTC
+    for (auto it = m_subscriberEngines.cbegin();
+         it != m_subscriberEngines.cend(); ++it) {
+        const QString prefix = QStringLiteral("c%1:").arg(it.key());
+        if (streamId.startsWith(prefix) && !it.value().isNull()) {
+            it.value()->setParticipantVolume(streamId.mid(prefix.size()), percent);
+            return true;
+        }
+    }
     if (!m_engine.isNull()) {
         m_engine->setParticipantVolume(streamId, percent);
         return true;
@@ -6316,6 +6693,16 @@ void SfuCallController::applyEngineShareVolume(const QString &shareId,
         return;
     m_engineShareVolume.insert(shareId, percent);
 #ifdef HAVE_LIGHTNING_WEBRTC
+    for (auto it = m_subscriberEngines.cbegin();
+         it != m_subscriberEngines.cend(); ++it) {
+        const QString prefix = QStringLiteral("c%1:").arg(it.key());
+        if (streamId.startsWith(prefix) && audioKey.startsWith(prefix)
+            && !it.value().isNull()) {
+            it.value()->setTrackVolume(streamId.mid(prefix.size()),
+                                       audioKey.mid(prefix.size()), percent);
+            return;
+        }
+    }
     if (!m_engine.isNull())
         m_engine->setTrackVolume(streamId, audioKey, percent);
 #endif

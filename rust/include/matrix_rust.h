@@ -2014,6 +2014,21 @@ char *mx_rust_sfu_connect(void *client,
                           const char *service_url,
                           const char *room_id,
                           unsigned long long op_id);
+char *mx_rust_sfu_connect_many(void *client,
+                               const char *connections_json,
+                               const char *room_id,
+                               unsigned long long op_id);
+char *mx_rust_sfu_local_description_for(void *client,
+                                        unsigned long long generation,
+                                        unsigned int connection_id,
+                                        const char *kind,
+                                        const char *target,
+                                        const char *sdp);
+char *mx_rust_sfu_local_candidate_for(void *client,
+                                      unsigned long long generation,
+                                      unsigned int connection_id,
+                                      const char *target,
+                                      const char *candidate_init_json);
 char *mx_rust_sfu_local_description(void *client,
                                     const char *kind,
                                     const char *target,
@@ -2036,9 +2051,21 @@ char *mx_rust_sfu_add_track(void *client,
                              * which is how a receiving client (Element Call
                              * included) knows to run its frame decryptor. */
                             unsigned char encrypted);
+char *mx_rust_sfu_add_track_for(void *client,
+                                unsigned long long generation,
+                                unsigned int connection_id,
+                                const char *cid, const char *name,
+                                int kind_audio0_video1,
+                                unsigned int width, unsigned int height,
+                                unsigned char screen_share,
+                                unsigned char encrypted);
 char *mx_rust_sfu_mute_track(void *client,
                              const char *sid,
                              unsigned char muted);
+char *mx_rust_sfu_mute_track_for(void *client,
+                                 unsigned long long generation,
+                                 unsigned int connection_id,
+                                 const char *sid, unsigned char muted);
 char *mx_rust_sfu_disconnect(void *client);
 /* v0.7.x UIA + device sign-out. delete may raise a uia_required challenge
  * event ({op_id, flows, completed, has_password_stage, wrong_password});

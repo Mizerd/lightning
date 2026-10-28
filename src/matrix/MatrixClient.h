@@ -1552,6 +1552,19 @@ public:
     virtual quint64 sfuConnect(const QString &serviceUrl,
                                const QString &roomId)
     { Q_UNUSED(serviceUrl); Q_UNUSED(roomId); return 0; }
+    virtual quint64 sfuConnectMany(const QStringList &focusUrls,
+                                   const QString &roomId)
+    { Q_UNUSED(focusUrls); Q_UNUSED(roomId); return 0; }
+    virtual void sfuLocalDescriptionFor(quint64 generation, int connectionId,
+                                        const QString &kind, const QString &target,
+                                        const QString &sdp)
+    { Q_UNUSED(generation); Q_UNUSED(connectionId); Q_UNUSED(kind);
+      Q_UNUSED(target); Q_UNUSED(sdp); }
+    virtual void sfuLocalCandidateFor(quint64 generation, int connectionId,
+                                      const QString &target,
+                                      const QString &candidateInit)
+    { Q_UNUSED(generation); Q_UNUSED(connectionId); Q_UNUSED(target);
+      Q_UNUSED(candidateInit); }
     /// `target` is "publisher" (our tracks) or "subscriber" (everyone
     /// else's) — LiveKit runs two peer connections.
     virtual void sfuLocalDescription(const QString &kind,
@@ -1573,8 +1586,19 @@ public:
         Q_UNUSED(width); Q_UNUSED(height);
         Q_UNUSED(screenShare); Q_UNUSED(encrypted);
     }
+    virtual void sfuAddTrackFor(quint64 generation, int connectionId,
+                                const QString &cid, const QString &name,
+                                int kind, int width, int height,
+                                bool screenShare, bool encrypted)
+    {
+        Q_UNUSED(generation); Q_UNUSED(connectionId);
+        sfuAddTrack(cid, name, kind, width, height, screenShare, encrypted);
+    }
     virtual void sfuMuteTrack(const QString &sid, bool muted)
     { Q_UNUSED(sid); Q_UNUSED(muted); }
+    virtual void sfuMuteTrackFor(quint64 generation, int connectionId,
+                                 const QString &sid, bool muted)
+    { Q_UNUSED(generation); Q_UNUSED(connectionId); sfuMuteTrack(sid, muted); }
     virtual void sfuDisconnect() {}
 
     virtual quint64 rtcNotify(const QString &roomId,
@@ -2671,6 +2695,9 @@ Q_SIGNALS:
     /// (the SFU asked us back, or the signalling socket died); "ended": the
     /// SFU removed us for good. Only reports of the live session arrive.
     void sfuStateChanged(const QString &state, const QString &category);
+    /// Connection-aware event, with generation and id verified by the Rust
+    /// wrapper. SDP/ICE are media-only and must stay inside the controller.
+    void sfuConnectionEvent(const QVariantMap &event);
     /// LiveKit's per-room server-injected-frame trailer
     /// (`JoinResponse.sif_trailer`): at most 64 raw bytes, empty when absent.
     /// It marks the unencrypted blank frames the SFU writes into encrypted

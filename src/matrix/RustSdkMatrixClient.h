@@ -727,6 +727,14 @@ public:
     bool supportsSfu() const override { return true; }
     quint64 sfuConnect(const QString &serviceUrl,
                        const QString &roomId) override;
+    quint64 sfuConnectMany(const QStringList &focusUrls,
+                           const QString &roomId) override;
+    void sfuLocalDescriptionFor(quint64 generation, int connectionId,
+                                const QString &kind, const QString &target,
+                                const QString &sdp) override;
+    void sfuLocalCandidateFor(quint64 generation, int connectionId,
+                              const QString &target,
+                              const QString &candidateInit) override;
     void sfuLocalDescription(const QString &kind, const QString &target,
                              const QString &sdp) override;
     void sfuLocalCandidate(const QString &target,
@@ -734,7 +742,13 @@ public:
     void sfuAddTrack(const QString &cid, const QString &name, int kind,
                      int width, int height, bool screenShare,
                      bool encrypted) override;
+    void sfuAddTrackFor(quint64 generation, int connectionId,
+                        const QString &cid, const QString &name, int kind,
+                        int width, int height, bool screenShare,
+                        bool encrypted) override;
     void sfuMuteTrack(const QString &sid, bool muted) override;
+    void sfuMuteTrackFor(quint64 generation, int connectionId,
+                         const QString &sid, bool muted) override;
     void sfuDisconnect() override;
     quint64 rtcSendCallReaction(const QString &roomId,
                                 const QString &membershipEventId,

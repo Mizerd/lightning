@@ -145,15 +145,15 @@ bool RtcController::callingAvailable() const
     // session that names a focus counts even without MSC4143 discovery.
     bool sessionNamesAFocus = false;
     for (auto it = m_sessions.cbegin(); it != m_sessions.cend(); ++it) {
-        if (!it->slotClosed && !it->focusServiceUrl.isEmpty()) {
+        if (!it->slotClosed && !it->focusServiceUrl.isEmpty()
+            && usesLegacyFocusFor(it.key())) {
             sessionNamesAFocus = true;
             break;
         }
     }
     return supported()
         && (sessionNamesAFocus
-            || (m_discovered && (!m_serviceUrls.isEmpty()
-                                 || !m_participantFocus.isEmpty())));
+            || (m_discovered && !m_serviceUrls.isEmpty()));
 }
 
 bool RtcController::discoveryWorthRetrying() const
@@ -177,13 +177,11 @@ QString RtcController::sessionFocusFor(const QString &roomId) const
 
 bool RtcController::transportReachableFor(const QString &roomId) const
 {
-    // The room's own session focus first: it is where the participants are,
-    // and without MSC4143 (most homeservers) it is the only focus there is.
-    // The homeserver's answer applies everywhere; a participant-advertised
-    // focus only to its own room.
-    return !sessionFocusFor(roomId).isEmpty()
-        || !m_serviceUrls.isEmpty()
-        || !m_participantFocus.value(roomId).isEmpty();
+    // A multi-SFU publisher must have its own account's discovered service.
+    // A legacy peer remains reachable on its oldest advertised focus.
+    if (!usesLegacyFocusFor(roomId))
+        return !m_serviceUrls.isEmpty();
+    return !sessionFocusFor(roomId).isEmpty() || !m_serviceUrls.isEmpty();
 }
 
 void RtcController::setMediaEncryptionAvailable(bool available)
@@ -573,6 +571,8 @@ void RtcController::onSessionReceived(quint64 opId,
                                && a.deviceId == b.deviceId
                                && a.rtcIdentity == b.rtcIdentity
                                && a.hashedRtcIdentity == b.hashedRtcIdentity
+                               && a.focusServiceUrl == b.focusServiceUrl
+                               && a.focusSelection == b.focusSelection
                                && a.intent == b.intent
                                && a.displayName == b.displayName
                                && a.avatarMxc == b.avatarMxc;
@@ -997,16 +997,48 @@ QVariantList RtcController::participantFaces(const QString &roomId,
 
 QString RtcController::focusUrlFor(const QString &roomId) const
 {
-    // An existing session's focus wins: its participants are on the focus the
-    // oldest membership named, and choosing our own SFU would put us alone on
-    // another server. Matches element-call. The homeserver's answer is for
-    // starting a call.
-    const QString session = sessionFocusFor(roomId);
-    if (!session.isEmpty())
-        return session;
-    if (!m_serviceUrls.isEmpty())
-        return m_serviceUrls.first();
-    return m_participantFocus.value(roomId);
+    if (!usesLegacyFocusFor(roomId))
+        return ownFocusUrlFor();
+    const QString oldest = sessionFocusFor(roomId);
+    return oldest.isEmpty() ? ownFocusUrlFor() : oldest;
+}
+
+QString RtcController::ownFocusUrlFor() const
+{
+    return m_serviceUrls.isEmpty() ? QString() : m_serviceUrls.first();
+}
+
+bool RtcController::usesLegacyFocusFor(const QString &roomId) const
+{
+    const auto session = m_sessions.constFind(roomId);
+    if (session == m_sessions.cend())
+        return false;
+    for (const RtcParticipant &member : session->participants) {
+        if (!member.ownDevice
+            && member.focusSelection != QLatin1String("multi_sfu"))
+            return true;
+    }
+    return false;
+}
+
+QStringList RtcController::subscriberFocusUrlsFor(const QString &roomId) const
+{
+    QStringList urls;
+    const auto session = m_sessions.constFind(roomId);
+    if (session == m_sessions.cend())
+        return urls;
+    const QString oldest = sessionFocusFor(roomId);
+    for (const RtcParticipant &member : session->participants) {
+        if (member.ownDevice)
+            continue;
+        const QString url = member.focusSelection == QLatin1String("multi_sfu")
+            ? member.focusServiceUrl
+            : member.focusSelection == QLatin1String("oldest_membership")
+                ? oldest : QString();
+        if (!url.isEmpty() && !urls.contains(url) && urls.size() < 8)
+            urls.append(url);
+    }
+    return urls;
 }
 
 RtcController::JoinBlock RtcController::joinBlock(const QString &roomId) const

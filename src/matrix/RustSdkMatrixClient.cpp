@@ -10920,6 +10920,58 @@ quint64 RustSdkMatrixClient::sfuConnect(const QString &serviceUrl,
     return m_sfuConnectOp;
 }
 
+quint64 RustSdkMatrixClient::sfuConnectMany(const QStringList &focusUrls,
+                                            const QString &roomId)
+{
+    if (!m_rustHandle || roomId.isEmpty() || focusUrls.isEmpty()
+        || focusUrls.size() > 8)
+        return 0;
+    QJsonArray rows;
+    for (int i = 0; i < focusUrls.size(); ++i) {
+        if (focusUrls.at(i).isEmpty())
+            return 0;
+        rows.append(QJsonObject{{QStringLiteral("id"), i},
+                                {QStringLiteral("url"), focusUrls.at(i)}});
+    }
+    const quint64 opId = nextOpId();
+    const QByteArray plan = QJsonDocument(rows).toJson(QJsonDocument::Compact);
+    const QByteArray room = roomId.toUtf8();
+    const QString result = takeRustString(mx_rust_sfu_connect_many(
+        m_rustHandle, plan.constData(), room.constData(), opId));
+    m_sfuConnectOp = result.isEmpty() ? opId : 0;
+    m_sfuSessionGeneration = 0;
+    return m_sfuConnectOp;
+}
+
+void RustSdkMatrixClient::sfuLocalDescriptionFor(
+    quint64 generation, int connectionId, const QString &kind,
+    const QString &target, const QString &sdp)
+{
+    if (!m_rustHandle || generation == 0 || connectionId < 0
+        || connectionId >= 8 || sdp.isEmpty())
+        return;
+    const QByteArray k = kind.toUtf8();
+    const QByteArray t = target.toUtf8();
+    const QByteArray s = sdp.toUtf8();
+    takeRustString(mx_rust_sfu_local_description_for(
+        m_rustHandle, generation, static_cast<unsigned int>(connectionId),
+        k.constData(), t.constData(), s.constData()));
+}
+
+void RustSdkMatrixClient::sfuLocalCandidateFor(
+    quint64 generation, int connectionId, const QString &target,
+    const QString &candidateInit)
+{
+    if (!m_rustHandle || generation == 0 || connectionId < 0
+        || connectionId >= 8 || candidateInit.isEmpty())
+        return;
+    const QByteArray t = target.toUtf8();
+    const QByteArray c = candidateInit.toUtf8();
+    takeRustString(mx_rust_sfu_local_candidate_for(
+        m_rustHandle, generation, static_cast<unsigned int>(connectionId),
+        t.constData(), c.constData()));
+}
+
 void RustSdkMatrixClient::sfuLocalDescription(const QString &kind,
                                               const QString &target,
                                               const QString &sdp)
@@ -10960,6 +11012,24 @@ void RustSdkMatrixClient::sfuAddTrack(const QString &cid, const QString &name,
         screenShare ? 1 : 0, encrypted ? 1 : 0));
 }
 
+void RustSdkMatrixClient::sfuAddTrackFor(
+    quint64 generation, int connectionId, const QString &cid,
+    const QString &name, int kind, int width, int height,
+    bool screenShare, bool encrypted)
+{
+    if (!m_rustHandle || generation == 0 || connectionId < 0
+        || connectionId >= 8 || cid.isEmpty())
+        return;
+    const QByteArray c = cid.toUtf8();
+    const QByteArray n = name.toUtf8();
+    takeRustString(mx_rust_sfu_add_track_for(
+        m_rustHandle, generation, static_cast<unsigned int>(connectionId),
+        c.constData(), n.constData(), kind,
+        static_cast<unsigned int>(qMax(0, width)),
+        static_cast<unsigned int>(qMax(0, height)),
+        screenShare ? 1 : 0, encrypted ? 1 : 0));
+}
+
 void RustSdkMatrixClient::sfuMuteTrack(const QString &sid, bool muted)
 {
     if (!m_rustHandle || sid.isEmpty())
@@ -10967,6 +11037,18 @@ void RustSdkMatrixClient::sfuMuteTrack(const QString &sid, bool muted)
     const QByteArray s = sid.toUtf8();
     takeRustString(
         mx_rust_sfu_mute_track(m_rustHandle, s.constData(), muted ? 1 : 0));
+}
+
+void RustSdkMatrixClient::sfuMuteTrackFor(
+    quint64 generation, int connectionId, const QString &sid, bool muted)
+{
+    if (!m_rustHandle || generation == 0 || connectionId < 0
+        || connectionId >= 8 || sid.isEmpty())
+        return;
+    const QByteArray s = sid.toUtf8();
+    takeRustString(mx_rust_sfu_mute_track_for(
+        m_rustHandle, generation, static_cast<unsigned int>(connectionId),
+        s.constData(), muted ? 1 : 0));
 }
 
 void RustSdkMatrixClient::sfuDisconnect()
@@ -11946,6 +12028,13 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                 row.value(QStringLiteral("rtc_identity")).toString();
             participant.hashedRtcIdentity =
                 row.value(QStringLiteral("hashed_rtc_identity")).toString();
+            const QJsonArray foci = row.value(QStringLiteral("foci")).toArray();
+            if (!foci.isEmpty()) {
+                participant.focusServiceUrl = foci.first().toObject()
+                    .value(QStringLiteral("livekit_service_url")).toString();
+            }
+            participant.focusSelection =
+                row.value(QStringLiteral("focus_selection")).toString();
             participant.intent = row.value(QStringLiteral("intent")).toString();
             participant.displayName =
                 row.value(QStringLiteral("display_name")).toString();
@@ -12071,7 +12160,8 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         // generation.
         const quint64 generation = static_cast<quint64>(
             event.value(QStringLiteral("generation")).toDouble());
-        if (type == QLatin1String("sfu_state")
+        if ((type == QLatin1String("sfu_state")
+             || type == QLatin1String("sfu_permission"))
             && event.contains(QStringLiteral("op_id"))) {
             if (m_sfuConnectOp == 0 || opId() != m_sfuConnectOp) {
                 qCInfo(lcRust) << "sfu report from an abandoned connect"
@@ -12091,6 +12181,25 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             }
             return true;
         }
+        // The main controller consumes id 0 through its existing typed
+        // signals. Every other connection is routed through this bounded
+        // media-only signal with both identity fields attached.
+        if (m_callMediaCapable)
+            Q_EMIT sfuConnectionEvent(event.toVariantMap());
+        if (event.value(QStringLiteral("connection_id")).toInt() != 0)
+            return true;
+    }
+    if (type == QLatin1String("sfu_permission")) {
+        qCInfo(lcRust) << "sfu publish permission"
+                       << "connection="
+                       << event.value(QStringLiteral("connection_id")).toInt()
+                       << "serviceHostHash="
+                       << event.value(QStringLiteral("service_host_hash")).toString()
+                       << "canPublish="
+                       << event.value(QStringLiteral("can_publish")).toBool()
+                       << "source="
+                       << event.value(QStringLiteral("source")).toString();
+        return true;
     }
     if (type == QLatin1String("sfu_state")) {
         // Log LiveKit's DisconnectReason for a server-initiated leave.

@@ -21,6 +21,7 @@
 //! is never logged and never reaches QML. One connection at a time, owned
 //! by a generation counter, so a late frame cannot reach the next session.
 
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -120,6 +121,8 @@ const MAX_SIGNAL_FRAME: usize = 256 * 1024;
 /// Cap on participants and tracks tracked and reported.
 const MAX_PARTICIPANTS: usize = 128;
 const MAX_TRACKS_PER_PARTICIPANT: usize = 8;
+const MAX_FOCUS_CONNECTIONS: usize = 8;
+const COMMAND_QUEUE_CAPACITY: usize = 128;
 /// The signalling protocol version this client implements.
 const LK_PROTOCOL_VERSION: u32 = 15;
 
@@ -316,6 +319,19 @@ pub(crate) struct SfuCredentials {
     pub url: String,
     /// Short-lived SFU authorization. Never logged, never crosses the FFI.
     pub jwt: String,
+    /// A preflight hint from the service's signed token. The JoinResponse is
+    /// authoritative; a false value lets us avoid publishing on this focus.
+    pub can_publish: Option<bool>,
+}
+
+fn jwt_can_publish(jwt: &str) -> Option<bool> {
+    use base64::Engine as _;
+    let payload = jwt.split('.').nth(1)?;
+    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(payload).ok()?;
+    if bytes.len() > 8192 { return None; }
+    let claims: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    claims.get("video")?.get("canPublish")?.as_bool()
 }
 
 /// Normalize the SFU websocket URL from the JWT service to the one shape
@@ -355,12 +371,9 @@ fn public_ws_host(url: &url::Url) -> bool {
 
 /// Obtain SFU credentials for one room. The homeserver-minted OpenID token
 /// lets the JWT service verify the user without a Matrix access token.
-async fn fetch_sfu_credentials(
-    client: &matrix_sdk::Client,
-    service_url: &str,
-    room_id: &str,
-    device_id: &str,
-) -> Result<SfuCredentials, String> {
+async fn fetch_openid_token(client: &matrix_sdk::Client)
+    -> Result<serde_json::Value, String>
+{
     let user_id = client
         .user_id()
         .ok_or_else(|| "no session".to_owned())?
@@ -372,14 +385,23 @@ async fn fetch_sfu_credentials(
         .await
         .map_err(|err| classify_room_error(&err.to_string()).to_owned())?;
 
+    Ok(json!({
+        "access_token": openid.access_token,
+        "token_type": openid.token_type.to_string(),
+        "matrix_server_name": openid.matrix_server_name.to_string(),
+        "expires_in": openid.expires_in.as_secs(),
+    }))
+}
+
+async fn fetch_sfu_credentials(
+    service_url: &str,
+    room_id: &str,
+    device_id: &str,
+    openid_token: &serde_json::Value,
+) -> Result<SfuCredentials, String> {
     let body = serde_json::to_vec(&json!({
         "room": room_id,
-        "openid_token": {
-            "access_token": openid.access_token,
-            "token_type": openid.token_type.to_string(),
-            "matrix_server_name": openid.matrix_server_name.to_string(),
-            "expires_in": openid.expires_in.as_secs(),
-        },
+        "openid_token": openid_token,
         "device_id": device_id,
     }))
     .map_err(|_| "invalid_request".to_owned())?;
@@ -483,7 +505,8 @@ async fn fetch_sfu_credentials(
         .ok_or_else(|| "invalid".to_owned())?
         .to_owned();
 
-    Ok(SfuCredentials { url: url_ok, jwt })
+    let can_publish = jwt_can_publish(&jwt);
+    Ok(SfuCredentials { url: url_ok, jwt, can_publish })
 }
 
 // ---------------------------------------------------------------------------
@@ -539,22 +562,47 @@ pub(crate) enum SfuCommand {
     Leave,
 }
 
-/// The one live signalling session, guarded by a generation.
+/// One focus connection in the current call generation.
 pub(crate) struct SfuSession {
     pub generation: u64,
-    pub commands: tokio::sync::mpsc::UnboundedSender<SfuCommand>,
+    pub connection_id: u32,
+    pub commands: tokio::sync::mpsc::Sender<SfuCommand>,
+    pub leave: tokio::sync::oneshot::Sender<()>,
     pub task: tokio::task::JoinHandle<()>,
 }
 
 pub(crate) struct SfuState {
-    pub session: Mutex<Option<SfuSession>>,
+    /// The exact validated room and focus, not an untrusted display label.
+    pub sessions: Mutex<BTreeMap<(String, String), SfuSession>>,
     pub generation: AtomicU64,
 }
 
 impl Default for SfuState {
     fn default() -> Self {
-        Self { session: Mutex::new(None), generation: AtomicU64::new(0) }
+        Self { sessions: Mutex::new(BTreeMap::new()), generation: AtomicU64::new(0) }
     }
+}
+
+impl SfuState {
+    fn take_sessions(&self) -> BTreeMap<(String, String), SfuSession> {
+        let mut guard = self.sessions.lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        std::mem::take(&mut *guard)
+    }
+}
+
+fn command_generation_current(active: u64, session: u64, callback: u64) -> bool {
+    active == callback && session == callback
+}
+
+fn command_allowed_on(connection_id: u32, command: &SfuCommand) -> bool {
+    connection_id == 0 || matches!(
+        command,
+        SfuCommand::Offer { target: 1, .. }
+            | SfuCommand::Answer { target: 1, .. }
+            | SfuCommand::Candidate { target: 1, .. }
+            | SfuCommand::Leave
+    )
 }
 
 fn participant_json(info: &lkp::ParticipantInfo) -> Option<serde_json::Value> {
@@ -626,11 +674,13 @@ where
 async fn run_session(
     events: Arc<Mutex<std::collections::VecDeque<String>>>,
     generation: u64,
+    connection_id: u32,
     generation_now: Arc<AtomicU64>,
     media_capable: Arc<AtomicBool>,
     credentials: SfuCredentials,
     service_host_hash: String,
-    mut commands: tokio::sync::mpsc::UnboundedReceiver<SfuCommand>,
+    mut commands: tokio::sync::mpsc::Receiver<SfuCommand>,
+    mut leave: tokio::sync::oneshot::Receiver<()>,
 ) {
     let current = {
         let generation_now = Arc::clone(&generation_now);
@@ -639,8 +689,9 @@ async fn run_session(
     let emit = {
         let events = Arc::clone(&events);
         let current = current.clone();
-        move |value: serde_json::Value| {
+        move |mut value: serde_json::Value| {
             if current() {
+                value["connection_id"] = json!(connection_id);
                 enqueue(&events, value);
             }
         }
@@ -794,6 +845,13 @@ async fn run_session(
 
     loop {
         tokio::select! {
+            biased;
+            _ = &mut leave => {
+                let _ = send_request(&mut sink,
+                    lkp::signal_request::Message::Leave(
+                        lkp::LeaveRequest::default())).await;
+                break;
+            }
             _ = tokio::time::sleep_until(
                     last_heard
                         + silence_limit.unwrap_or(Duration::from_secs(3600))),
@@ -997,6 +1055,22 @@ async fn run_session(
                                 "username": server.username,
                                 "credential": server.credential,
                             })).collect();
+                        if connection_id == 0 && join.participant.as_ref()
+                            .and_then(|p| p.permission.as_ref())
+                            .is_some_and(|p| !p.can_publish)
+                        {
+                            emit(json!({
+                                "type": "sfu_permission", "generation": generation,
+                                "service_host_hash": service_host_hash,
+                                "can_publish": false,
+                                "source": "join",
+                            }));
+                            emit(json!({
+                                "type": "sfu_state", "generation": generation,
+                                "state": "failed", "category": "publish_denied",
+                            }));
+                            break;
+                        }
                         emit(json!({
                             "type": "sfu_joined",
                             "generation": generation,
@@ -1151,109 +1225,165 @@ async fn run_session(
     }));
 }
 
-/// Connect to the SFU at `service_url` for `room_id`. Tears down any
-/// existing session first (one call at a time); the generation bump stops
-/// the old session's reports immediately.
+/// Start one call generation with at most eight distinct, validated foci.
+/// Connection zero is the publisher; other connections only subscribe. A
+/// focus shared by several members occurs once in this list.
+pub(crate) fn connect_many(
+    bridge: &RustClient,
+    connections: Vec<(u32, String)>,
+    room_id: String,
+    op_id: u64,
+) -> Result<u64, String> {
+    if connections.is_empty() || connections.len() > MAX_FOCUS_CONNECTIONS {
+        return Err("invalid focus count".to_owned());
+    }
+    let mut ids = std::collections::BTreeSet::new();
+    let mut urls = std::collections::BTreeSet::new();
+    for (id, service_url) in &connections {
+        let url = url::Url::parse(service_url)
+            .map_err(|_| "invalid transport".to_owned())?;
+        if *id >= MAX_FOCUS_CONNECTIONS as u32 || url.scheme() != "https"
+            || !public_ws_host(&url) || !ids.insert(*id)
+            || !urls.insert(service_url.clone())
+        {
+            return Err("invalid or duplicate focus".to_owned());
+        }
+    }
+    if !ids.contains(&0) || sane(&room_id, 512).is_none() {
+        return Err("missing publisher or invalid room".to_owned());
+    }
+    let client = require_client(bridge)?;
+    if crate::route::routed(&bridge.store_path) {
+        return Err(crate::route::BLOCKED_BY_ROUTE.to_owned());
+    }
+    let device_id = client.device_id()
+        .ok_or_else(|| "no session".to_owned())?.to_string();
+
+    disconnect(bridge);
+    let generation = bridge.sfu.generation.fetch_add(1, Ordering::SeqCst) + 1;
+    let generation_now = Arc::clone(&bridge.sfu_generation);
+    generation_now.store(generation, Ordering::SeqCst);
+    // Every focus authenticates the same account and device with one OpenID
+    // answer. OnceCell coalesces concurrent joins without storing it on disk.
+    let openid = Arc::new(tokio::sync::OnceCell::new());
+    let mut sessions = BTreeMap::new();
+    for (connection_id, service_url) in connections {
+        let focus_key = (room_id.clone(), service_url.clone());
+        let service_host_hash = url::Url::parse(&service_url).ok()
+            .and_then(|url| url.host_str().map(ToOwned::to_owned))
+            .map(|host| {
+                use sha2::Digest as _;
+                let digest = sha2::Sha256::digest(host.as_bytes());
+                digest[..6].iter().map(|byte| format!("{byte:02x}"))
+                    .collect::<String>()
+            }).unwrap_or_default();
+        let events = Arc::clone(&bridge.events);
+        let media_capable = Arc::clone(&bridge.call_media_capable);
+        let current = Arc::clone(&generation_now);
+        let client = client.clone();
+        let openid = Arc::clone(&openid);
+        let device_id = device_id.clone();
+        let room_id = room_id.clone();
+        let (tx, rx) = tokio::sync::mpsc::channel(COMMAND_QUEUE_CAPACITY);
+        let (leave_tx, leave_rx) = tokio::sync::oneshot::channel();
+        let task = bridge.runtime.spawn(async move {
+            let result = match openid.get_or_try_init(|| fetch_openid_token(&client)).await {
+                Ok(token) => fetch_sfu_credentials(
+                    &service_url, &room_id, &device_id, token).await,
+                Err(category) => Err(category.clone()),
+            };
+            match result {
+                Ok(credentials) => {
+                    if current.load(Ordering::SeqCst) != generation { return; }
+                    if connection_id == 0 && credentials.can_publish == Some(false) {
+                        enqueue(&events, json!({
+                            "type": "sfu_permission", "generation": generation,
+                            "connection_id": connection_id, "op_id": op_id,
+                            "service_host_hash": service_host_hash,
+                            "can_publish": false, "source": "jwt",
+                        }));
+                        enqueue(&events, json!({
+                            "type": "sfu_state", "generation": generation,
+                            "connection_id": connection_id, "op_id": op_id,
+                            "state": "failed", "category": "publish_denied",
+                        }));
+                        return;
+                    }
+                    enqueue(&events, json!({
+                        "type": "sfu_state", "generation": generation,
+                        "connection_id": connection_id, "op_id": op_id,
+                        "state": "authorized", "category": "",
+                    }));
+                    run_session(events, generation, connection_id, current,
+                                media_capable, credentials, service_host_hash,
+                                rx, leave_rx).await;
+                }
+                Err(category) => {
+                    if current.load(Ordering::SeqCst) != generation { return; }
+                    enqueue(&events, json!({
+                        "type": "sfu_state", "generation": generation,
+                        "connection_id": connection_id, "op_id": op_id,
+                        "state": "failed", "category": category,
+                    }));
+                }
+            }
+        });
+        sessions.insert(focus_key, SfuSession {
+            generation, connection_id, commands: tx, leave: leave_tx, task,
+        });
+    }
+    let mut guard = bridge.sfu.sessions.lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    *guard = sessions;
+    Ok(generation)
+}
+
+/// Compatibility entry point for one focus.
 pub(crate) fn connect(
     bridge: &RustClient,
     service_url: String,
     room_id: String,
     op_id: u64,
 ) -> Result<(), String> {
-    let client = require_client(bridge)?;
-    // Calls are not carried by a network route (route.rs): SFU signalling is
-    // a pinned, proxy-less WebSocket and the media is WebRTC over UDP. A
-    // routed account refuses to join rather than reveal its address.
-    if crate::route::routed(&bridge.store_path) {
-        return Err(crate::route::BLOCKED_BY_ROUTE.to_owned());
-    }
-    let device_id = client
-        .device_id()
-        .ok_or_else(|| "no session".to_owned())?
-        .to_string();
-    // Stable diagnostic label for this service. Hash the hostname only;
-    // path, query, JWT and OpenID token never enter a log or event.
-    let service_host_hash = url::Url::parse(&service_url).ok()
-        .and_then(|url| url.host_str().map(ToOwned::to_owned))
-        .map(|host| {
-            use sha2::Digest as _;
-            let digest = sha2::Sha256::digest(host.as_bytes());
-            digest[..6].iter().map(|byte| format!("{byte:02x}"))
-                .collect::<String>()
-        }).unwrap_or_default();
-
-    disconnect(bridge);
-
-    let generation = bridge.sfu.generation.fetch_add(1, Ordering::SeqCst) + 1;
-    let events = Arc::clone(&bridge.events);
-    let media_capable = Arc::clone(&bridge.call_media_capable);
-    let generation_now = Arc::clone(&bridge.sfu_generation);
-    generation_now.store(generation, Ordering::SeqCst);
-    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-
-    let task = bridge.runtime.spawn(async move {
-        match fetch_sfu_credentials(&client, &service_url, &room_id, &device_id)
-            .await
-        {
-            Ok(credentials) => {
-                if generation_now.load(Ordering::SeqCst) != generation {
-                    return;
-                }
-                enqueue(&events, json!({
-                    "type": "sfu_state", "generation": generation,
-                    "op_id": op_id, "state": "authorized", "category": "",
-                }));
-                run_session(events, generation, generation_now, media_capable,
-                            credentials, service_host_hash, rx)
-                    .await;
-            }
-            Err(category) => {
-                if generation_now.load(Ordering::SeqCst) != generation {
-                    return;
-                }
-                enqueue(&events, json!({
-                    "type": "sfu_state", "generation": generation,
-                    "op_id": op_id, "state": "failed", "category": category,
-                }));
-            }
-        }
-    });
-
-    if let Ok(mut guard) = bridge.sfu.session.lock() {
-        *guard = Some(SfuSession { generation, commands: tx, task });
-    }
-    Ok(())
+    connect_many(bridge, vec![(0, service_url)], room_id, op_id).map(|_| ())
 }
 
-/// Send one command into the live session; ignored when there is none.
+/// Reject stale callbacks before they enter a bounded live command queue.
+pub(crate) fn send_command_for(
+    bridge: &RustClient,
+    generation: u64,
+    connection_id: u32,
+    command: SfuCommand,
+) {
+    if !command_allowed_on(connection_id, &command) {
+        return; // a foreign focus never gets a publisher command
+    }
+    if let Ok(guard) = bridge.sfu.sessions.lock() {
+        if let Some(session) = guard.values()
+            .find(|session| session.connection_id == connection_id) {
+            if command_generation_current(
+                bridge.sfu_generation.load(Ordering::SeqCst),
+                session.generation, generation) {
+                let _ = session.commands.try_send(command);
+            }
+        }
+    }
+}
+
+/// Compatibility path for the original one-focus caller.
 pub(crate) fn send_command(bridge: &RustClient, command: SfuCommand) {
-    if let Ok(guard) = bridge.sfu.session.lock() {
-        if let Some(session) = guard.as_ref() {
-            let _ = session.commands.send(command);
-        }
-    }
+    let generation = bridge.sfu_generation.load(Ordering::SeqCst);
+    send_command_for(bridge, generation, 0, command);
 }
 
-/// Tear down the live session. The generation is bumped first, so a task
-/// mid-await cannot report into the next call.
+/// Invalidate every queued report, then drain Leave on every focus. Each
+/// connection has its own bounded flush window and abort backstop.
 pub(crate) fn disconnect(bridge: &RustClient) {
     bridge.sfu_generation.fetch_add(1, Ordering::SeqCst);
-    let session = bridge.sfu.session.lock().ok().and_then(|mut g| g.take());
-    if let Some(session) = session {
-        let SfuSession { commands, task, .. } = session;
-        let _ = commands.send(SfuCommand::Leave);
-
-        // Let the Leave reach the wire. `commands.send` only queues; aborting
-        // immediately cancelled the task with the Leave unread, so the SFU kept the
-        // participant until its own timeout and every rejoin added another copy.
-        // Give the task a bounded window to drain, keeping abort as the backstop
-        // for a dead connection.
-        //
-        //  * `abort_handle()` is taken before the JoinHandle moves into the
-        //    timeout: a timed-out `timeout(d, handle)` drops the handle, which
-        //    detaches the task instead of cancelling it.
-        //  * `commands` is kept alive for the window, so sender drop does not race
-        //    the queued Leave.
+    let sessions = bridge.sfu.take_sessions();
+    for (_, session) in sessions {
+        let SfuSession { commands, leave, task, .. } = session;
+        let _ = leave.send(());
         let abort = task.abort_handle();
         bridge.spawn_room_action(async move {
             let _commands = commands;
@@ -1267,6 +1397,65 @@ pub(crate) fn disconnect(bridge: &RustClient) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn jwt_publish_denial_is_read_without_exposing_the_token() {
+        use base64::Engine as _;
+        let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(br#"{"video":{"canPublish":false}}"#);
+        assert_eq!(jwt_can_publish(&format!("header.{payload}.sig")), Some(false));
+        assert_eq!(jwt_can_publish("malformed"), None);
+    }
+
+    #[test]
+    fn callbacks_from_an_old_generation_are_rejected() {
+        assert!(command_generation_current(4, 4, 4));
+        assert!(!command_generation_current(5, 4, 4));
+        assert!(!command_generation_current(5, 5, 4));
+    }
+
+    #[test]
+    fn subscriber_focus_cannot_publish_a_track() {
+        let command = SfuCommand::AddTrack {
+            cid: "cid".to_owned(), name: "microphone".to_owned(),
+            kind: 0, width: 0, height: 0,
+            screen_share: false, encrypted: true,
+        };
+        assert!(command_allowed_on(0, &command));
+        assert!(!command_allowed_on(1, &command));
+        assert!(command_allowed_on(1,
+            &SfuCommand::Answer { sdp: "answer".to_owned(), target: 1 }));
+    }
+
+    #[tokio::test]
+    async fn teardown_takes_every_focus_connection() {
+        let state = SfuState::default();
+        let mut receivers = Vec::new();
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            for id in 0..3 {
+                let (commands, _receiver) =
+                    tokio::sync::mpsc::channel(COMMAND_QUEUE_CAPACITY);
+                let (leave, receiver) = tokio::sync::oneshot::channel();
+                receivers.push(receiver);
+                sessions.insert(("!room:x".to_owned(),
+                                 format!("https://focus{id}.example")), SfuSession {
+                    generation: 7, connection_id: id, commands, leave,
+                    task: tokio::spawn(async { std::future::pending::<()>().await }),
+                });
+            }
+        }
+        let sessions = state.take_sessions();
+        assert_eq!(sessions.len(), 3);
+        assert!(state.take_sessions().is_empty());
+        for (_, session) in sessions {
+            assert!(session.leave.send(()).is_ok());
+            session.task.abort();
+        }
+        for receiver in receivers {
+            assert!(receiver.await.is_ok());
+        }
+    }
 
     // The server-injected-frame trailer crosses the bridge, bounded.
     // Round-trips a real JoinResponse through prost so the field itself is
