@@ -190,10 +190,6 @@ bool RtcController::transportReachableFor(const QString &roomId) const
     // The room's own session focus first: it is where the participants are,
     // and without MSC4143 (most homeservers) it is the only focus there is.
     // The homeserver's answer applies everywhere; a participant-advertised
-    // focus only to its own room.
-    // The room's own session focus first: it is where the participants are,
-    // and without MSC4143 (most homeservers) it is the only focus there is.
-    // The homeserver's answer applies everywhere; a participant-advertised
     // focus (already filtered to current call members in Rust) only to its
     // own room.
     return !sessionFocusFor(roomId).isEmpty()
