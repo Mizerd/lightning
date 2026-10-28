@@ -1,6 +1,7 @@
 #include "stickers/StickerPackManager.h"
 
 #include <QCryptographicHash>
+#include <QElapsedTimer>
 #include <QDir>
 #include <QGuiApplication>
 #include <QClipboard>
@@ -15,6 +16,7 @@
 #include <QTimer>
 
 #include "matrix/MatrixClient.h"
+#include "app/GuiStallTracer.h"
 #include "media/SvgRasterJob.h"
 #include "stickers/StickerImageModel.h"
 #include "stickers/StickerPackArchive.h"
@@ -28,6 +30,12 @@ namespace {
 
 // Keeps a completion popup from covering the composer.
 constexpr int kMaxCompletionRows = 64;
+
+bool packsTraceEnabled()
+{
+    static const bool enabled = qEnvironmentVariableIntValue("LIGHTNING_PACKS_TRACE") == 1;
+    return enabled;
+}
 
 stickers::Pack packFromVariant(const QVariantMap &map)
 {
@@ -774,6 +782,9 @@ bool StickerPackManager::canSave(const QString &url) const
 
 QVariantList StickerPackManager::reactionEmoticons() const
 {
+    stalltrace::Scope stallScope("pack-reaction-rows");
+    QElapsedTimer timer;
+    if (packsTraceEnabled()) timer.start();
     // Favourites, then recently used custom images, then every pack image;
     // one row per image (by url).
     QVariantList rows;
@@ -790,15 +801,27 @@ QVariantList StickerPackManager::reactionEmoticons() const
     take(favourites());
     take(customRecents());
     take(collectEmoticons(QString(), 0, false));
+    if (packsTraceEnabled())
+        qCInfo(lcStickers).nospace() << "packs_trace phase=reaction_rows packs="
+            << m_packs->count() << " rows=" << rows.size()
+            << " ms=" << timer.elapsed();
     return rows;
 }
 
 QVariantList StickerPackManager::findEmoticons(const QString &prefix,
                                                int limit) const
 {
+    stalltrace::Scope stallScope("pack-completion-search");
+    QElapsedTimer timer;
+    if (packsTraceEnabled()) timer.start();
     const int bound = limit > 0 ? qMin(limit, kMaxCompletionRows)
                                 : kMaxCompletionRows;
-    return collectEmoticons(prefix, bound, true);
+    QVariantList rows = collectEmoticons(prefix, bound, true);
+    if (packsTraceEnabled())
+        qCInfo(lcStickers).nospace() << "packs_trace phase=completion_search packs="
+            << m_packs->count() << " rows=" << rows.size()
+            << " query_chars=" << prefix.size() << " ms=" << timer.elapsed();
+    return rows;
 }
 
 QVariantList StickerPackManager::collectEmoticons(const QString &prefix,
@@ -990,6 +1013,9 @@ void StickerPackManager::applySnapshot(const QString &roomId,
                                        bool roomCanManage,
                                        const QVariantList &packs)
 {
+    stalltrace::Scope stallScope("pack-snapshot");
+    QElapsedTimer timer;
+    if (packsTraceEnabled()) timer.start();
     QList<stickers::Pack> rows;
     rows.reserve(packs.size());
     m_savedUrls.clear();
@@ -1009,6 +1035,11 @@ void StickerPackManager::applySnapshot(const QString &roomId,
                 m_savedUrls.insert(image.url);
         }
         rows.append(pack);
+    }
+    const qint64 parseMs = packsTraceEnabled() ? timer.elapsed() : 0;
+    qsizetype imageCount = 0;
+    if (packsTraceEnabled()) {
+        for (const auto &pack : rows) imageCount += pack.images.size();
     }
     m_packs->reset(rows);
     m_snapshotRoomId = roomId;
@@ -1034,6 +1065,10 @@ void StickerPackManager::applySnapshot(const QString &roomId,
             m_selectedPackId = rows.first().id;
     }
     rebuildImages();
+    if (packsTraceEnabled())
+        qCInfo(lcStickers).nospace() << "packs_trace phase=snapshot packs="
+            << rows.size() << " images=" << imageCount
+            << " parse_ms=" << parseMs << " total_ms=" << timer.elapsed();
     if (m_selectedPackId != previous)
         Q_EMIT selectedPackIdChanged();
     emitStateChanged();

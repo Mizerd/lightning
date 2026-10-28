@@ -1,8 +1,10 @@
 #include "models/EmojiCatalog.h"
 
 #include "app/SettingsManager.h"
+#include "app/GuiStallTracer.h"
 
 #include <QFile>
+#include <QElapsedTimer>
 #include <QLoggingCategory>
 #include <QRegularExpression>
 #include <QSet>
@@ -185,9 +187,14 @@ void EmojiCatalog::setCategory(const QString &category)
 
 void EmojiCatalog::rebuild()
 {
+    stalltrace::Scope stallScope("unicode-search");
+    const bool trace = qEnvironmentVariableIntValue("LIGHTNING_PACKS_TRACE") == 1;
+    QElapsedTimer timer;
+    if (trace) timer.start();
     beginResetModel();
     m_visible.clear();
     const QString query = m_searchText.trimmed().toCaseFolded();
+    const QStringList words = query.split(QLatin1Char(' '), Qt::SkipEmptyParts);
     if (query.isEmpty() && m_category == QLatin1String("Recently Used")) {
         if (m_settings) {
             for (const QString &emoji : m_settings->recentEmoji()) {
@@ -207,7 +214,6 @@ void EmojiCatalog::rebuild()
             if (entry.emoji != entry.baseEmoji)
                 continue;
             bool matches = true;
-            const QStringList words = query.split(QLatin1Char(' '), Qt::SkipEmptyParts);
             for (const QString &word : words) {
                 if (!entry.searchKey.contains(word)) { matches = false; break; }
             }
@@ -219,6 +225,10 @@ void EmojiCatalog::rebuild()
     }
     endResetModel();
     Q_EMIT countChanged();
+    if (trace)
+        qCInfo(lcEmoji).nospace() << "packs_trace phase=unicode_search entries="
+            << m_entries.size() << " results=" << m_visible.size()
+            << " query_chars=" << query.size() << " ms=" << timer.elapsed();
 }
 
 int EmojiCatalog::indexOf(const QString &emoji) const

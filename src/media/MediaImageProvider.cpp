@@ -6,10 +6,14 @@
 #include "media/MediaBridge.h"
 
 #include <QBuffer>
+#include <QElapsedTimer>
 #include <QImageReader>
 #include <QPainter>
 #include <QPainterPath>
 #include <QUrl>
+#include <QDebug>
+
+#include <atomic>
 
 namespace {
 // Hard decode bound: no attachment may decode above this edge length.
@@ -114,6 +118,9 @@ QImage MediaImageProvider::requestImage(const QString &id, QSize *size,
                                         const QSize &requestedSize)
 {
     stalltrace::Scope stallScope("image-decode");
+    const bool trace = qEnvironmentVariableIntValue("LIGHTNING_PACKS_TRACE") == 1;
+    QElapsedTimer traceTimer;
+    if (trace) traceTimer.start();
     if (!m_bridge)
         return {};
     QString cacheKey = QUrl::fromPercentEncoding(id.toUtf8());
@@ -215,5 +222,14 @@ QImage MediaImageProvider::requestImage(const QString &id, QSize *size,
         image = roundedCorners(image, roundRatio);
     if (size)
         *size = image.size();
+    if (trace) {
+        static std::atomic<quint64> decoded{0};
+        const quint64 n = decoded.fetch_add(1, std::memory_order_relaxed) + 1;
+        if (n <= 16 || n % 100 == 0 || traceTimer.elapsed() >= 50)
+            qInfo().nospace() << "packs_trace phase=image_decode count=" << n
+                << " requested=" << requestedSize.width() << "x"
+                << requestedSize.height() << " output=" << image.width()
+                << "x" << image.height() << " ms=" << traceTimer.elapsed();
+    }
     return image;
 }

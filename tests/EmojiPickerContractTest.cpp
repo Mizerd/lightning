@@ -34,6 +34,43 @@ class EmojiPickerContractTest : public QObject
 {
     Q_OBJECT
 private Q_SLOTS:
+    void packImagesStayBoundedToVisibleCells()
+    {
+        const QString sticker = read(QStringLiteral(QML_DIR "/StickerPicker.qml"));
+        const QString palette = pickerSource();
+        QVERIFY(!sticker.isEmpty());
+        QVERIFY(sticker.contains(QStringLiteral("id: grid")));
+        QVERIFY(sticker.contains(QStringLiteral("GridView {")));
+        QVERIFY(sticker.contains(QStringLiteral("model: picker.stickers.images")));
+        QVERIFY(!sticker.contains(QStringLiteral("Repeater {")));
+        const QString still = between(sticker, QStringLiteral("id: tileImage"),
+                                      QStringLiteral("AnimatedImage {"));
+        QVERIFY(still.contains(QStringLiteral("cache: false")));
+        QVERIFY(still.contains(QStringLiteral("sourceSize.width:")));
+        QVERIFY(still.contains(QStringLiteral("sourceSize.height:")));
+        const QString animated = between(sticker, QStringLiteral("id: tileAnim"),
+                                         QStringLiteral("Connections {"));
+        QVERIFY(animated.contains(QStringLiteral("cache: false")));
+        QVERIFY(animated.contains(QStringLiteral("sourceSize.width:")));
+        const QString strip = between(palette, QStringLiteral("id: customEmojiStrip"),
+                                      QStringLiteral("MenuSectionLabel {"));
+        QVERIFY(palette.contains(QStringLiteral("picker.visible && !picker.compact")));
+        QVERIFY(strip.contains(QStringLiteral("ListView.Horizontal")));
+        QVERIFY(strip.contains(QStringLiteral("cache: false")));
+        QVERIFY(strip.contains(QStringLiteral("sourceSize.width: 28")));
+    }
+
+    void packTraceOmitsRemoteIdentifiers()
+    {
+        const QString manager = read(QStringLiteral(QML_DIR "/../src/stickers/StickerPackManager.cpp"));
+        const QString provider = read(QStringLiteral(QML_DIR "/../src/media/MediaImageProvider.cpp"));
+        QVERIFY(manager.contains(QStringLiteral("LIGHTNING_PACKS_TRACE")));
+        QVERIFY(manager.contains(QStringLiteral("phase=snapshot")));
+        QVERIFY(manager.contains(QStringLiteral("phase=reaction_rows")));
+        QVERIFY(manager.contains(QStringLiteral("phase=completion_search")));
+        QVERIFY(provider.contains(QStringLiteral("phase=image_decode")));
+    }
+
     // Every press inside the picker must be consumed by it, or it also reaches
     // TapHandlers beneath (e.g. the message context menu). Modality does not
     // do this: QQuickPopup only blocks presses outside its own item. A

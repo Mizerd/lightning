@@ -182,7 +182,9 @@ AnchoredPopup {
         // reactionEmoticons() is a plain call; reading `revision` re-evaluates this
         // when a snapshot lands.
         var _live = app.stickers.revision
-        return picker.customEmojiOffered
+        // No pack rows are needed while closed or on the compact quick bar.
+        // Releasing the model also releases its 3,200 QVariantMaps on close.
+        return picker.customEmojiOffered && picker.visible && !picker.compact
             ? app.stickers.reactionEmoticons() : []
     }
     function chooseCustom(url, row) {
@@ -713,7 +715,9 @@ AnchoredPopup {
                             id: customCellImage
                             fillMode: Image.PreserveAspectFit
                             asynchronous: true
-                            cache: true
+                            cache: false
+                            sourceSize.width: 28
+                            sourceSize.height: 28
                             // Bumped to re-evaluate `source`; never assign
                             // `source` directly, which would destroy the
                             // binding.

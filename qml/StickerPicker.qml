@@ -376,7 +376,7 @@ AnchoredPopup {
             visible: picker.stickers.images.count > 0
             cellWidth: Math.floor(width / 4)
             cellHeight: cellWidth
-            cacheBuffer: cellWidth * 2
+            cacheBuffer: cellHeight * 2
             model: picker.stickers.images
             ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
             SmoothWheelArea {}
@@ -483,7 +483,11 @@ AnchoredPopup {
                     anchors.margins: 6
                     fillMode: Image.PreserveAspectFit
                     asynchronous: true
-                    cache: true
+                    // The bridge retains compressed bytes. Do not retain a
+                    // second decoded pixmap for every tile visited by scrolling.
+                    cache: false
+                    sourceSize.width: Math.max(1, Math.ceil(width))
+                    sourceSize.height: Math.max(1, Math.ceil(height))
                     // The still frame is the default and fallback until the
                     // animation reports Ready.
                     visible: !tileAnim.animating
@@ -528,7 +532,9 @@ AnchoredPopup {
                     visible: animating
                     playing: animating && !MotionPolicy.suspended
                     asynchronous: true
-                    cache: true
+                    cache: false
+                    sourceSize.width: Math.max(1, Math.ceil(width))
+                    sourceSize.height: Math.max(1, Math.ceil(height))
                     // Keeps the bridge from evicting the file mid-play.
                     AnimationFileHold {}
                 }
