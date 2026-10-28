@@ -655,19 +655,30 @@ RoomsPanel { width: 64; height: 700 }
     // was inside the handle never fired; the gesture is now read from
     // SplitHandle.pressed. Old code: the double-click leaves the list
     // expanded, and there is no focus ring to find.
+    void theRoomListDividerClicksDoubleClicksTabsAndKeys_data()
+    {
+        QTest::addColumn<int>("navigationLayout");
+        QTest::newRow("Classic") << 0;
+        QTest::newRow("Channels") << 1;
+    }
+
     void theRoomListDividerClicksDoubleClicksTabsAndKeys()
     {
+        QFETCH(int, navigationLayout);
         auto controller = std::make_unique<AppController>(AppController::MockBackend);
         QSignalSpy loginSpy(controller->auth(), &AuthManager::loginSucceeded);
         controller->auth()->login(QStringLiteral("https://mock.local"),
                                   QStringLiteral("alice"), QStringLiteral("unused"));
         QVERIFY(loginSpy.wait(kTimeoutMs));
         SettingsManager *settings = controller->settings();
+        const int layoutBefore = settings->roomNavigationLayout();
+        settings->setRoomNavigationLayout(navigationLayout);
         const int widthBefore = settings->roomListWidth();
         const int expandedBefore = settings->roomListExpandedWidth();
         const auto restore = qScopeGuard([&] {
             settings->setRoomListExpandedWidth(expandedBefore);
             settings->setRoomListWidth(widthBefore);
+            settings->setRoomNavigationLayout(layoutBefore);
         });
         settings->setRoomListExpandedWidth(320);
         settings->setRoomListWidth(320);
@@ -714,12 +725,14 @@ ApplicationWindow {
         click();
         QTRY_VERIFY_WITH_TIMEOUT(rooms->property("compact").toBool(), kTimeoutMs);
         QCOMPARE(settings->roomListWidth(), settings->roomListMinWidth());
+        QTRY_COMPARE_WITH_TIMEOUT(rooms->width(), 64.0, kTimeoutMs);
 
         // One click on the compact divider restores the remembered width.
         QTest::qWait(interval + 100);
         click();
         QTRY_VERIFY_WITH_TIMEOUT(!rooms->property("compact").toBool(), kTimeoutMs);
         QTRY_COMPARE_WITH_TIMEOUT(settings->roomListWidth(), 320, kTimeoutMs);
+        QTRY_COMPARE_WITH_TIMEOUT(rooms->width(), 320.0, kTimeoutMs);
 
         // One click on the expanded divider is not a double-click: nothing.
         QTest::qWait(interval + 100);
@@ -737,6 +750,20 @@ ApplicationWindow {
         QTRY_VERIFY_WITH_TIMEOUT(settings->roomListWidth() >= 350, kTimeoutMs);
         QVERIFY(!rooms->property("compact").toBool());
 
+        // Drag across the snap threshold. The presenter can turn compact at
+        // 211 px, but the whole SplitView child must finish at exactly 64.
+        const QPoint narrowFrom = at();
+        QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, narrowFrom);
+        for (int dx = -40; dx >= -280; dx -= 40)
+            QTest::mouseMove(window, narrowFrom + QPoint(dx, 0));
+        QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier,
+                            narrowFrom + QPoint(-280, 0));
+        QTRY_COMPARE_WITH_TIMEOUT(settings->roomListWidth(), 64, kTimeoutMs);
+        QTRY_COMPARE_WITH_TIMEOUT(rooms->width(), 64.0, kTimeoutMs);
+        click();
+        QTRY_COMPARE_WITH_TIMEOUT(rooms->width(),
+                                  double(settings->roomListExpandedWidth()), kTimeoutMs);
+
         // Tab reaches the divider, and it shows that it has the focus.
         rooms->forceActiveFocus();
         bool reached = false;
@@ -751,8 +778,11 @@ ApplicationWindow {
         // Home collapses, End restores, Return toggles.
         QTest::keyClick(window, Qt::Key_Home);
         QTRY_VERIFY_WITH_TIMEOUT(rooms->property("compact").toBool(), kTimeoutMs);
+        QTRY_COMPARE_WITH_TIMEOUT(rooms->width(), 64.0, kTimeoutMs);
         QTest::keyClick(window, Qt::Key_End);
         QTRY_VERIFY_WITH_TIMEOUT(!rooms->property("compact").toBool(), kTimeoutMs);
+        QTRY_COMPARE_WITH_TIMEOUT(rooms->width(),
+                                  double(settings->roomListExpandedWidth()), kTimeoutMs);
         QTest::keyClick(window, Qt::Key_Return);
         QTRY_VERIFY_WITH_TIMEOUT(rooms->property("compact").toBool(), kTimeoutMs);
         QTest::keyClick(window, Qt::Key_Return);

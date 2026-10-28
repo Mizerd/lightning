@@ -30,6 +30,8 @@
 #include "app/AppController.h"
 #include "app/SettingsManager.h"
 #include "matrix/MatrixClient.h"
+#include "models/RoomListModel.h"
+#include "models/SpaceChannelModel.h"
 #include "spaces/SpaceManager.h"
 
 #include <QFile>
@@ -176,6 +178,65 @@ private Q_SLOTS:
         app.requestRoomNotificationMode(kRoomId);
         QCOMPARE(app.settings()->roomNotificationMode(kRoomId), 2);
         QVERIFY(!app.roomNotificationModeSyncFailed(kRoomId));
+    }
+
+    // A successful tag HTTP response precedes the SDK room cache's sync echo.
+    // The bridge's confirmation must move both presenters without a re-click.
+    void confirmedLowPriorityMovesInClassicAndChannels()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("The tag confirmation comes from the Rust backend.");
+#else
+        AppController app(AppController::RustBackend);
+        auto *rust = rustClient(app);
+        QVERIFY(rust);
+        const QString ordinary = QStringLiteral("!ordinary:example.org");
+        const QString tagged = QStringLiteral("!tagged:example.org");
+        rust->handleRustEventForTest(QJsonObject{
+            {QStringLiteral("type"), QStringLiteral("rooms")},
+            {QStringLiteral("rooms"), QJsonArray{
+                QJsonObject{{QStringLiteral("id"), ordinary},
+                            {QStringLiteral("name"), QStringLiteral("Ordinary")},
+                            {QStringLiteral("last_activity_ms"), 1900000000000.0},
+                            {QStringLiteral("membership"), QStringLiteral("joined")}},
+                QJsonObject{{QStringLiteral("id"), tagged},
+                            {QStringLiteral("name"), QStringLiteral("Tagged")},
+                            {QStringLiteral("last_activity_ms"), 2000000000000.0},
+                            {QStringLiteral("membership"), QStringLiteral("joined")}}}}});
+        auto *classic = app.roomList();
+        auto *channels = app.spaceChannels();
+        QVERIFY(classic && channels);
+        auto classicRow = [&] {
+            for (int row = 0; row < classic->rowCount(); ++row)
+                if (classic->data(classic->index(row), RoomListModel::RoomIdRole)
+                        .toString() == tagged)
+                    return row;
+            return -1;
+        };
+        QTRY_VERIFY(classicRow() >= 0);
+        QTRY_VERIFY(channels->rowForRoom(tagged) >= 0);
+        QTRY_VERIFY(channels->rowForRoom(tagged) < channels->rowForRoom(ordinary));
+        rust->handleRustEventForTest(QJsonObject{
+            {QStringLiteral("type"), QStringLiteral("room_tag_confirmed")},
+            {QStringLiteral("room_id"), tagged},
+            {QStringLiteral("low_priority"), true}});
+        QTRY_COMPARE(classic->data(classic->index(classicRow()),
+                                   RoomListModel::CategoryRole).toString(),
+                     QStringLiteral("lowpriority"));
+        QTRY_VERIFY(channels->data(channels->index(channels->rowForRoom(tagged)),
+                                   SpaceChannelModel::IsLowPriorityRole).toBool());
+        QTRY_VERIFY(channels->rowForRoom(tagged) > channels->rowForRoom(ordinary));
+        rust->handleRustEventForTest(QJsonObject{
+            {QStringLiteral("type"), QStringLiteral("room_tag_confirmed")},
+            {QStringLiteral("room_id"), tagged},
+            {QStringLiteral("low_priority"), false}});
+        QTRY_COMPARE(classic->data(classic->index(classicRow()),
+                                   RoomListModel::CategoryRole).toString(),
+                     QStringLiteral("conversation"));
+        QTRY_VERIFY(!channels->data(channels->index(channels->rowForRoom(tagged)),
+                                    SpaceChannelModel::IsLowPriorityRole).toBool());
+        QTRY_VERIFY(channels->rowForRoom(tagged) < channels->rowForRoom(ordinary));
+#endif
     }
 
     void entryPointRejectsInvalidInput()

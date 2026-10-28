@@ -3199,7 +3199,8 @@ pub unsafe extern "C" fn mx_rust_set_room_favourite(
 }
 
 /// Set the SDK's `m.lowpriority` tag. Enabling it removes `m.favourite`.
-/// The room list is re-emitted only after the SDK confirms the write.
+/// The confirmed tag is forwarded directly: the SDK's local room cache only
+/// learns the new tag on sync, so an immediate room snapshot has the old bit.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_set_room_low_priority(
     ptr: *mut c_void,
@@ -3218,7 +3219,11 @@ pub unsafe extern "C" fn mx_rust_set_room_low_priority(
             let (result, attempts) = roomaction::set_low_priority(
                 &room, low_priority != 0, &roomaction::ROOM_ACTION_RETRY_DELAYS).await;
             match result {
-                Ok(()) => enqueue_rooms(&events, &client).await,
+                Ok(()) => enqueue(&events, json!({
+                    "type": "room_tag_confirmed",
+                    "room_id": room_id,
+                    "low_priority": low_priority != 0,
+                })),
                 Err(error) => {
                     let mut event = roomaction::failure_event("low_priority", &error, attempts);
                     event["room_id"] = json!(room_id);

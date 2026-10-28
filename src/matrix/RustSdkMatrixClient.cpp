@@ -7084,6 +7084,20 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         return;
     }
 
+    if (type == QLatin1String("room_tag_confirmed")) {
+        const QString roomId = event.value(QStringLiteral("room_id")).toString();
+        auto room = m_rooms.find(roomId);
+        if (room == m_rooms.end() || !event.value(QStringLiteral("low_priority")).isBool())
+            return;
+        const bool lowPriority = event.value(QStringLiteral("low_priority")).toBool();
+        room->lowPriority = lowPriority;
+        if (lowPriority)
+            room->isFavourite = false;
+        // Both Classic's section and Channels' sort read this room registry.
+        Q_EMIT roomsChanged();
+        return;
+    }
+
     // Response-harvested recency (harvest_room_activity in rust/src/lib.rs).
     // Timestamps only; it may raise a room's sort key and nothing else.
     // roomUpdated, not roomsChanged: the registry order is untouched, and a

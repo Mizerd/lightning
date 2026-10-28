@@ -39,9 +39,15 @@ Rectangle {
         if (!compact)
             app.settings.setRoomListExpandedWidth(Math.round(width))
         app.settings.roomListWidth = app.settings.roomListMinWidth
+        // A handle press can replace SplitView's preferredWidth binding.
+        // A click clears the drag saver, so reattach it here as well.
+        root.SplitView.preferredWidth = Qt.binding(
+            function() { return app.settings.roomListWidth })
     }
     function expand() {
         app.settings.roomListWidth = app.settings.roomListExpandedWidth()
+        root.SplitView.preferredWidth = Qt.binding(
+            function() { return app.settings.roomListWidth })
     }
 
     // The room list's ground when the theme gives `sidebar` a gradient (Depth

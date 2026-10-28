@@ -808,6 +808,12 @@ Item {
                         widthSaver.dragged = true
                     else if (widthSaver.dragged)
                         widthSaver.restart()
+                    else
+                        // The click handler clears `dragged` before SplitView
+                        // finishes releasing the handle. Restore the binding
+                        // after its last preferredWidth write.
+                        roomsPanel.SplitView.preferredWidth = Qt.binding(
+                            function() { return app.settings.roomListWidth })
                 }
             }
             Timer {
