@@ -4393,6 +4393,32 @@ Item {
             return false
         root.menuEventId = model.eventId
         switch (action) {
+        case "timeline.replyInThread":
+            if (root.timelineModel.messagePermalink(root.menuEventId).length > 0
+                    && !root.timelineModel.messageDetails(root.menuEventId).redacted)
+                replyInThread(root.menuEventId)
+            return true
+        case "timeline.editMessage":
+            if (root.timelineModel.canEditEvent(root.menuEventId))
+                app.composer.beginEdit(root.menuEventId,
+                    root.timelineModel.visibleTextForEvent(root.menuEventId),
+                    root.timelineModel.sanitizedHtmlForEvent(root.menuEventId),
+                    root.timelineModel.roomId)
+            return true
+        case "timeline.reactToMessage":
+            if (root.timelineModel.messagePermalink(root.menuEventId).length > 0
+                    && !root.timelineModel.messageDetails(root.menuEventId).redacted)
+                openReactionPickerFor(root.menuEventId, bubbleRow, true)
+            return true
+        case "timeline.pinMessage":
+            if (!root.inThreadPanel && app.pinned) {
+                if (app.pinned.canTogglePin(root.menuEventId, false))
+                    app.pinned.unpin(root.menuEventId)
+                else if (model.redacted !== true
+                         && app.pinned.canTogglePin(root.menuEventId, true))
+                    app.pinned.pin(root.menuEventId)
+            }
+            return true
         case "timeline.forwardMessage": beginForward(); return true
         case "timeline.saveMessage": toggleSavedMessage(); return true
         case "timeline.deleteMessage":
@@ -4403,6 +4429,10 @@ Item {
             return true
         case "timeline.copyMessageText": copyMessageText(); return true
         case "timeline.copyMessageLink": copyMessageLink(); return true
+        case "timeline.viewMessageSource":
+            if (root.timelineModel.requestEventSource)
+                openEventSource(root.menuEventId)
+            return true
         }
         return false
     }

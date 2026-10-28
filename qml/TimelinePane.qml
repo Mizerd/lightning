@@ -3670,10 +3670,15 @@ Rectangle {
                         }
                         break
                     case "timeline.forwardMessage":
+                    case "timeline.replyInThread":
+                    case "timeline.editMessage":
+                    case "timeline.reactToMessage":
+                    case "timeline.pinMessage":
                     case "timeline.saveMessage":
                     case "timeline.deleteMessage":
                     case "timeline.copyMessageText":
                     case "timeline.copyMessageLink":
+                    case "timeline.viewMessageSource":
                         return runSelectedMessageAction(action)
                     default: return false
                     }

@@ -165,6 +165,14 @@ private Q_SLOTS:
                  QStringLiteral("timeline.halfPageDown"));
         QCOMPARE(registry.messageSelectionActionForKey(Qt::Key_R, Qt::NoModifier),
                  QStringLiteral("timeline.reply"));
+        QCOMPARE(registry.messageSelectionActionForKey(Qt::Key_T, Qt::NoModifier),
+                 QStringLiteral("timeline.replyInThread"));
+        QCOMPARE(registry.messageSelectionActionForKey(Qt::Key_E, Qt::NoModifier),
+                 QStringLiteral("timeline.editMessage"));
+        QCOMPARE(registry.messageSelectionActionForKey(Qt::Key_A, Qt::NoModifier),
+                 QStringLiteral("timeline.reactToMessage"));
+        QCOMPARE(registry.messageSelectionActionForKey(Qt::Key_P, Qt::NoModifier),
+                 QStringLiteral("timeline.pinMessage"));
         // GitHub #51: the menu's actions. D stays half-page down, so delete
         // is on Delete.
         QCOMPARE(registry.messageSelectionActionForKey(Qt::Key_F, Qt::NoModifier),
@@ -175,6 +183,8 @@ private Q_SLOTS:
                  QStringLiteral("timeline.copyMessageLink"));
         QCOMPARE(registry.messageSelectionActionForKey(Qt::Key_C, Qt::ControlModifier),
                  QStringLiteral("timeline.copyMessageText"));
+        QCOMPARE(registry.messageSelectionActionForKey(Qt::Key_V, Qt::NoModifier),
+                 QStringLiteral("timeline.viewMessageSource"));
         QVERIFY(registry.timelineActionForKey(Qt::Key_K, Qt::NoModifier).isEmpty());
         QCOMPARE(registry.timelineActionForKey(Qt::Key_PageUp, Qt::NoModifier),
                  QStringLiteral("timeline.pageUp"));
@@ -206,7 +216,7 @@ private Q_SLOTS:
                 == ShortcutRegistry::MessageSelectionContext)
                 selection.append(id);
         }
-        QCOMPARE(selection.size(), 10);
+        QCOMPARE(selection.size(), 15);
         for (const QString &id : selection) {
             const QString seq = registry.sequenceFor(id);
             QCOMPARE(bySequence.value(seq).size(), 1);
@@ -552,7 +562,7 @@ private Q_SLOTS:
                                     .arg(id, seq)));
         }
         QVERIFY2(checkedRows > 0, "no rows at all — the sweep is inert");
-        QCOMPARE(selectionRows, 10);
+        QCOMPARE(selectionRows, 15);
     }
 
     // The named additions ship on exactly these ids and keys: the rule sweeps

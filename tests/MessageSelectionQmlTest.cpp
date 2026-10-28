@@ -369,6 +369,28 @@ ApplicationWindow {
         QVERIFY(bar.contains(QStringLiteral("app.bulkRedaction.cancel()")));
     }
 
+    void selectedMessageMenuOperationsReuseDelegateHandlers()
+    {
+        QFile paneFile(QStringLiteral(QML_DIR "/TimelinePane.qml"));
+        QFile rowFile(QStringLiteral(QML_DIR "/MessageDelegate.qml"));
+        QVERIFY(paneFile.open(QIODevice::ReadOnly));
+        QVERIFY(rowFile.open(QIODevice::ReadOnly));
+        const QString pane = QString::fromUtf8(paneFile.readAll());
+        const QString row = QString::fromUtf8(rowFile.readAll());
+        for (const char *id : { "replyInThread", "editMessage", "reactToMessage",
+                                "pinMessage", "viewMessageSource" }) {
+            const QString action = QStringLiteral("case \"timeline.%1\"")
+                                       .arg(QString::fromLatin1(id));
+            QVERIFY2(pane.contains(action), id);
+            QVERIFY2(row.contains(action), id);
+        }
+        QVERIFY(row.contains(QStringLiteral("replyInThread(root.menuEventId)")));
+        QVERIFY(row.contains(QStringLiteral("openReactionPickerFor(root.menuEventId")));
+        QVERIFY(row.contains(QStringLiteral("app.pinned.canTogglePin(root.menuEventId")));
+        QVERIFY(row.contains(QStringLiteral("root.timelineModel.canEditEvent(root.menuEventId)")));
+        QVERIFY(row.contains(QStringLiteral("openEventSource(root.menuEventId)")));
+    }
+
     void bulkDeletionWaitsForEachResultAndCountsFailures()
     {
         DeferredRedactionClient client;
@@ -1121,6 +1143,30 @@ ApplicationWindow {
         };
         QTRY_VERIFY(findDialog() != nullptr);
         QTRY_VERIFY(findDialog()->property("visible").toBool());
+    }
+
+    void selectedMessageSourceOpensFromTheKeyboard()
+    {
+        openJoinedRoom();
+        QTest::keyClick(m_window, Qt::Key_Space,
+                        Qt::ControlModifier | Qt::ShiftModifier);
+        QTRY_VERIFY(item("timelineListView")->hasActiveFocus());
+        QVERIFY(!item("timelinePane")
+                     ->property("keyboardSelectedEventId").toString().isEmpty());
+        QTest::keyClick(m_window, Qt::Key_V);
+        const auto findSourceDialog = [&]() -> QObject * {
+            QList<QQuickItem *> stack{ m_window->contentItem() };
+            while (!stack.isEmpty()) {
+                QQuickItem *it = stack.takeLast();
+                if (auto *dialog = it->findChild<QObject *>(
+                        QStringLiteral("eventSourceDialog")))
+                    return dialog;
+                stack.append(it->childItems());
+            }
+            return nullptr;
+        };
+        QTRY_VERIFY(findSourceDialog() != nullptr);
+        QTRY_VERIFY(findSourceDialog()->property("visible").toBool());
     }
 
     void enteringSelectionCancelsQueuedAndDelayedComposerFocus()
