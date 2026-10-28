@@ -10012,7 +10012,6 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
     qCInfo(lcSfuMedia)
         << "call diagnosis: a receive chain is RUNNING for stream=" << streamId
         << "mid=" << trackMid << "kind=" << mediaKind;
-    const quint64 generation = engine->m_generation.load();
     marshal(engine, [engine, generation, mediaKind, streamId, trackMid] {
         if (engine->m_generation.load() != generation)
             return;
