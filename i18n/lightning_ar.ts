@@ -1676,17 +1676,17 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>AttachmentImageEditDialog</name>
     <message>
-        <location filename="../qml/AttachmentImageEditDialog.qml" line="+26"/>
+        <location filename="../qml/AttachmentImageEditDialog.qml" line="+27"/>
         <source>Edit image before sending</source>
         <translation>تعديل الصورة قبل إرسالها</translation>
     </message>
     <message>
-        <location line="+26"/>
+        <location line="+27"/>
         <source>The image edit failed.</source>
         <translation>فشل تعديل الصورة.</translation>
     </message>
     <message>
-        <location line="+47"/>
+        <location line="+53"/>
         <source>Editing this animation sends one still PNG frame.</source>
         <translation>يؤدي تحرير هذه الرسوم المتحركة إلى إرسال إطار PNG ثابت.</translation>
     </message>
@@ -1845,13 +1845,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>لا يمكن فك تشفير هذه الصورة بشكل آمن.</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+15"/>
         <source>The crop is empty.</source>
         <translation>المحصول فارغ.</translation>
     </message>
     <message>
-        <location line="+9"/>
-        <location line="+5"/>
+        <location line="-7"/>
+        <location line="+13"/>
         <source>The image edit failed.</source>
         <translation>فشل تعديل الصورة.</translation>
     </message>
@@ -1868,7 +1868,8 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+13"/>
         <location line="+4"/>
-        <location line="+7"/>
+        <location line="+8"/>
+        <location line="+3"/>
         <location line="+4"/>
         <source>The image edit could not be saved.</source>
         <translation>لا يمكن حفظ تعديل الصورة.</translation>
@@ -3683,7 +3684,17 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>%1، غير مقروءة</translation>
     </message>
     <message>
-        <location line="+177"/>
+        <location line="+2"/>
+        <source>%1, low priority</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+104"/>
+        <source>%1 · Low priority</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+75"/>
         <source>Remove from favourites</source>
         <translation>إزالة من المفضلة</translation>
     </message>
@@ -10129,12 +10140,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>الفريق</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+31"/>
         <source>Mira · 10:42</source>
         <translation>ميرا · 10:42</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+9"/>
         <source>Thread opens here</source>
         <translation>يفتح الخيط هنا</translation>
     </message>
@@ -11051,7 +11062,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Lightning %1</translation>
     </message>
     <message>
-        <location line="+531"/>
+        <location line="+570"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
@@ -11092,13 +11103,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+9"/>
-        <location line="+498"/>
+        <location line="+501"/>
         <location line="+3"/>
         <source>Dismiss</source>
         <translation>إخفاء</translation>
     </message>
     <message>
-        <location line="-439"/>
+        <location line="-442"/>
         <source>This message&apos;s edits could not be read. Check your connection and try again.</source>
         <translation>تعذّرت قراءة تعديلات هذه الرسالة. تحقّق من اتصالك وأعد المحاولة.</translation>
     </message>
@@ -11118,7 +11129,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>أُزيل %1 تعديلًا. ما زال هناك المزيد — شغّلها مجددًا.</translation>
     </message>
     <message>
-        <location line="+40"/>
+        <location line="+18"/>
+        <source>Message saved.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+25"/>
         <source>Added to this room&apos;s stickers as :%1:</source>
         <translation>تمت الإضافة إلى ملصقات هذه الغرفة كـ :%1:</translation>
     </message>
@@ -12342,19 +12358,19 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+32"/>
         <location line="+1"/>
-        <location line="+1194"/>
+        <location line="+1196"/>
         <source>Underline</source>
         <translation>تسطير</translation>
     </message>
     <message>
-        <location line="-1181"/>
+        <location line="-1183"/>
         <location line="+1"/>
-        <location line="+1189"/>
+        <location line="+1191"/>
         <source>Numbered list</source>
         <translation>قائمة مرقّمة</translation>
     </message>
     <message>
-        <location line="-1172"/>
+        <location line="-1174"/>
         <source>Rich text</source>
         <translation>نص منسّق</translation>
     </message>
@@ -12365,18 +12381,18 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+1147"/>
+        <location line="+1149"/>
         <source>Switch to Markdown composing</source>
         <translation>التبديل إلى الكتابة بـ Markdown</translation>
     </message>
     <message>
-        <location line="-1146"/>
-        <location line="+1147"/>
+        <location line="-1148"/>
+        <location line="+1149"/>
         <source>Switch to rich-text composing</source>
         <translation>التبديل إلى الكتابة بالنص المنسّق</translation>
     </message>
     <message>
-        <location line="-1103"/>
+        <location line="-1105"/>
         <source>Attach files or create a poll</source>
         <translation>إرفاق ملفات أو إنشاء استطلاع</translation>
     </message>
@@ -12408,18 +12424,18 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+1006"/>
+        <location line="+1008"/>
         <source>Hide formatting</source>
         <translation>إخفاء التنسيق</translation>
     </message>
     <message>
-        <location line="-1005"/>
-        <location line="+1006"/>
+        <location line="-1007"/>
+        <location line="+1008"/>
         <source>Show formatting</source>
         <translation>إظهار التنسيق</translation>
     </message>
     <message>
-        <location line="-695"/>
+        <location line="-696"/>
         <source>Select a room to start typing</source>
         <translation>اختر غرفة لتبدأ الكتابة</translation>
     </message>
@@ -12439,7 +12455,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>رسالة %1</translation>
     </message>
     <message>
-        <location line="+217"/>
+        <location line="+218"/>
         <source>Add to dictionary</source>
         <translation>أضف إلى القاموس</translation>
     </message>
@@ -12497,7 +12513,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>تسجيل رسالة صوتية</translation>
     </message>
     <message>
-        <location line="-3493"/>
+        <location line="-3495"/>
         <source>A recording is already in progress.</source>
         <translation>هناك تسجيل قيد التنفيذ بالفعل.</translation>
     </message>
@@ -12517,7 +12533,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>التسجيل الصوتي غير متاح.</translation>
     </message>
     <message>
-        <location line="+3208"/>
+        <location line="+3210"/>
         <location line="+1"/>
         <source>More</source>
         <translation>المزيد</translation>
@@ -16479,7 +16495,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomActionsMenu</name>
     <message>
-        <location filename="../qml/RoomActionsMenu.qml" line="+42"/>
+        <location filename="../qml/RoomActionsMenu.qml" line="+43"/>
         <source>Select room</source>
         <translation>اختر الغرفة</translation>
     </message>
@@ -19037,7 +19053,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomsPanel</name>
     <message>
-        <location filename="../qml/RoomsPanel.qml" line="+215"/>
+        <location filename="../qml/RoomsPanel.qml" line="+221"/>
         <location line="+3"/>
         <location line="+5"/>
         <source>Lightning</source>
@@ -19070,13 +19086,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+672"/>
+        <location line="+697"/>
         <location line="+1"/>
         <source>Search rooms</source>
         <translation>البحث في الغرف</translation>
     </message>
     <message>
-        <location line="-615"/>
+        <location line="-640"/>
         <location line="+1"/>
         <source>Room list options</source>
         <translation>خيارات قائمة الغرف</translation>
@@ -19118,7 +19134,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>الغرف</translation>
     </message>
     <message numerus="yes">
-        <location line="+182"/>
+        <location line="+238"/>
         <source>%n selected</source>
         <translation>
             <numerusform>لم يُحدد شيء</numerusform>
@@ -19186,11 +19202,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+1"/>
+        <location line="+31"/>
         <source>Done</source>
         <translation>تم</translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="-28"/>
         <source>%1 succeeded · %2 failed · %3 pending</source>
         <translation>نجح %1 · فشل %2 · %3 معلق</translation>
     </message>
@@ -19215,7 +19232,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>معلق</translation>
     </message>
     <message numerus="yes">
-        <location line="+9"/>
+        <location line="-97"/>
         <source>Leave %n room(s)?</source>
         <translation>
             <numerusform>مغادرة %n غرف؟</numerusform>
@@ -19227,12 +19244,12 @@ Signing out and signing in again is the only fix.</source>
         </translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+14"/>
         <source>You will leave all selected rooms. You may need an invitation to rejoin private rooms.</source>
         <translation>سوف تغادر جميع الغرف المختارة. قد تحتاج إلى دعوة للانضمام مرة أخرى إلى الغرف الخاصة.</translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+7"/>
         <source>You are the last known admin in one selected room. Assign another admin before leaving if the room needs one.</source>
         <translation>أنت آخر مسؤول معروف في غرفة واحدة محددة. قم بتعيين مسؤول آخر قبل المغادرة إذا كانت الغرفة بحاجة إلى مسؤول آخر.</translation>
     </message>
@@ -19247,7 +19264,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>ترك الغرف</translation>
     </message>
     <message>
-        <location line="+119"/>
+        <location line="+188"/>
         <source>Expand %1 room list</source>
         <translation>توسيع قائمة غرف %1</translation>
     </message>
@@ -19262,7 +19279,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>إظهار الغرف غير المقروءة</translation>
     </message>
     <message>
-        <location line="-394"/>
+        <location line="-419"/>
         <location line="+2"/>
         <location line="+5"/>
         <source>Unreads</source>
@@ -19528,7 +19545,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+215"/>
         <location line="+61"/>
         <location line="+151"/>
-        <location line="+5108"/>
+        <location line="+5112"/>
         <location line="+96"/>
         <location line="+13"/>
         <location line="+50"/>
@@ -19537,15 +19554,15 @@ Signing out and signing in again is the only fix.</source>
         <translation>لم تسجّل الدخول.</translation>
     </message>
     <message>
-        <location line="-5509"/>
+        <location line="-5513"/>
         <location line="+61"/>
         <location line="+151"/>
-        <location line="+5303"/>
+        <location line="+5307"/>
         <source>Unknown room: %1</source>
         <translation>غرفة غير معروفة: %1</translation>
     </message>
     <message>
-        <location line="-5511"/>
+        <location line="-5515"/>
         <location line="+61"/>
         <location line="+151"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -19553,13 +19570,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+796"/>
-        <location line="+2902"/>
+        <location line="+2906"/>
         <location line="+73"/>
         <source>The sticker could not be sent.</source>
         <translation>لا يمكن إرسال الملصق.</translation>
     </message>
     <message>
-        <location line="-1593"/>
+        <location line="-1597"/>
         <source>Lightning cannot send that yet.</source>
         <translation>لا يستطيع Lightning إرسال ذلك بعد.</translation>
     </message>
@@ -19609,7 +19626,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>فشل إجراء الدعوة. أعد المحاولة.</translation>
     </message>
     <message>
-        <location line="+357"/>
+        <location line="+361"/>
         <location line="+45"/>
         <source>The reaction could not be applied.</source>
         <translation>تعذّر تطبيق التفاعل.</translation>
@@ -19651,7 +19668,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>تعذّر إكمال إجراء الاستطلاع.</translation>
     </message>
     <message>
-        <location line="-7372"/>
+        <location line="-7376"/>
         <source>This account&apos;s data is still in use by a background session. Wait a moment and try again.</source>
         <translation>بيانات هذا الحساب ما زالت قيد الاستخدام من جلسة في الخلفية. انتظر قليلًا ثم حاول مرة أخرى.</translation>
     </message>
@@ -19681,7 +19698,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>أدخل كلمة المرور.</translation>
     </message>
     <message>
-        <location line="+6313"/>
+        <location line="+6317"/>
         <source>Message could not be sent. You can retry from the message&apos;s Retry action.</source>
         <translation>تعذّر إرسال الرسالة. يمكنك إعادة المحاولة من إجراء «إعادة المحاولة» الخاص بالرسالة.</translation>
     </message>
@@ -19798,30 +19815,31 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>SavedMessagesController</name>
     <message>
-        <location filename="../src/app/SavedMessagesController.cpp" line="+127"/>
+        <location filename="../src/app/SavedMessagesController.cpp" line="+201"/>
         <source>Saved messages could not be loaded. Retry.</source>
         <translation>لا يمكن تحميل الرسائل المحفوظة. أعد المحاولة.</translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="-4"/>
+        <location line="+15"/>
         <source>Saved messages could not be updated. Retry.</source>
         <translation>لا يمكن تحديث الرسائل المحفوظة. أعد المحاولة.</translation>
     </message>
     <message>
-        <location line="+63"/>
-        <location line="+9"/>
-        <location line="+11"/>
+        <location line="-71"/>
+        <location line="+133"/>
         <source>Saved messages data is unavailable.</source>
         <translation>بيانات الرسائل المحفوظة غير متوفرة.</translation>
     </message>
     <message>
-        <location line="+53"/>
-        <location line="+20"/>
+        <location line="-101"/>
+        <location line="+207"/>
+        <location line="+15"/>
         <source>Saved messages are full. Remove an older item first.</source>
         <translation>الرسائل المحفوظة ممتلئة. قم بإزالة العنصر الأقدم أولاً.</translation>
     </message>
     <message>
-        <location line="+150"/>
+        <location line="+153"/>
         <source>Sticker</source>
         <translation>ملصق</translation>
     </message>
@@ -19947,16 +19965,18 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+8"/>
+        <location line="+1"/>
         <source>Open thread root in room</source>
         <translation>فتح جذر الخيط في الغرفة</translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+11"/>
+        <location line="+1"/>
         <source>Open room</source>
         <translation>غرفة مفتوحة</translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+12"/>
         <source>Remove saved message</source>
         <translation>إزالة الرسالة المحفوظة</translation>
     </message>
@@ -24458,12 +24478,7 @@ Escape، والأحرف الفردية التي تستخدمها قائمة ال
         <translation>Nheko المضغوط، مُخصَّص. يُحفظ تخطيط Lightning الخاص بك ويعود عند التبديل.</translation>
     </message>
     <message>
-        <location line="+3"/>
-        <source>Flat rows with a small avatar above each sender&apos;s messages, tight spacing, and threads in the main view. Your fonts, text size and colours are unchanged.</source>
-        <translation>صفوف مسطحة مع صورة رمزية صغيرة فوق رسائل كل مرسل، وتباعد ضيق، والخيوط في العرض الرئيسي. تبقى خطوطك وحجم النص والألوان كما هي.</translation>
-    </message>
-    <message>
-        <location line="+17"/>
+        <location line="+20"/>
         <source>Reset preset</source>
         <translation>إعادة ضبط الإعداد المسبق</translation>
     </message>
@@ -25167,7 +25182,12 @@ Escape، والأحرف الفردية التي تستخدمها قائمة ال
         <translation>كيفية ترتيب النافذة: الرسائل والخيوط، وقائمة الغرف، وشريط الفضاءات، واللوحات — لكل حساب.</translation>
     </message>
     <message>
-        <location line="+66"/>
+        <location line="+61"/>
+        <source>Flat rows with a small avatar above each sender&apos;s messages, Nheko&apos;s close row spacing, and threads in the main view. Your fonts, text size and colours are unchanged.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
         <source>Lightning&apos;s own layout. Nheko compact is a denser layout you can switch back from at any time. A preset sets the three choices just below it; a choice it set says so.</source>
         <translation>تخطيط Lightning الخاص. Nheko compact تخطيط أكثر كثافة يمكنك العودة منه في أي وقت. يضبط الإعداد المسبق الخيارات الثلاثة أسفله مباشرةً، والخيار الذي ضبطه يذكر ذلك.</translation>
     </message>
@@ -27126,7 +27146,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SpaceChannelModel</name>
     <message>
-        <location filename="../src/models/SpaceChannelModel.cpp" line="+889"/>
+        <location filename="../src/models/SpaceChannelModel.cpp" line="+897"/>
         <source>Create Room</source>
         <translation>إنشاء غرفة</translation>
     </message>
@@ -31143,7 +31163,7 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+62"/>
-        <location line="+15"/>
+        <location line="+22"/>
         <source>Upload failed. Retry or remove.</source>
         <translation>فشل الرفع. أعد المحاولة أو أزله.</translation>
     </message>
@@ -31156,7 +31176,7 @@ Note: importing keys does not verify this session.</source>
         <translation>تعليم هذا الخيط كمقروء</translation>
     </message>
     <message>
-        <location line="+1229"/>
+        <location line="+1231"/>
         <source>Jump to the newest reply</source>
         <translation>الانتقال إلى أحدث رد</translation>
     </message>
@@ -31173,7 +31193,7 @@ Note: importing keys does not verify this session.</source>
         </translation>
     </message>
     <message>
-        <location line="-1605"/>
+        <location line="-1607"/>
         <source>This room has been replaced.</source>
         <translation>تم استبدال هذه الغرفة.</translation>
     </message>
@@ -31280,13 +31300,13 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="-94"/>
         <location line="+96"/>
-        <location line="+241"/>
+        <location line="+243"/>
         <location line="+75"/>
         <source>Replies</source>
         <translation>الردود</translation>
     </message>
     <message>
-        <location line="-410"/>
+        <location line="-412"/>
         <source>Unread</source>
         <translation>غير مقروء</translation>
     </message>
@@ -31324,7 +31344,7 @@ Note: importing keys does not verify this session.</source>
         <translation>الرسالة الأصلية غير متاحة.</translation>
     </message>
     <message numerus="yes">
-        <location line="+28"/>
+        <location line="+30"/>
         <source>%n reply(s)</source>
         <comment>replies in the open thread</comment>
         <translation>
@@ -31428,7 +31448,7 @@ Note: importing keys does not verify this session.</source>
         <translation>إزالة المرفق %1</translation>
     </message>
     <message>
-        <location line="+35"/>
+        <location line="+37"/>
         <location line="+781"/>
         <source>Attach files</source>
         <translation>إرفاق ملفات</translation>

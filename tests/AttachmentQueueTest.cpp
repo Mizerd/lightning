@@ -399,8 +399,9 @@ private Q_SLOTS:
         composer.send();
         QCOMPARE(client.fileSends, 1);
         QCOMPARE(client.lastMime, QStringLiteral("image/png"));
-        QCOMPARE(client.lastFileWidth, 16);
-        QCOMPARE(client.lastFileHeight, 8);
+        // The announced size is the size of the PNG actually sent.
+        QCOMPARE(client.lastFileWidth, edited.width());
+        QCOMPARE(client.lastFileHeight, edited.height());
         QCOMPARE(readAll(client.lastFilePath), previewBytes);
         QCOMPARE(readAll(path), original);
     }

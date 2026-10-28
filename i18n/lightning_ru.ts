@@ -1651,17 +1651,17 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>AttachmentImageEditDialog</name>
     <message>
-        <location filename="../qml/AttachmentImageEditDialog.qml" line="+26"/>
+        <location filename="../qml/AttachmentImageEditDialog.qml" line="+27"/>
         <source>Edit image before sending</source>
         <translation>Редактировать изображение перед отправкой</translation>
     </message>
     <message>
-        <location line="+26"/>
+        <location line="+27"/>
         <source>The image edit failed.</source>
         <translation>Не удалось ообсуждениеактировать изображение.</translation>
     </message>
     <message>
-        <location line="+47"/>
+        <location line="+53"/>
         <source>Editing this animation sends one still PNG frame.</source>
         <translation>При редактировании этой анимации отправляется один неподвижный кадр PNG.</translation>
     </message>
@@ -1820,13 +1820,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>Это изображение не удалось безопасно декодировать.</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+15"/>
         <source>The crop is empty.</source>
         <translation>Урожай пуст.</translation>
     </message>
     <message>
-        <location line="+9"/>
-        <location line="+5"/>
+        <location line="-7"/>
+        <location line="+13"/>
         <source>The image edit failed.</source>
         <translation>Не удалось ообсуждениеактировать изображение.</translation>
     </message>
@@ -1843,7 +1843,8 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+13"/>
         <location line="+4"/>
-        <location line="+7"/>
+        <location line="+8"/>
+        <location line="+3"/>
         <location line="+4"/>
         <source>The image edit could not be saved.</source>
         <translation>Не удалось сохранить изменения изображения.</translation>
@@ -3634,7 +3635,17 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>%1, непрочитано</translation>
     </message>
     <message>
-        <location line="+177"/>
+        <location line="+2"/>
+        <source>%1, low priority</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+104"/>
+        <source>%1 · Low priority</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+75"/>
         <source>Remove from favourites</source>
         <translation>Убрать из избранного</translation>
     </message>
@@ -10042,12 +10053,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>Команда</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+31"/>
         <source>Mira · 10:42</source>
         <translation>Мира · 10:42</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+9"/>
         <source>Thread opens here</source>
         <translation>Обсуждение открывается здесь</translation>
     </message>
@@ -10952,7 +10963,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Lightning %1</translation>
     </message>
     <message>
-        <location line="+531"/>
+        <location line="+570"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
@@ -10993,13 +11004,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+9"/>
-        <location line="+498"/>
+        <location line="+501"/>
         <location line="+3"/>
         <source>Dismiss</source>
         <translation>Скрыть</translation>
     </message>
     <message>
-        <location line="-439"/>
+        <location line="-442"/>
         <source>This message&apos;s edits could not be read. Check your connection and try again.</source>
         <translation>Не удалось прочитать правки этого сообщения. Проверьте подключение и повторите попытку.</translation>
     </message>
@@ -11019,7 +11030,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>Удалено правок: %1. Остались ещё — запустите снова.</translation>
     </message>
     <message>
-        <location line="+40"/>
+        <location line="+18"/>
+        <source>Message saved.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+25"/>
         <source>Added to this room&apos;s stickers as :%1:</source>
         <translation>Добавлено в стикеры этой комнаты как :%1:</translation>
     </message>
@@ -12231,19 +12247,19 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+32"/>
         <location line="+1"/>
-        <location line="+1194"/>
+        <location line="+1196"/>
         <source>Underline</source>
         <translation>Подчёркнутый</translation>
     </message>
     <message>
-        <location line="-1181"/>
+        <location line="-1183"/>
         <location line="+1"/>
-        <location line="+1189"/>
+        <location line="+1191"/>
         <source>Numbered list</source>
         <translation>Нумерованный список</translation>
     </message>
     <message>
-        <location line="-1172"/>
+        <location line="-1174"/>
         <source>Rich text</source>
         <translation>Форматированный текст</translation>
     </message>
@@ -12254,18 +12270,18 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+1147"/>
+        <location line="+1149"/>
         <source>Switch to Markdown composing</source>
         <translation>Переключить на написание в Markdown</translation>
     </message>
     <message>
-        <location line="-1146"/>
-        <location line="+1147"/>
+        <location line="-1148"/>
+        <location line="+1149"/>
         <source>Switch to rich-text composing</source>
         <translation>Переключить на написание форматированного текста</translation>
     </message>
     <message>
-        <location line="-1103"/>
+        <location line="-1105"/>
         <source>Attach files or create a poll</source>
         <translation>Прикрепить файлы или создать опрос</translation>
     </message>
@@ -12297,18 +12313,18 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+1006"/>
+        <location line="+1008"/>
         <source>Hide formatting</source>
         <translation>Скрыть форматирование</translation>
     </message>
     <message>
-        <location line="-1005"/>
-        <location line="+1006"/>
+        <location line="-1007"/>
+        <location line="+1008"/>
         <source>Show formatting</source>
         <translation>Показать форматирование</translation>
     </message>
     <message>
-        <location line="-695"/>
+        <location line="-696"/>
         <source>Select a room to start typing</source>
         <translation>Выберите комнату, чтобы начать писать</translation>
     </message>
@@ -12328,7 +12344,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Сообщение %1</translation>
     </message>
     <message>
-        <location line="+217"/>
+        <location line="+218"/>
         <source>Add to dictionary</source>
         <translation>Добавить в словарь</translation>
     </message>
@@ -12386,7 +12402,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Записать голосовое сообщение</translation>
     </message>
     <message>
-        <location line="-3493"/>
+        <location line="-3495"/>
         <source>A recording is already in progress.</source>
         <translation>Запись уже идёт.</translation>
     </message>
@@ -12406,7 +12422,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Запись голоса недоступна.</translation>
     </message>
     <message>
-        <location line="+3208"/>
+        <location line="+3210"/>
         <location line="+1"/>
         <source>More</source>
         <translation>Ещё</translation>
@@ -16332,7 +16348,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomActionsMenu</name>
     <message>
-        <location filename="../qml/RoomActionsMenu.qml" line="+42"/>
+        <location filename="../qml/RoomActionsMenu.qml" line="+43"/>
         <source>Select room</source>
         <translation>Выбрать комнату</translation>
     </message>
@@ -18857,7 +18873,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomsPanel</name>
     <message>
-        <location filename="../qml/RoomsPanel.qml" line="+215"/>
+        <location filename="../qml/RoomsPanel.qml" line="+221"/>
         <location line="+3"/>
         <location line="+5"/>
         <source>Lightning</source>
@@ -18890,13 +18906,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+672"/>
+        <location line="+697"/>
         <location line="+1"/>
         <source>Search rooms</source>
         <translation>Поиск комнат</translation>
     </message>
     <message>
-        <location line="-615"/>
+        <location line="-640"/>
         <location line="+1"/>
         <source>Room list options</source>
         <translation>Параметры списка комнат</translation>
@@ -18935,7 +18951,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Комнаты</translation>
     </message>
     <message numerus="yes">
-        <location line="+182"/>
+        <location line="+238"/>
         <source>%n selected</source>
         <translation>
             <numerusform>Выбрано: %n</numerusform>
@@ -19000,11 +19016,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+1"/>
+        <location line="+31"/>
         <source>Done</source>
         <translation>Готово</translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="-28"/>
         <source>%1 succeeded · %2 failed · %3 pending</source>
         <translation>%1 удалось · %2 не удалось · %3 в ожидании</translation>
     </message>
@@ -19029,7 +19046,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Ожидается</translation>
     </message>
     <message numerus="yes">
-        <location line="+9"/>
+        <location line="-97"/>
         <source>Leave %n room(s)?</source>
         <translation>
             <numerusform>Выйти из %n комнаты?</numerusform>
@@ -19038,12 +19055,12 @@ Signing out and signing in again is the only fix.</source>
         </translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+14"/>
         <source>You will leave all selected rooms. You may need an invitation to rejoin private rooms.</source>
         <translation>Вы покинете все выбранные комнаты. Вам может потребоваться приглашение, чтобы вернуться в частные комнаты.</translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+7"/>
         <source>You are the last known admin in one selected room. Assign another admin before leaving if the room needs one.</source>
         <translation>Вы последний известный администратор в одной выбранной комнате. Прежде чем уйти, назначьте другого администратора, если он нужен комнате.</translation>
     </message>
@@ -19058,7 +19075,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Покинуть комнаты</translation>
     </message>
     <message>
-        <location line="+119"/>
+        <location line="+188"/>
         <source>Expand %1 room list</source>
         <translation>Развернуть список комнат %1</translation>
     </message>
@@ -19073,7 +19090,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Показать непрочитанные комнаты</translation>
     </message>
     <message>
-        <location line="-394"/>
+        <location line="-419"/>
         <location line="+2"/>
         <location line="+5"/>
         <source>Unreads</source>
@@ -19339,7 +19356,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+215"/>
         <location line="+61"/>
         <location line="+151"/>
-        <location line="+5108"/>
+        <location line="+5112"/>
         <location line="+96"/>
         <location line="+13"/>
         <location line="+50"/>
@@ -19348,15 +19365,15 @@ Signing out and signing in again is the only fix.</source>
         <translation>Вход не выполнен.</translation>
     </message>
     <message>
-        <location line="-5509"/>
+        <location line="-5513"/>
         <location line="+61"/>
         <location line="+151"/>
-        <location line="+5303"/>
+        <location line="+5307"/>
         <source>Unknown room: %1</source>
         <translation>Неизвестная комната: %1</translation>
     </message>
     <message>
-        <location line="-5511"/>
+        <location line="-5515"/>
         <location line="+61"/>
         <location line="+151"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -19364,13 +19381,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+796"/>
-        <location line="+2902"/>
+        <location line="+2906"/>
         <location line="+73"/>
         <source>The sticker could not be sent.</source>
         <translation>Наклейку не удалось отправить.</translation>
     </message>
     <message>
-        <location line="-1593"/>
+        <location line="-1597"/>
         <source>Lightning cannot send that yet.</source>
         <translation>Lightning пока не может это отправить.</translation>
     </message>
@@ -19420,7 +19437,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Не удалось выполнить приглашение. Повторите попытку.</translation>
     </message>
     <message>
-        <location line="+357"/>
+        <location line="+361"/>
         <location line="+45"/>
         <source>The reaction could not be applied.</source>
         <translation>Реакцию не удалось применить.</translation>
@@ -19462,7 +19479,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Не удалось выполнить действие с опросом.</translation>
     </message>
     <message>
-        <location line="-7372"/>
+        <location line="-7376"/>
         <source>This account&apos;s data is still in use by a background session. Wait a moment and try again.</source>
         <translation>Данные этой учётной записи всё ещё используются фоновым сеансом. Подождите немного и повторите попытку.</translation>
     </message>
@@ -19492,7 +19509,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Введите пароль.</translation>
     </message>
     <message>
-        <location line="+6313"/>
+        <location line="+6317"/>
         <source>Message could not be sent. You can retry from the message&apos;s Retry action.</source>
         <translation>Не удалось отправить сообщение. Можно повторить через действие «Повторить» у сообщения.</translation>
     </message>
@@ -19609,30 +19626,31 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>SavedMessagesController</name>
     <message>
-        <location filename="../src/app/SavedMessagesController.cpp" line="+127"/>
+        <location filename="../src/app/SavedMessagesController.cpp" line="+201"/>
         <source>Saved messages could not be loaded. Retry.</source>
         <translation>Не удалось загрузить сохраненные сообщения. Повторить попытку.</translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="-4"/>
+        <location line="+15"/>
         <source>Saved messages could not be updated. Retry.</source>
         <translation>Не удалось обновить сохраненные сообщения. Повторить попытку.</translation>
     </message>
     <message>
-        <location line="+63"/>
-        <location line="+9"/>
-        <location line="+11"/>
+        <location line="-71"/>
+        <location line="+133"/>
         <source>Saved messages data is unavailable.</source>
         <translation>Данные сохраненных сообщений недоступны.</translation>
     </message>
     <message>
-        <location line="+53"/>
-        <location line="+20"/>
+        <location line="-101"/>
+        <location line="+207"/>
+        <location line="+15"/>
         <source>Saved messages are full. Remove an older item first.</source>
         <translation>Сохраненные сообщения заполнены. Сначала удалите старый элемент.</translation>
     </message>
     <message>
-        <location line="+150"/>
+        <location line="+153"/>
         <source>Sticker</source>
         <translation>Стикер</translation>
     </message>
@@ -19758,16 +19776,18 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+8"/>
+        <location line="+1"/>
         <source>Open thread root in room</source>
         <translation>Открыть исходное сообщение обсуждения в комнате</translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+11"/>
+        <location line="+1"/>
         <source>Open room</source>
         <translation>Открытая комната</translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+12"/>
         <source>Remove saved message</source>
         <translation>Удалить сохраненное сообщение</translation>
     </message>
@@ -24224,12 +24244,7 @@ Escape и отдельные буквы, которые меню сообщен�
         <translation>Nheko компактный, изменён. Ваше оформление Lightning сохранено и вернётся при переключении.</translation>
     </message>
     <message>
-        <location line="+3"/>
-        <source>Flat rows with a small avatar above each sender&apos;s messages, tight spacing, and threads in the main view. Your fonts, text size and colours are unchanged.</source>
-        <translation>Плоские строки с маленьким аватаром над сообщениями каждого отправителя, плотные интервалы и обсуждения в основном окне. Шрифты, размер текста и цвета не меняются.</translation>
-    </message>
-    <message>
-        <location line="+17"/>
+        <location line="+20"/>
         <source>Reset preset</source>
         <translation>Сбросить набор</translation>
     </message>
@@ -24927,7 +24942,12 @@ Escape и отдельные буквы, которые меню сообщен�
         <translation>Расположение окна: сообщения и обсуждения, список комнат, панель пространств и панели — для каждой учётной записи.</translation>
     </message>
     <message>
-        <location line="+66"/>
+        <location line="+61"/>
+        <source>Flat rows with a small avatar above each sender&apos;s messages, Nheko&apos;s close row spacing, and threads in the main view. Your fonts, text size and colours are unchanged.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
         <source>Lightning&apos;s own layout. Nheko compact is a denser layout you can switch back from at any time. A preset sets the three choices just below it; a choice it set says so.</source>
         <translation>Собственная разметка Lightning. Nheko compact — более плотная разметка, от которой можно отказаться в любой момент. Набор задаёт три параметра прямо под ним; параметр, заданный им, сообщает об этом.</translation>
     </message>
@@ -26883,7 +26903,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SpaceChannelModel</name>
     <message>
-        <location filename="../src/models/SpaceChannelModel.cpp" line="+889"/>
+        <location filename="../src/models/SpaceChannelModel.cpp" line="+897"/>
         <source>Create Room</source>
         <translation>Создать комнату</translation>
     </message>
@@ -30762,7 +30782,7 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+62"/>
-        <location line="+15"/>
+        <location line="+22"/>
         <source>Upload failed. Retry or remove.</source>
         <translation>Не удалось загрузить. Повторите или удалите.</translation>
     </message>
@@ -30775,7 +30795,7 @@ Note: importing keys does not verify this session.</source>
         <translation>Отметить это обсуждение прочитанным</translation>
     </message>
     <message>
-        <location line="+1229"/>
+        <location line="+1231"/>
         <source>Jump to the newest reply</source>
         <translation>Перейти к последнему ответу</translation>
     </message>
@@ -30789,7 +30809,7 @@ Note: importing keys does not verify this session.</source>
         </translation>
     </message>
     <message>
-        <location line="-1605"/>
+        <location line="-1607"/>
         <source>This room has been replaced.</source>
         <translation>Эта комната заменена.</translation>
     </message>
@@ -30893,13 +30913,13 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="-94"/>
         <location line="+96"/>
-        <location line="+241"/>
+        <location line="+243"/>
         <location line="+75"/>
         <source>Replies</source>
         <translation>Ответы</translation>
     </message>
     <message>
-        <location line="-410"/>
+        <location line="-412"/>
         <source>Unread</source>
         <translation>Непрочитано</translation>
     </message>
@@ -30937,7 +30957,7 @@ Note: importing keys does not verify this session.</source>
         <translation>Исходное сообщение недоступно.</translation>
     </message>
     <message numerus="yes">
-        <location line="+28"/>
+        <location line="+30"/>
         <source>%n reply(s)</source>
         <comment>replies in the open thread</comment>
         <translation>
@@ -31038,7 +31058,7 @@ Note: importing keys does not verify this session.</source>
         <translation>Удалить вложение %1</translation>
     </message>
     <message>
-        <location line="+35"/>
+        <location line="+37"/>
         <location line="+781"/>
         <source>Attach files</source>
         <translation>Прикрепить файлы</translation>
