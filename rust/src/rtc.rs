@@ -765,6 +765,16 @@ fn room_call_members(members: Vec<RtcMember>, now_ms: u64) -> Vec<RtcMember> {
         .collect(), now_ms)
 }
 
+/// A missing member record is unknown under lazy-loaded sliding sync. Only a
+/// recorded non-join state proves that the advertiser has left the room.
+fn sender_membership_allows_call(
+    membership: Option<&matrix_sdk::ruma::events::room::member::MembershipState>,
+) -> bool {
+    !membership.is_some_and(|state| {
+        state != &matrix_sdk::ruma::events::room::member::MembershipState::Join
+    })
+}
+
 /// Pick the focus per `focus_selection: "oldest_membership"`: the SFU
 /// advertised by whoever joined first. Everyone must agree, or participants
 /// land on different SFUs.
@@ -1427,10 +1437,10 @@ async fn read_session(
             // treating it as "left" would drop a real participant from the
             // whole session (keys, facepile, audio), not just from focus
             // selection.
-            if room.get_member_no_sync(&user_id).await.ok().flatten()
-                .is_some_and(|profile| profile.membership()
-                    != &matrix_sdk::ruma::events::room::member::MembershipState::Join)
-            {
+            let profile = room.get_member_no_sync(&user_id).await.ok().flatten();
+            if !sender_membership_allows_call(
+                profile.as_ref().map(|profile| profile.membership()),
+            ) {
                 continue;
             }
             // The envelope's event id, which a raised hand annotates.
@@ -4715,6 +4725,25 @@ mod tests {
     }
 
     #[test]
+    fn only_a_recorded_non_join_state_rejects_a_call_advertiser() {
+        use matrix_sdk::ruma::events::room::member::MembershipState;
+
+        for (membership, expected) in [
+            (Some(MembershipState::Join), true),
+            (None, true), // sliding sync has not loaded this member yet
+            (Some(MembershipState::Leave), false),
+            (Some(MembershipState::Ban), false),
+            (Some(MembershipState::Invite), false),
+        ] {
+            assert_eq!(
+                sender_membership_allows_call(membership.as_ref()),
+                expected,
+                "membership {membership:?}"
+            );
+        }
+    }
+
+    #[test]
     fn expired_memberships_are_not_participants() {
         let live = member_at("@a:x", "D1", 10, 5_000);
         let dead = member_at("@b:x", "D2", 20, 100);
@@ -4736,6 +4765,7 @@ mod tests {
         other_call.focus_selection = FocusSelection::MultiSfu;
         other_call.foci = vec![focus("other-call.example")];
         let members = room_call_members(vec![expired, other_call], 1_000);
+        assert!(members.is_empty(), "neither is a participant in this call");
         let own = focus("own.example");
         let plan = plan_foci(&members, "@me:x:ME", Some(own.clone()));
         assert_eq!(plan.publisher, Some(own));
