@@ -1763,6 +1763,26 @@ if(WIN32)
 endif()
 
 if(BUILD_TESTING)
+    # Stdlib-only source contracts need no Qt test target. Run each file
+    # separately so CTest reports a missing or failing contract by name.
+    find_package(Python3 QUIET COMPONENTS Interpreter)
+    if(Python3_Interpreter_FOUND)
+        foreach(_py_contract IN ITEMS
+                camera-fixed-modes
+                followup-app-sources
+                followup-qml-contracts
+                gui5c-regressions)
+            string(REPLACE "-" "_" _py_contract_file "${_py_contract}")
+            add_test(NAME py-${_py_contract}
+                COMMAND "${Python3_EXECUTABLE}" -B
+                    "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_${_py_contract_file}.py" -v)
+            set_tests_properties(py-${_py_contract} PROPERTIES
+                WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+        endforeach()
+    else()
+        message(STATUS "Python3 interpreter not found; skipping Python source-contract tests")
+    endif()
+
     find_package(Qt6 6.5 REQUIRED COMPONENTS Test)
     lightning_add_rnnoise_tests()
     lightning_add_deepfilternet_tests()

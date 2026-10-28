@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Manual CPU-only camera negotiation check, using gst-launch-1.0.
+"""Camera source contracts and a manual gst-launch-1.0 negotiation probe.
 
-Run inside the development shell. Only synthetic sources and fakesink are
-opened. Extract production entry strings so a hard source ceiling cannot
-silently diverge from this check. Qt tests cover advertised-mode selection
-and the complete encoded pipeline; this check requires no build.
+The unittest contracts need only Python's standard library. For the manual
+probe, run this file with --probe inside the development shell. It opens only
+synthetic sources and fakesink. Qt tests cover advertised-mode selection and
+the complete encoded pipeline; the manual probe requires no build.
 
 Mixed-mode cases use explicit expected selector-result fixtures, not a Python
 copy of the selector. Verbose capture-pad caps distinguish real 30 fps input
@@ -14,6 +14,8 @@ import ast
 import re
 import shlex
 import subprocess
+import sys
+import unittest
 from pathlib import Path
 
 
@@ -26,13 +28,43 @@ def literals(body):
     ]
 
 
-def main():
+def source_body(name, next_name):
     source = (Path(__file__).resolve().parents[1]
               / "src/calls/SfuMediaEngine.cpp").read_text()
+    return source.split("QString SfuMediaEngine::" + name, 1)[1].split(
+        next_name, 1)[0]
 
+
+class CameraFixedModesContract(unittest.TestCase):
+    def test_entries_accept_selected_caps_without_a_fixed_size_ceiling(self):
+        jpeg = source_body(
+            "cameraJpegEntry(", "QString SfuMediaEngine::directCameraRawEntry")
+        raw = source_body(
+            "directCameraRawEntry(", "QString SfuMediaEngine::captureCameraEntry")
+        base = source_body(
+            "captureEntryFilter(", "bool SfuMediaEngine::isDirectCameraSource")
+        self.assertIn('capsfilter caps=\\"%1\\"', jpeg)
+        self.assertIn('capsfilter caps=\\"%1\\" ! %2', raw)
+        self.assertIn('.arg(caps, captureEntryFilter(false))', raw)
+        for entry in (jpeg, raw, base):
+            with self.subTest(entry=entry[:50]):
+                self.assertNotRegex(entry, r'width=\\?\(int\)\[1,1920\]')
+                self.assertNotRegex(entry, r'height=\\?\(int\)\[1,1080\]')
+
+    def test_preferred_modes_keep_motion_and_alternatives(self):
+        source = (Path(__file__).resolve().parents[1]
+                  / "src/calls/SfuMediaEngine.cpp").read_text()
+        preferred = source.split("GstCaps *SfuMediaEngine::preferredCameraCaps(", 1)[1].split(
+            "QString SfuMediaEngine::cameraJpegEntry", 1)[0]
+        self.assertLess(preferred.index("for (const bool reachesPublishRate"),
+                        preferred.index("for (const bool bounded"))
+        self.assertIn('"framerate", GST_TYPE_FRACTION_RANGE,', preferred)
+        self.assertIn('gst_caps_append(preferred, mode.caps)', preferred)
+
+
+def main():
     def body(name, next_name):
-        return source.split("QString SfuMediaEngine::" + name, 1)[1].split(
-            next_name, 1)[0]
+        return source_body(name, next_name)
 
     jpeg_entry = literals(body(
         "cameraJpegEntry(", "QString SfuMediaEngine::directCameraRawEntry"))[-1]
@@ -161,4 +193,6 @@ def main():
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    if "--probe" in sys.argv[1:]:
+        raise SystemExit(main())
+    unittest.main()

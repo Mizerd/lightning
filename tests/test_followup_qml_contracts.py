@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """Reply and Space placement entry points must use their presentation gates."""
-import os
 from pathlib import Path
 import re
 import unittest
 
-ROOT = Path(os.environ.get("LIGHTNING_SOURCE_DIR", Path(__file__).resolve().parents[1]))
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class FollowupQmlContracts(unittest.TestCase):

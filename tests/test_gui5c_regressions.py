@@ -54,7 +54,10 @@ class Gui5cRegressions(unittest.TestCase):
             r"Rectangle\s*\{[^{}]*height: batchOverlayContent.implicitHeight"
             r"[^{}]*color: AppTheme.roomList", re.S))
         self.assertIn('objectName: "roomBatchOutcomes"', overlay)
-        self.assertIn('text: qsTr("Done")', overlay)
+        outcomes_done = overlay.split('objectName: "roomBatchOutcomes"', 1)[1]
+        self.assertRegex(outcomes_done, re.compile(
+            r'AppButton\s*\{\s*visible: !app\.roomBatch\.selecting'
+            r'[^{}]*text: qsTr\("Done"\)', re.S))
 
 
 if __name__ == "__main__":
