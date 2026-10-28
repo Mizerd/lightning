@@ -2153,7 +2153,12 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             [this](const QString &roomId, const QString &eventId,
                    const QString &threadRootId) {
         routeNotificationOpen(roomId, eventId, threadRootId);
-    });
+    }, Qt::QueuedConnection);
+    // Deliver after TimelineModel and PaginationController have handled the
+    // backend reset; setRoomId() also resets the model before Rust is ready.
+    connect(m_client.get(), &MatrixClient::timelineReset, this,
+            [this](const QString &roomId) { Q_EMIT roomTimelineReady(roomId); },
+            Qt::QueuedConnection);
     connect(m_client.get(), &MatrixClient::reactionEventReceived, this,
             [this](const QString &roomId, const QString &reactionEventId,
                    const QString &targetEventId, const QString &senderId,

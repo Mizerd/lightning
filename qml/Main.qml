@@ -282,9 +282,8 @@ ApplicationWindow {
         }
     }
 
-    // A room switch can deliver its first timeline snapshot after the open
-    // request. Pagination clears navigation on that reset, so repeat the
-    // saved-message landing once the new snapshot has been adopted.
+    // The saved open is recorded before the queued room switch. Land only
+    // after Rust's timeline reset has been adopted by the room model.
     property string savedLandingRoom: ""
     property string savedLandingEvent: ""
     Timer {
@@ -298,25 +297,23 @@ ApplicationWindow {
     Connections {
         target: app.savedMessages
         function onOpenRequested(roomId, eventId, threadRootId) {
-            window.savedLandingRoom = eventId && !threadRootId ? roomId : ""
+            window.savedLandingRoom = eventId && !threadRootId
+                                      && roomId !== app.currentRoomId ? roomId : ""
             window.savedLandingEvent = window.savedLandingRoom ? eventId : ""
             if (window.savedLandingEvent) savedLandingExpiry.restart()
         }
     }
     Connections {
-        target: app.timeline
-        function onModelReset() {
+        target: app
+        function onRoomTimelineReady(roomId) {
             if (window.savedLandingEvent !== ""
-                    && window.savedLandingRoom === app.currentRoomId) {
-                Qt.callLater(function() {
-                    if (window.savedLandingRoom === app.currentRoomId) {
-                        var eventId = window.savedLandingEvent
-                        window.savedLandingRoom = ""
-                        window.savedLandingEvent = ""
-                        savedLandingExpiry.stop()
-                        app.pagination.jumpToEvent(eventId)
-                    }
-                })
+                    && window.savedLandingRoom === roomId
+                    && roomId === app.currentRoomId) {
+                var eventId = window.savedLandingEvent
+                window.savedLandingRoom = ""
+                window.savedLandingEvent = ""
+                savedLandingExpiry.stop()
+                app.pagination.jumpToEvent(eventId)
             }
         }
     }
@@ -399,9 +396,14 @@ ApplicationWindow {
                     app.pagination.revealIfLoaded(threadRootId)
                 })
             } else if (eventId && eventId.length > 0) {
-                Qt.callLater(function() {
-                    app.pagination.jumpToEvent(eventId)
-                })
+                // A saved open across rooms waits for the live timeline reset.
+                // The signal's other callers keep their existing jump path.
+                if (window.savedLandingRoom !== roomId
+                        || window.savedLandingEvent !== eventId) {
+                    Qt.callLater(function() {
+                        app.pagination.jumpToEvent(eventId)
+                    })
+                }
             }
         }
     }

@@ -1469,6 +1469,8 @@ Q_SIGNALS:
     void notificationOpenRequested(const QString &roomId,
                                    const QString &eventId,
                                    const QString &threadRootId);
+    // The backend reset has been adopted by the live room timeline.
+    void roomTimelineReady(const QString &roomId);
 
     // roomNotificationModeSyncFailed() changed for this room.
     void roomNotificationModeSyncStateChanged(const QString &roomId);

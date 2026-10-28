@@ -2073,6 +2073,7 @@ Rectangle {
 
                         IconButton {
                             objectName: "threadAttachButton"
+                            Layout.alignment: panel.composerExpanded ? Qt.AlignBottom : Qt.AlignVCenter
                             implicitWidth: 24; implicitHeight: 24
                             radius: AppTheme.radiusControl
                             iconName: "add_circle"
@@ -2086,6 +2087,7 @@ Rectangle {
                         }
                         IconButton {
                             objectName: "threadComposerHeightButton"
+                            Layout.alignment: panel.composerExpanded ? Qt.AlignBottom : Qt.AlignVCenter
                             implicitWidth: 24; implicitHeight: 24
                             radius: AppTheme.radiusControl
                             iconName: panel.composerExpanded ? "unfold_less" : "unfold_more"
@@ -2697,7 +2699,7 @@ Rectangle {
                             readonly property var rec:
                                 panel.voiceActive ? app.voiceRecorder : null
                             visible: panel.voiceActive
-                            Layout.alignment: Qt.AlignVCenter
+                            Layout.alignment: panel.composerExpanded ? Qt.AlignBottom : Qt.AlignVCenter
                             implicitHeight: 24
                             implicitWidth: threadVoiceRow.implicitWidth + 14
                             radius: AppTheme.radiusPill
@@ -2816,7 +2818,7 @@ Rectangle {
                         VoicePreviewBar {
                             objectName: "threadVoicePreview"
                             compact: true
-                            Layout.alignment: Qt.AlignVCenter
+                            Layout.alignment: panel.composerExpanded ? Qt.AlignBottom : Qt.AlignVCenter
                             visible: panel.pendingVoice !== null
                             filePath: panel.pendingVoice
                                       ? panel.pendingVoice.filePath : ""
@@ -2833,6 +2835,7 @@ Rectangle {
                         // Accent-fill thread send: 28×28, 16px icon.
                         IconButton {
                             objectName: "threadSendButton"
+                            Layout.alignment: panel.composerExpanded ? Qt.AlignBottom : Qt.AlignVCenter
                             implicitWidth: 28; implicitHeight: 28
                             radius: AppTheme.radiusControl
                             fill: true

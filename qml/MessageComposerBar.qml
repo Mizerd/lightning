@@ -2435,7 +2435,7 @@ Item {
 
                     IconButton {
                         objectName: "composerAttachButton"
-                        Layout.alignment: Qt.AlignVCenter
+                        Layout.alignment: root.composerExpanded ? Qt.AlignBottom : Qt.AlignVCenter
                         implicitWidth: 28; implicitHeight: 28
                         radius: AppTheme.radiusControl
                         iconName: "add_circle"
@@ -2466,7 +2466,7 @@ Item {
 
                     IconButton {
                         objectName: "composerHeightButton"
-                        Layout.alignment: Qt.AlignVCenter
+                        Layout.alignment: root.composerExpanded ? Qt.AlignBottom : Qt.AlignVCenter
                         implicitWidth: 28; implicitHeight: 28
                         radius: AppTheme.radiusControl
                         iconName: root.composerExpanded ? "unfold_less" : "unfold_more"
@@ -2485,7 +2485,7 @@ Item {
                     // Format toggle: opens/closes the formatting toolbar.
                     IconButton {
                         objectName: "composerFormatToggleButton"
-                        Layout.alignment: Qt.AlignVCenter
+                        Layout.alignment: root.composerExpanded ? Qt.AlignBottom : Qt.AlignVCenter
                         // Narrow window: optional controls yield width to the
                         // text field. Also hidden when switched off.
                         visible: !root.compactInputRow
@@ -3219,7 +3219,7 @@ Item {
                     IconButton {
                         id: emojiButton
                         objectName: "composerEmojiButton"
-                        Layout.alignment: Qt.AlignVCenter
+                        Layout.alignment: root.composerExpanded ? Qt.AlignBottom : Qt.AlignVCenter
                         // Narrow window: moves into the attach menu. Switched
                         // off in settings it is gone from both.
                         visible: !root.compactInputRow
@@ -3245,7 +3245,7 @@ Item {
                     IconButton {
                         id: mediaButton
                         objectName: "composerMediaButton"
-                        Layout.alignment: Qt.AlignVCenter
+                        Layout.alignment: root.composerExpanded ? Qt.AlignBottom : Qt.AlignVCenter
                         // Narrow window: moves into the attach menu. Hidden
                         // only when switched off; a backend with neither kind
                         // shows it disabled with an explanatory tooltip.
@@ -3277,7 +3277,7 @@ Item {
                     // missing hardware or encoders surface through failed().
                     IconButton {
                         objectName: "composerMicButton"
-                        Layout.alignment: Qt.AlignVCenter
+                        Layout.alignment: root.composerExpanded ? Qt.AlignBottom : Qt.AlignVCenter
                         implicitWidth: 28; implicitHeight: 28
                         radius: AppTheme.radiusControl
                         iconName: "mic"
@@ -3299,7 +3299,7 @@ Item {
                     }
                     IconButton {
                         objectName: "composerOverflowButton"
-                        Layout.alignment: Qt.AlignVCenter
+                        Layout.alignment: root.composerExpanded ? Qt.AlignBottom : Qt.AlignVCenter
                         implicitWidth: 28; implicitHeight: 28
                         radius: AppTheme.radiusControl
                         iconName: "more_horiz"
@@ -3323,7 +3323,7 @@ Item {
                         readonly property var rec:
                             root.voiceActive ? app.voiceRecorder : null
                         visible: root.voiceActive
-                        Layout.alignment: Qt.AlignVCenter
+                        Layout.alignment: root.composerExpanded ? Qt.AlignBottom : Qt.AlignVCenter
                         implicitHeight: 28
                         implicitWidth: voicePillRow.implicitWidth + 16
                         radius: AppTheme.radiusPill
@@ -3442,7 +3442,7 @@ Item {
 
                     VoicePreviewBar {
                         objectName: "composerVoicePreview"
-                        Layout.alignment: Qt.AlignVCenter
+                        Layout.alignment: root.composerExpanded ? Qt.AlignBottom : Qt.AlignVCenter
                         visible: root.pendingVoice !== null
                         filePath: root.pendingVoice
                                   ? root.pendingVoice.filePath : ""
@@ -3459,7 +3459,7 @@ Item {
                     IconButton {
                         id: sendButton
                         objectName: "composerSendButton"
-                        Layout.alignment: Qt.AlignVCenter
+                        Layout.alignment: root.composerExpanded ? Qt.AlignBottom : Qt.AlignVCenter
                         implicitWidth: 34; implicitHeight: 34
                         radius: AppTheme.radiusTile
                         fill: true
@@ -3488,7 +3488,7 @@ Item {
                     IconButton {
                         id: sendOptionsButton
                         objectName: "composerSendOptionsButton"
-                        Layout.alignment: Qt.AlignVCenter
+                        Layout.alignment: root.composerExpanded ? Qt.AlignBottom : Qt.AlignVCenter
                         Layout.leftMargin: -AppTheme.spacing4
                         visible: app.scheduledSends !== null
                                  && root.composerButtonShown("sendOptions")

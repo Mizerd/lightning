@@ -166,10 +166,9 @@ private Q_SLOTS:
         const QString main = read(QStringLiteral("Main.qml"));
         const QString saved = read(QStringLiteral("SavedMessagesPanel.qml"));
         QVERIFY(!main.isEmpty() && !saved.isEmpty());
-        // The room's async snapshot resets PaginationController navigation.
-        // The saved target must be replayed on that reset through the same
-        // highlighted reply-jump path.
-        const int reset = main.indexOf(QStringLiteral("function onModelReset()"));
+        // The backend timeline reset, not the empty model reset caused by
+        // setRoomId(), is the readiness boundary for a cross-room landing.
+        const int reset = main.indexOf(QStringLiteral("function onRoomTimelineReady(roomId)"));
         QVERIFY(reset >= 0);
         QVERIFY(main.mid(reset, 700).contains(QStringLiteral(
             "app.pagination.jumpToEvent(eventId)")));
