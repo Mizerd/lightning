@@ -157,7 +157,12 @@ int ContextController::targetRow() const
 void ContextController::tracePhase(const QString &phase)
 {
     if (!m_scrollTraceEnabled || !m_openTimer.isValid()
-        || m_tracedPhases.contains(phase))
+        || m_tracedPhases.contains(phase)
+        || (phase != QLatin1String("request")
+            && phase != QLatin1String("context-model-ready")
+            && phase != QLatin1String("view-swap")
+            && phase != QLatin1String("first-target-row-built")
+            && phase != QLatin1String("landed")))
         return;
     m_tracedPhases.insert(phase);
     qCInfo(lcContext).nospace() << "context-phase phase=" << phase

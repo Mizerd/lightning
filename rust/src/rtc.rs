@@ -830,8 +830,9 @@ pub(crate) fn select_focus(members: &[RtcMember]) -> Option<LivekitTransport> {
 
 /// Read `org.matrix.msc4143.rtc_foci` (or stable `m.rtc_foci`) from
 /// `GET https://<server_name>/.well-known/matrix/client`, which is where
-/// MSC4143 advertises SFUs and Element Call reads them. There is no
-/// client-API transports endpoint.
+/// MSC4143 advertises SFUs and Element Call reads them. For a server name
+/// with a non-default port, a failed discovery is retried once at the same
+/// host without that port. There is no client-API transports endpoint.
 ///
 /// Hand-rolled over the SDK's HTTP client: `Client::well_known()` is private
 /// and the typed field needs matrix-sdk's `unstable-msc4143` feature. The
@@ -848,14 +849,14 @@ mod transports_endpoint {
         pub transports: Vec<serde_json::Value>,
     }
 
-    fn endpoint(client: &Client) -> Result<String, String> {
+    fn endpoints(client: &Client) -> Result<(String, Option<String>), String> {
         let server_name = client
             .user_id()
             .ok_or_else(|| "no session".to_owned())?
             .server_name()
             .as_str()
             .to_owned();
-        endpoint_for(&server_name)
+        Ok((endpoint_for(&server_name)?, fallback_for(&server_name)?))
     }
 
     /// The well-known URL for an MXID's server name, port included when the
@@ -892,11 +893,50 @@ mod transports_endpoint {
         Ok(parsed.to_string())
     }
 
+    /// A server name with a non-default port may serve client discovery at
+    /// the host's default HTTPS port instead. Validate the derived host with
+    /// the same rules as the primary URL before making a request to it.
+    pub(super) fn fallback_for(server_name: &str) -> Result<Option<String>, String> {
+        let primary = endpoint_for(server_name)?;
+        let parsed = url::Url::parse(&primary).map_err(|_| "bad url".to_owned())?;
+        let Some(port) = parsed.port() else {
+            return Ok(None);
+        };
+        let host = server_name
+            .strip_suffix(&format!(":{port}"))
+            .ok_or_else(|| "unusable server name".to_owned())?;
+        if parsed.host_str() != Some(host) {
+            return Err("unusable server name".to_owned());
+        }
+        let fallback = endpoint_for(host)?;
+        let fallback_url = url::Url::parse(&fallback).map_err(|_| "bad url".to_owned())?;
+        if fallback_url.host_str() != Some(host) || fallback_url.port().is_some() {
+            return Err("unusable server name".to_owned());
+        }
+        Ok(Some(fallback))
+    }
+
     pub(super) async fn get(
         client: &Client,
         timeout: std::time::Duration,
     ) -> Result<Answer, String> {
-        let url = endpoint(client)?;
+        let (url, fallback) = endpoints(client)?;
+        let first = get_once(client, url, timeout).await;
+        if let Some(fallback) = fallback {
+            if !matches!(&first, Ok(answer)
+                if (200..300).contains(&answer.status) && !answer.transports.is_empty())
+            {
+                return get_once(client, fallback, timeout).await;
+            }
+        }
+        first
+    }
+
+    async fn get_once(
+        client: &Client,
+        url: String,
+        timeout: std::time::Duration,
+    ) -> Result<Answer, String> {
         // No Authorization header: the file is public, and a bearer token would
         // leak to whatever host the MXID's domain resolves to.
         let response = client
@@ -5912,6 +5952,22 @@ mod tests {
         ] {
             assert!(endpoint_for(hostile).is_err(), "{hostile:?} must be refused");
         }
+    }
+
+    #[test]
+    fn a_non_default_port_has_one_validated_portless_fallback() {
+        use super::transports_endpoint::fallback_for;
+        assert_eq!(
+            fallback_for("example.org:8448").as_deref(),
+            Ok(Some("https://example.org/.well-known/matrix/client"))
+        );
+        assert_eq!(
+            fallback_for("127.0.0.2:18101").as_deref(),
+            Ok(Some("https://127.0.0.2/.well-known/matrix/client"))
+        );
+        assert_eq!(fallback_for("example.org"), Ok(None));
+        assert_eq!(fallback_for("example.org:443"), Ok(None));
+        assert!(fallback_for("evil.example/x:8448").is_err());
     }
 
     #[test]

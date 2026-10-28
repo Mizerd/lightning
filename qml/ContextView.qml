@@ -245,7 +245,8 @@ Rectangle {
 
                 delegate: MessageDelegate {
                     Component.onCompleted: {
-                        if (app.eventContext.state === ContextController.Ready
+                        if (app.eventContext.traceEnabled
+                                && app.eventContext.state === ContextController.Ready
                                 && index === app.eventContext.targetRow()) {
                             view.targetBuilt = true
                             app.eventContext.tracePhase("first-target-row-built")

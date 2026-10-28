@@ -44,6 +44,7 @@ class ContextController : public QObject
     // Edge loads allowed so far per side; each is one bounded page.
     Q_PROPERTY(bool canLoadOlder READ canLoadOlder NOTIFY edgesChanged)
     Q_PROPERTY(bool canLoadNewer READ canLoadNewer NOTIFY edgesChanged)
+    Q_PROPERTY(bool traceEnabled READ traceEnabled CONSTANT)
 
 public:
     enum State { Closed, Opening, Ready, Failed };
@@ -72,6 +73,7 @@ public:
     bool newerFailed() const { return m_newerFailed; }
     bool canLoadOlder() const;
     bool canLoadNewer() const;
+    bool traceEnabled() const { return m_scrollTraceEnabled; }
 
     // Open (or replace) the view for `eventId` in `roomId`. Returns false,
     // changing nothing, when the backend has no event context or an argument

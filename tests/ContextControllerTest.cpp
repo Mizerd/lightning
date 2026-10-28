@@ -8,13 +8,58 @@
 #include "models/PaginationController.h"
 #include "models/TimelineModel.h"
 
+#include <QLoggingCategory>
 #include <QSignalSpy>
+#include <QStringList>
 #include <QtTest/QtTest>
 
 namespace {
 constexpr int kSignalTimeoutMs = 2000;
 const QString kGeneral = QStringLiteral("!general:mock.local");
 const QString kDevs = QStringLiteral("!devs:mock.local");
+QStringList *traceMessages = nullptr;
+QtMessageHandler previousTraceHandler = nullptr;
+
+void captureTrace(QtMsgType type, const QMessageLogContext &context, const QString &message)
+{
+    if (traceMessages && context.category
+        && QLatin1String(context.category) == QLatin1String("lightning.timeline.context")
+        && message.contains(QLatin1String("context-phase"))) {
+        traceMessages->append(message);
+        return;
+    }
+    if (previousTraceHandler)
+        previousTraceHandler(type, context, message);
+}
+
+class TraceCapture
+{
+public:
+    TraceCapture()
+        : previousValue(qgetenv("LIGHTNING_SCROLL_TRACE"))
+        , wasSet(qEnvironmentVariableIsSet("LIGHTNING_SCROLL_TRACE"))
+    {
+        qputenv("LIGHTNING_SCROLL_TRACE", "1");
+        traceMessages = &messages;
+        previousTraceHandler = qInstallMessageHandler(captureTrace);
+    }
+    ~TraceCapture()
+    {
+        qInstallMessageHandler(previousTraceHandler);
+        previousTraceHandler = nullptr;
+        traceMessages = nullptr;
+        if (wasSet)
+            qputenv("LIGHTNING_SCROLL_TRACE", previousValue);
+        else
+            qunsetenv("LIGHTNING_SCROLL_TRACE");
+    }
+
+    QStringList messages;
+
+private:
+    QByteArray previousValue;
+    bool wasSet;
+};
 } // namespace
 
 class ContextControllerTest : public QObject
@@ -46,6 +91,25 @@ class ContextControllerTest : public QObject
     }
 
 private Q_SLOTS:
+    void traceIgnoresUnknownPhases()
+    {
+        MockMatrixClient client;
+        client.setEventContextEnabled(true);
+        QVERIFY(login(client));
+        TraceCapture capture;
+        ContextController context;
+        context.setClient(&client);
+        QVERIFY(context.traceEnabled());
+        QVERIFY(context.open(kGeneral, middleEventId(client)));
+        const int loggedBefore = capture.messages.size();
+        context.tracePhase(QStringLiteral("untrusted QML text"));
+        QCOMPARE(capture.messages.size(), loggedBefore);
+        context.tracePhase(QStringLiteral("view-swap"));
+        context.tracePhase(QStringLiteral("first-target-row-built"));
+        context.tracePhase(QStringLiteral("landed"));
+        QCOMPARE(capture.messages.size(), loggedBefore + 3);
+    }
+
     void aLoadedTargetIsJumpedToInPlaceAndNeverOpensTheView()
     {
         MockMatrixClient client;
