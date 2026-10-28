@@ -2282,10 +2282,13 @@ private slots:
         QCOMPARE(m_warnings, QStringList{});
     }
 
+    // The timeline's chat-wide drop hands its URLs and the portal key to
+    // MessageComposer::addDroppedAttachments (pinned by
+    // QmlBindingContractTest::chatWideDropQueuesAttachmentsWithRichPreviews);
+    // this scene has no TimelinePane, so the composer half is driven here:
+    // the portal key wins over a host path the sandbox cannot read.
     void aDropOnTheTimelineUsesThePortalKey()
     {
-        auto *area = item("chatDropArea");
-        QVERIFY(area != nullptr);
         const QString previousRoom = m_controller->currentRoomId();
         m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
         QTest::qWait(30);
@@ -2307,22 +2310,10 @@ private slots:
                 askedKey = key;
                 done(true, {exported});
             });
-        QMimeData mime;
-        mime.setData(QStringLiteral("text/uri-list"),
-                     QUrl::fromLocalFile(dir.filePath(
-                         QStringLiteral("host/timeline.bin"))).toEncoded()
-                         + QByteArrayLiteral("\r\n"));
-        mime.setData(QStringLiteral("application/vnd.portal.filetransfer"),
-                     QByteArray("timeline-key\0", 13));
-        const QPoint at = area->mapToScene(QPointF(area->width() / 2.0,
-                                                   area->height() / 2.0))
-                              .toPoint();
-        QDragEnterEvent enter(at, Qt::CopyAction, &mime, Qt::LeftButton,
-                              Qt::NoModifier);
-        QCoreApplication::sendEvent(m_window, &enter);
-        QDropEvent dropped(QPointF(at), Qt::CopyAction, &mime, Qt::LeftButton,
-                           Qt::NoModifier);
-        QCoreApplication::sendEvent(m_window, &dropped);
+        const QUrl hostPath = QUrl::fromLocalFile(
+            dir.filePath(QStringLiteral("host/timeline.bin")));
+        m_controller->composer()->addDroppedAttachments(
+            QList<QUrl>{hostPath}, QStringLiteral("timeline-key"));
         QCoreApplication::processEvents();
         QCOMPARE(askedKey, QStringLiteral("timeline-key"));
         QCOMPARE(queue->rowCount(), 1);

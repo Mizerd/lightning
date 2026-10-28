@@ -490,9 +490,13 @@ private Q_SLOTS:
         const QString pane = read(QStringLiteral("TimelinePane.qml"));
         QVERIFY(!pane.isEmpty());
         QVERIFY(pane.contains(QStringLiteral("id: chatDropArea")));
+        // Every drop goes through the composer's resolver, which hands a
+        // Flatpak's portal key to FileTransfer before plain file URLs.
         QVERIFY(pane.contains(QStringLiteral(
-            "app.composer.addAttachment(drop.urls[i])")));
-        QVERIFY(pane.contains(QStringLiteral("keys: [\"text/uri-list\"]")));
+            "app.composer.addDroppedAttachments(drop.hasUrls ? drop.urls : [], key)")));
+        QVERIFY(pane.contains(QStringLiteral("messageComposer.focusStagedAttachmentSend()")));
+        QVERIFY(pane.contains(QStringLiteral(
+            "keys: [\"text/uri-list\", \"application/vnd.portal.filetransfer\",")));
         // The chat-wide area never covers the thread surface, which owns its
         // own drops (thread send path): it stops at the thread panel when the
         // panel is beside the room and has no width when the thread takes the

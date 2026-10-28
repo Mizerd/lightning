@@ -8904,6 +8904,7 @@ Rectangle {
             var key = portalKey(drop)
             if (!drop.hasUrls && key === "") return
             app.composer.addDroppedAttachments(drop.hasUrls ? drop.urls : [], key)
+            messageComposer.focusStagedAttachmentSend()
             drop.accept(Qt.CopyAction)
         }
     }
