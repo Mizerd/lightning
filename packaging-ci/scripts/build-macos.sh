@@ -285,6 +285,7 @@ cat >"$CONTENTS/Info.plist" <<PLIST
     <key>NSHighResolutionCapable</key><true/>
     <key>NSHumanReadableCopyright</key><string>Copyright (C) 2026 Rokas Smetonis. GPL-3.0-or-later.</string>
     <key>NSMicrophoneUsageDescription</key><string>Lightning needs the microphone to record voice messages.</string>
+    <key>NSAudioCaptureUsageDescription</key><string>Lightning captures system audio only when you share your screen with sound.</string>
     <key>NSCameraUsageDescription</key><string>Lightning needs the camera only if you attach a photo or video you capture.</string>
 </dict>
 </plist>

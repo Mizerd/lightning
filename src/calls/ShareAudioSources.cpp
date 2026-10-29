@@ -240,6 +240,11 @@ SystemExclusion systemExclusionFor(Platform platform,
                 "newer)");
         verdict.how = QStringLiteral("process loopback");
         break;
+    case Platform::MacOS:
+        if (!elements.screenCaptureKit)
+            verdict.missing << QStringLiteral("ScreenCaptureKit audio source");
+        verdict.how = QStringLiteral("ScreenCaptureKit excluding current-process audio");
+        break;
     case Platform::Other:
         verdict.missing << QStringLiteral("a capture of what this computer "
                                           "plays");
@@ -255,8 +260,10 @@ QString systemExclusionStatusLine(const SystemExclusion &verdict)
 {
     if (verdict.possible) {
         return QStringLiteral("screen-share sound exclusion capability: available "
-                              "(%1; audio server required)")
-            .arg(verdict.how);
+                              "(%1; %2)")
+            .arg(verdict.how, verdict.how.startsWith(QLatin1String("ScreenCaptureKit"))
+                ? QStringLiteral("recording permission required")
+                : QStringLiteral("audio server required"));
     }
     return QStringLiteral("screen-share sound exclusion capability: unavailable "
                           "(share audio disabled; missing: %1)")
@@ -268,6 +275,9 @@ SystemCapture systemCaptureFor(Platform platform, bool perApplicationAvailable,
 {
     if (platform == Platform::Linux && perApplicationAvailable)
         return { SystemCapture::Kind::PerApplication, {}, true };
+    if (platform == Platform::MacOS && processLoopbackAvailable)
+        return { SystemCapture::Kind::ProcessLoopback,
+                 QStringLiteral("lightningmacsystemaudiosrc name=sharesrc"), true };
     if (platform == Platform::Windows && processLoopbackAvailable
         && ourPid > 0 && quint64(ourPid) <= 0xffffffffULL) {
         return { SystemCapture::Kind::ProcessLoopback,
@@ -841,7 +851,9 @@ ExclusionElements loadedExclusionElements()
 {
     ExclusionElements e;
     e.audiomixer = elementExists("audiomixer");
-#if defined(Q_OS_WIN)
+#if defined(Q_OS_MACOS)
+    e.screenCaptureKit = elementExists("lightningmacsystemaudiosrc");
+#elif defined(Q_OS_WIN)
     // The properties are installed only on Windows build 20348+.
     e.wasapiSource = elementExists("wasapi2src");
     e.wasapiProcessLoopback =
@@ -1130,23 +1142,27 @@ QList<Stream> windowsSessions(qint64 ourPid,
 
 SystemExclusion systemExclusion()
 {
-#if defined(HAVE_LIGHTNING_WEBRTC) && (defined(Q_OS_WIN) || defined(Q_OS_LINUX))
+#if defined(HAVE_LIGHTNING_WEBRTC) && (defined(Q_OS_WIN) || defined(Q_OS_LINUX) || defined(Q_OS_MACOS))
     if (!lightning::gst::ensureInitialised())
         return systemExclusionFor(Platform::Other, {});
-#if defined(Q_OS_WIN)
+#if defined(Q_OS_MACOS)
+    return systemExclusionFor(Platform::MacOS, loadedExclusionElements());
+#elif defined(Q_OS_WIN)
     return systemExclusionFor(Platform::Windows, loadedExclusionElements());
 #else
     return systemExclusionFor(Platform::Linux, loadedExclusionElements());
 #endif
 #else
-    // macOS has no loopback capture; without the engine nothing captures.
+    // Without the engine nothing captures.
     return systemExclusionFor(Platform::Other, {});
 #endif
 }
 
 SystemCapture systemCapture(qint64 ourPid)
 {
-#if defined(HAVE_LIGHTNING_WEBRTC) && defined(Q_OS_WIN)
+#if defined(HAVE_LIGHTNING_WEBRTC) && defined(Q_OS_MACOS)
+    return systemCaptureFor(Platform::MacOS, false, systemExclusion().possible, ourPid);
+#elif defined(HAVE_LIGHTNING_WEBRTC) && defined(Q_OS_WIN)
     static const bool available = systemExclusion().possible;
     return systemCaptureFor(Platform::Windows, false, available, ourPid);
 #elif defined(HAVE_LIGHTNING_WEBRTC) && defined(Q_OS_LINUX)
@@ -1174,6 +1190,8 @@ Unavailability unavailabilityFor(Platform platform,
             return Unavailability::MissingPlugin;
         return elements.wasapiProcessLoopback ? Unavailability::None
                                               : Unavailability::OldWindows;
+    case Platform::MacOS:
+        return elements.screenCaptureKit ? Unavailability::None : Unavailability::MissingPlugin;
     case Platform::Other:
         break;
     }
@@ -1182,7 +1200,9 @@ Unavailability unavailabilityFor(Platform platform,
 
 Unavailability systemUnavailability()
 {
-#if defined(HAVE_LIGHTNING_WEBRTC) && defined(Q_OS_WIN)
+#if defined(HAVE_LIGHTNING_WEBRTC) && defined(Q_OS_MACOS)
+    return systemExclusion().possible ? Unavailability::None : Unavailability::MissingPlugin;
+#elif defined(HAVE_LIGHTNING_WEBRTC) && defined(Q_OS_WIN)
     if (!lightning::gst::ensureInitialised())
         return Unavailability::NoCapture;
     return unavailabilityFor(Platform::Windows, loadedExclusionElements(), false);

@@ -5947,6 +5947,10 @@ if(BUILD_TESTING)
     target_include_directories(share-audio-sources-test PRIVATE src)
     target_link_libraries(share-audio-sources-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME share-audio-sources COMMAND share-audio-sources-test)
+    qt_add_executable(mac-audio-timeline-test tests/MacAudioTimelineTest.cpp)
+    target_include_directories(mac-audio-timeline-test PRIVATE src)
+    target_link_libraries(mac-audio-timeline-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME mac-audio-timeline COMMAND mac-audio-timeline-test)
 
     # The Qt audio backend the Flatpak asks for, and that main() asks before
     # anything touches Qt Multimedia (docs/open-items.md, the PipeWire sink
@@ -7753,6 +7757,14 @@ set(LIGHTNING_SPELL_SOURCES
 if(APPLE)
     enable_language(OBJCXX)
     list(APPEND LIGHTNING_SPELL_SOURCES src/text/SpellBackendMac.mm)
+    if(HAVE_LIGHTNING_WEBRTC)
+        target_sources(lightning-matrix PRIVATE src/calls/MacSystemAudioSrc.mm)
+        target_compile_definitions(lightning-matrix PRIVATE HAVE_LIGHTNING_MAC_SYSTEM_AUDIO=1)
+        set_source_files_properties(src/calls/MacSystemAudioSrc.mm PROPERTIES
+            COMPILE_OPTIONS "-fobjc-arc")
+        target_link_libraries(lightning-matrix PRIVATE
+            "-framework ScreenCaptureKit" "-framework CoreMedia" "-framework AudioToolbox")
+    endif()
 endif()
 # Linux: where Hunspell and its dictionaries live when the platform has no
 # global library path (Nix passes store paths; see nix/package.nix). Both are

@@ -3,6 +3,9 @@
 #include "calls/CallSoundPlayer.h"
 #ifdef HAVE_LIGHTNING_WEBRTC
 #include "calls/GstBootstrap.h"
+#ifdef HAVE_LIGHTNING_MAC_SYSTEM_AUDIO
+#include "calls/MacSystemAudioSrc.h"
+#endif
 #include "calls/ShareSourceImageProvider.h"
 #include "calls/GstCallMediaBackend.h"
 #include "calls/SfuMediaEngine.h"
@@ -1770,6 +1773,10 @@ static int printCallMediaStatus()
 
     QString whyNot;
     const bool inited = lightning::gst::ensureInitialised(&whyNot);
+#if defined(HAVE_LIGHTNING_MAC_SYSTEM_AUDIO)
+    if (inited && qEnvironmentVariableIsSet("LIGHTNING_TEST_MAC_CAPTURE"))
+        return lightning::macaudio::captureDiagnostic();
+#endif
     const QString bundled = lightning::gst::bundledPluginPath();
     out << "bundled plugin directory: "
         << (bundled.isEmpty()
