@@ -5947,6 +5947,10 @@ if(BUILD_TESTING)
     target_include_directories(share-audio-sources-test PRIVATE src)
     target_link_libraries(share-audio-sources-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME share-audio-sources COMMAND share-audio-sources-test)
+    qt_add_executable(mac-audio-timeline-test tests/MacAudioTimelineTest.cpp)
+    target_include_directories(mac-audio-timeline-test PRIVATE src)
+    target_link_libraries(mac-audio-timeline-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME mac-audio-timeline COMMAND mac-audio-timeline-test)
 
     # The Qt audio backend the Flatpak asks for, and that main() asks before
     # anything touches Qt Multimedia (docs/open-items.md, the PipeWire sink

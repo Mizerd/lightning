@@ -1,5 +1,6 @@
 #include "calls/MacSystemAudioSrc.h"
 #include "calls/ShareAudioSources.h"
+#include "calls/MacAudioTimeline.h"
 
 #import <ScreenCaptureKit/ScreenCaptureKit.h>
 #import <CoreMedia/CoreMedia.h>
@@ -22,6 +23,9 @@ struct AudioQueue {
     std::deque<GstBuffer *> buffers;
     bool flushing = false;
     bool failed = false;
+    bool discontinuity = false;
+    guint64 dropped = 0;
+    GstClockTime maxAge = 0;
     ~AudioQueue() { for (auto *buffer : buffers) gst_buffer_unref(buffer); }
 };
 }
@@ -46,6 +50,8 @@ struct AudioQueue {
 {
     (void)stream;
     if (type != SCStreamOutputTypeAudio || !CMSampleBufferIsValid(sample)) return;
+    const CMTime captured = CMSampleBufferGetPresentationTimeStamp(sample);
+    if (!CMTIME_IS_NUMERIC(captured)) return;
     const auto *format = CMAudioFormatDescriptionGetStreamBasicDescription(
         CMSampleBufferGetFormatDescription(sample));
     if (!format || format->mFormatID != kAudioFormatLinearPCM
@@ -95,13 +101,15 @@ struct AudioQueue {
     gst_buffer_unmap(buffer, &map);
     if (block) CFRelease(block);
     GST_BUFFER_DURATION(buffer) = gst_util_uint64_scale(frames, GST_SECOND, 48000);
-    // GstBaseSrc stamps running time when the buffer leaves this bounded queue.
+    GST_BUFFER_PTS(buffer) = CMTimeConvertScale(captured, GST_SECOND,
+        kCMTimeRoundingMethod_RoundHalfAwayFromZero).value;
     std::lock_guard lock(audioQueue->mutex);
     if (audioQueue->flushing) { gst_buffer_unref(buffer); return; }
-    while (audioQueue->buffers.size() >= 12) {
+    while (audioQueue->buffers.size() >= 6) {
         gst_buffer_unref(audioQueue->buffers.front());
         audioQueue->buffers.pop_front();
-        GST_BUFFER_FLAG_SET(buffer, GST_BUFFER_FLAG_DISCONT);
+        audioQueue->discontinuity = true;
+        ++audioQueue->dropped;
     }
     audioQueue->buffers.push_back(buffer);
     audioQueue->ready.notify_one();
@@ -111,6 +119,7 @@ struct AudioQueue {
 namespace {
 struct Session {
     std::shared_ptr<AudioQueue> queue = std::make_shared<AudioQueue>();
+    lightning::macaudio::CaptureTimeline timeline;
     SCStream *__strong stream = nil;
     LightningAudioOutput *__strong output = nil;
 };
@@ -149,7 +158,8 @@ gboolean start(GstBaseSrc *base)
         config.channelCount = 2;
         // Only attach an audio output. No screen images leave this stream.
         config.width = 2; config.height = 2;
-        config.minimumFrameInterval = CMTimeMake(1, 1);
+        config.minimumFrameInterval = CMTimeMake(1, 60);
+        config.queueDepth = 3;
         session->output = [LightningAudioOutput new];
         session->output->audioQueue = session->queue;
         session->stream = [[SCStream alloc] initWithFilter:filter
@@ -208,16 +218,50 @@ gboolean stop(GstBaseSrc *base)
 }
 GstFlowReturn create(GstPushSrc *src, GstBuffer **buffer)
 {
-    auto queue = reinterpret_cast<LightningMacAudio *>(src)->session->queue;
+    auto *session = reinterpret_cast<LightningMacAudio *>(src)->session;
+    auto queue = session->queue;
     std::unique_lock lock(queue->mutex);
-    queue->ready.wait(lock, [&] { return queue->flushing || queue->failed || !queue->buffers.empty(); });
-    if (queue->flushing) return GST_FLOW_FLUSHING;
-    if (queue->failed) {
-        GST_ELEMENT_ERROR(src, RESOURCE, READ, ("System audio capture stopped"), (nullptr));
-        return GST_FLOW_ERROR;
+    for (;;) {
+        queue->ready.wait(lock, [&] { return queue->flushing || queue->failed || !queue->buffers.empty(); });
+        if (queue->flushing) return GST_FLOW_FLUSHING;
+        if (queue->failed) {
+            GST_ELEMENT_ERROR(src, RESOURCE, READ, ("System audio capture stopped"), (nullptr));
+            return GST_FLOW_ERROR;
+        }
+        GstBuffer *next = queue->buffers.front(); queue->buffers.pop_front();
+        GstClock *clock = gst_element_get_clock(GST_ELEMENT(src));
+        if (!clock) { gst_buffer_unref(next); continue; }
+        const GstClockTime now = gst_clock_get_time(clock);
+        gst_object_unref(clock);
+        const GstClockTime base = gst_element_get_base_time(GST_ELEMENT(src));
+        const auto hostNow = CMTimeConvertScale(CMClockGetTime(CMClockGetHostTimeClock()),
+            GST_SECOND, kCMTimeRoundingMethod_RoundHalfAwayFromZero).value;
+        const auto captured = static_cast<std::int64_t>(GST_BUFFER_PTS(next));
+        const auto pts = now >= base ? session->timeline.map(captured, hostNow, now - base)
+                                     : std::optional<std::uint64_t>{};
+        if (!pts) {
+            gst_buffer_unref(next);
+            ++queue->dropped;
+            queue->discontinuity = true;
+            continue;
+        }
+        queue->maxAge = std::max(queue->maxAge, GstClockTime(hostNow - captured));
+        GST_BUFFER_PTS(next) = *pts;
+        if (queue->discontinuity) {
+            GST_BUFFER_FLAG_SET(next, GST_BUFFER_FLAG_DISCONT);
+            queue->discontinuity = false;
+        }
+        *buffer = next;
+        return GST_FLOW_OK;
     }
-    *buffer = queue->buffers.front(); queue->buffers.pop_front();
-    return GST_FLOW_OK;
+}
+gboolean query(GstBaseSrc *src, GstQuery *query)
+{
+    if (GST_QUERY_TYPE(query) == GST_QUERY_LATENCY) {
+        gst_query_set_latency(query, TRUE, 40*GST_MSECOND, 100*GST_MSECOND);
+        return TRUE;
+    }
+    return GST_BASE_SRC_CLASS(lightning_mac_audio_parent_class)->query(src, query);
 }
 void finalize(GObject *object)
 {
@@ -232,6 +276,7 @@ void lightning_mac_audio_class_init(LightningMacAudioClass *klass)
     auto *base = GST_BASE_SRC_CLASS(klass);
     base->start = start; base->stop = stop;
     base->unlock = unlock; base->unlock_stop = unlockStop;
+    base->query = query;
     GST_PUSH_SRC_CLASS(klass)->create = create;
     gst_element_class_set_static_metadata(GST_ELEMENT_CLASS(klass),
         "macOS system audio", "Source/Audio", "ScreenCaptureKit audio excluding Lightning", "Lightning contributors");
@@ -245,7 +290,7 @@ void lightning_mac_audio_init(LightningMacAudio *self)
     self->session = nullptr;
     gst_base_src_set_live(GST_BASE_SRC(self), TRUE);
     gst_base_src_set_format(GST_BASE_SRC(self), GST_FORMAT_TIME);
-    gst_base_src_set_do_timestamp(GST_BASE_SRC(self), TRUE);
+    gst_base_src_set_do_timestamp(GST_BASE_SRC(self), FALSE);
 }
 }
 
@@ -262,7 +307,7 @@ int captureDiagnostic()
     // Exercise the actual share track's Opus/RTP chain, then decode locally.
     const QString description = lightning::shareaudio::encodedTrackDescription(
         QStringLiteral("lightningmacsystemaudiosrc name=sharesrc"), 12345)
-        + QStringLiteral(" ! rtpopusdepay ! opusdec ! audioconvert "
+        + QStringLiteral(" ! clocksync ! rtpopusdepay ! opusdec ! audioconvert "
                          "! audio/x-raw,format=F32LE,layout=interleaved,channels=2,rate=48000 "
                          "! appsink name=captured sync=false max-buffers=8 drop=true");
     GstElement *pipeline = gst_parse_launch(description.toUtf8().constData(), &error);
@@ -283,6 +328,8 @@ int captureDiagnostic()
         }
     }
     size_t frames = 0; double peak = 0;
+    GstClockTime previousEnd = GST_CLOCK_TIME_NONE, maxPtsGap = 0;
+    guint64 timestampBreaks = 0;
     double toneReal = 0, toneImaginary = 0, tonePeak = 0;
     size_t toneFrames = 0;
     const GstClockTime deadline = gst_util_get_timestamp() + 7*GST_SECOND;
@@ -291,6 +338,15 @@ int captureDiagnostic()
         if (!sample) continue;
         GstMapInfo map;
         GstBuffer *buffer = gst_sample_get_buffer(sample);
+        if (GST_BUFFER_PTS_IS_VALID(buffer) && GST_BUFFER_DURATION_IS_VALID(buffer)) {
+            if (GST_CLOCK_TIME_IS_VALID(previousEnd)) {
+                const auto pts = GST_BUFFER_PTS(buffer);
+                const auto gap = pts > previousEnd ? pts - previousEnd : previousEnd - pts;
+                maxPtsGap = std::max(maxPtsGap, gap);
+                if (gap > GST_MSECOND) ++timestampBreaks;
+            }
+            previousEnd = GST_BUFFER_PTS(buffer) + GST_BUFFER_DURATION(buffer);
+        }
         if (gst_buffer_map(buffer, &map, GST_MAP_READ)) {
             const float *values = reinterpret_cast<const float *>(map.data);
             for (size_t j = 0; j < map.size/sizeof(float); ++j) peak = std::max(peak, double(std::abs(values[j])));
@@ -320,9 +376,23 @@ int captureDiagnostic()
         g_error_free(captureError); g_free(details); gst_message_unref(message);
     }
     gst_object_unref(bus);
+    guint64 dropped = 0;
+    GstClockTime maxCaptureAge = 0;
+    if (GstElement *capture = gst_bin_get_by_name(GST_BIN(pipeline), "sharesrc")) {
+        auto *session = reinterpret_cast<LightningMacAudio *>(capture)->session;
+        if (session) {
+            std::lock_guard lock(session->queue->mutex);
+            dropped = session->queue->dropped;
+            maxCaptureAge = session->queue->maxAge;
+        }
+        gst_object_unref(capture);
+    }
     gst_element_set_state(pipeline, GST_STATE_NULL);
     gst_object_unref(sink); gst_object_unref(pipeline);
     printf("macOS system audio RTP roundtrip: frames=%zu peak=%.6f tone-997Hz=%.6f excludes-current-process=yes\n", frames, peak, tonePeak);
+    printf("audio timing: max-capture-age-ms=%.3f max-decoded-pts-gap-ms=%.6f timestamp-breaks=%llu dropped=%llu\n",
+        maxCaptureAge / double(GST_MSECOND), maxPtsGap / double(GST_MSECOND),
+        static_cast<unsigned long long>(timestampBreaks), static_cast<unsigned long long>(dropped));
     return frames > 0 && (selfTest ? playbackStarted && tonePeak < 0.001 : peak > 0.0001) ? 0 : 1;
 }
 }

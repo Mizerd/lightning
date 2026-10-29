@@ -653,6 +653,13 @@ Lightning Screen & System Audio Recording access. Capture starts only when
 the audio track is published, and stops when it is removed. Availability
 checks do not request permission or start a capture.
 
+Audio buffers retain ScreenCaptureKit presentation timestamps, mapped once
+from the host clock to the call pipeline’s running time. Callback scheduling
+does not set the audio clock. The source advertises 40 ms capture latency,
+bounds its queue, and drops samples already more than 100 ms old rather than
+sending delayed audio. The diagnostic also runs through a clock-synchronizing
+stage and reports capture age and decoded timestamp gaps.
+
 For a local capture check, run the bundled executable with
 `LIGHTNING_TEST_MAC_CAPTURE=1` and `--call-media-status`, and play sound in
 another application during its seven-second capture. It exercises the production
