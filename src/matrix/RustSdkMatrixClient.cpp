@@ -11090,8 +11090,8 @@ quint64 RustSdkMatrixClient::rtcSendCallReaction(
     const QByteArray membership = membershipEventId.toUtf8();
     const QByteArray emojiBytes = emoji.toUtf8();
     const QByteArray nameBytes = name.toUtf8();
-    // Rust validates the (emoji, name) pair against element-call's table:
-    // Element looks up a reaction's sound by name.
+    // Rust checks known sound names against their emoji; an empty name uses
+    // Element Call's generic sound for a Unicode picker reaction.
     const QString result = takeRustString(mx_rust_rtc_send_call_reaction(
         m_rustHandle, room.constData(), membership.constData(),
         emojiBytes.constData(), nameBytes.constData(), opId));

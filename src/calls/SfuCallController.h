@@ -606,9 +606,8 @@ public:
     Q_INVOKABLE void toggleHandRaised();
     /// Send one transient call reaction in element-call's format:
     /// `io.element.call.reaction` referencing this device's own
-    /// `m.call.member` event by `m.reference`. `name` is element-call's key
-    /// for the emoji; rust/src/rtc.rs checks the pair against its
-    /// `ReactionSet`.
+    /// `m.call.member` event by `m.reference`. Known `name` values match
+    /// Element Call's sound table; an empty name uses its generic sound.
     ///
     /// Not optimistic: our reaction is drawn only when the event comes back,
     /// like a remote one, so a failed send never shows.

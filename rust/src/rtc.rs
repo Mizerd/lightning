@@ -3085,10 +3085,8 @@ pub(crate) const EV_CALL_REACTION: &str = "io.element.call.reaction";
 /// The reaction pairs element-call knows, `(name, emoji)`, transcribed from
 /// `element-call/src/reactions/index.ts` (`ReactionSet`).
 ///
-/// Closed for sending: element-call looks the sound up by `name`, so an
-/// unknown name reaches Element as a silent generic reaction. Not applied
-/// to received reactions, so a new element-call entry is still shown;
-/// inbound emoji are bounded by [`reaction_emoji`].
+/// Known sound names must keep their matching emoji. An empty name asks
+/// Element Call to use its generic sound for another Unicode emoji.
 const ELEMENT_CALL_REACTIONS: &[(&str, &str)] = &[
     ("thumbsup", "\u{1F44D}"),
     ("party", "\u{1F389}"),
@@ -3111,8 +3109,8 @@ const ELEMENT_CALL_REACTIONS: &[(&str, &str)] = &[
 /// Send timeout. Reactions are fire-and-forget; this only bounds the task.
 const REACTION_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Byte bound on an inbound `emoji` field. element-call sends 4 to 11
-/// bytes; this allows longer legitimate sequences and refuses payloads.
+/// Byte bound on a reaction `emoji` field. This allows longer legitimate
+/// Unicode sequences and refuses payloads.
 const MAX_REACTION_EMOJI_LEN: usize = 64;
 /// Code-point bound on the cluster [`first_emoji_cluster`] builds (a family
 /// sequence is seven), which also guarantees termination on hostile input.
@@ -3133,7 +3131,7 @@ const MAX_REACTION_CLUSTER_CHARS: usize = 8;
 /// reaches the handler. serde does not verify an internally tagged
 /// struct's tag inbound, so `rel_type: m.annotation` still deserializes as
 /// a `Reference`; the type pins what we send, and element-call's reader
-/// ignores `rel_type` too. `name` is optional inbound; we always send it.
+/// ignores `rel_type` too. `name` is optional inbound; picker reactions send it empty.
 #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
 #[ruma_event(type = "io.element.call.reaction", kind = MessageLike)]
 pub(crate) struct ElementCallReactionEventContent {
@@ -3206,8 +3204,7 @@ fn first_emoji_cluster(value: &str) -> String {
 ///
 /// `membership_event_id` is this device's own `m.call.member` event, as
 /// observed by RtcController, so a refresh's replacement is referenced (as
-/// in `set_hand_raised`). The `(name, emoji)` pair must be in
-/// [`ELEMENT_CALL_REACTIONS`].
+/// in `set_hand_raised`). Known sound names must match [`ELEMENT_CALL_REACTIONS`].
 ///
 /// No backlog sweep, unlike hands: reactions are transient, and sweeping at
 /// join would resurrect stale ones. element-call does not either.
@@ -3227,18 +3224,19 @@ pub(crate) fn send_call_reaction(
             .map_err(|_| "invalid membership event id".to_owned())?,
         None => return Err("no membership event to reference".to_owned()),
     };
-    let Some((name, emoji)) = ELEMENT_CALL_REACTIONS
-        .iter()
-        .find(|(known_name, known_emoji)| {
-            *known_name == name && *known_emoji == emoji
-        })
-    else {
+    if sane(&emoji, MAX_REACTION_EMOJI_LEN).is_none() || emoji.trim() != emoji {
         return Err("unknown reaction".to_owned());
-    };
+    }
+    if !name.is_empty()
+        && !ELEMENT_CALL_REACTIONS.iter().any(|(known_name, known_emoji)| {
+            *known_name == name && *known_emoji == emoji
+        }) {
+        return Err("unknown reaction".to_owned());
+    }
 
     let content = ElementCallReactionEventContent {
-        emoji: (*emoji).to_owned(),
-        name: (*name).to_owned(),
+        emoji,
+        name,
         relates_to: Reference::new(target),
     };
 
@@ -6113,6 +6111,18 @@ mod tests {
         );
         assert_eq!(value["emoji"], json!("\u{1F44D}"));
         assert_eq!(value["name"], json!("thumbsup"));
+
+        // Unknown Unicode emoji use Element Call's generic reaction sound.
+        let custom = ElementCallReactionEventContent {
+            emoji: "🦊".to_owned(),
+            name: String::new(),
+            relates_to: Reference::new(
+                EventId::parse("$membership:example.org").expect("event id"),
+            ),
+        };
+        let custom_value = serde_json::to_value(&custom).expect("serializes");
+        assert_eq!(custom_value["emoji"], json!("🦊"));
+        assert_eq!(custom_value["name"], json!(""));
     }
 
     #[test]

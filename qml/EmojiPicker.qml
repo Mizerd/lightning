@@ -25,6 +25,8 @@ AnchoredPopup {
     id: picker
     property string mode: "composer"
     property bool closeAfterSelection: true
+    // Call reactions carry Unicode text, not image-pack mxc URIs.
+    property bool allowCustomEmoji: true
 
     readonly property bool reactionMode: mode === "reaction"
     // Reaction mode only: false shows the quick bar, true the grid. Reset on
@@ -177,7 +179,7 @@ AnchoredPopup {
     // image-pack standard); MessageDelegate renders such a key as an image. In
     // the composer a pick inserts the shortcode text, bound to that exact image.
     // Doesn't call recordUse(): recents are the Unicode catalogue's.
-    readonly property bool customEmojiOffered: app.stickers.available
+    readonly property bool customEmojiOffered: allowCustomEmoji && app.stickers.available
     readonly property var customEmoji: {
         // reactionEmoticons() is a plain call; reading `revision` re-evaluates this
         // when a snapshot lands.

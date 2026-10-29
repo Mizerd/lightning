@@ -8368,12 +8368,13 @@ private Q_SLOTS:
             QStringLiteral("@bea:example.org"), QStringLiteral("BDEV"),
             membership);
 
+        const QString customEmoji = QString::fromUtf8("🦊");
         client.emitCallReaction(room, QStringLiteral("@bea:example.org"),
-                                membership, kThumbsUpEmoji);
+                                membership, customEmoji);
         QCOMPARE(participantRole(model, participantRowFor(model, identity),
                                  CallParticipantModel::ReactionEmojiRole)
                      .toString(),
-                 kThumbsUpEmoji);
+                 customEmoji);
 
         // Nobody else's tile moved: a reaction is drawn on the tile of whoever
         // owns the referenced membership.
@@ -8705,6 +8706,18 @@ private Q_SLOTS:
         rtc.refresh(room);
         client.answerSession(client.lastSessionOp, session);
 
+        // The controller refuses malformed choices before the recording
+        // client's send path, including image-pack keys and multiple emoji.
+        for (const QString &invalid : {
+                 QStringLiteral("mxc://example.org/image"),
+                 QStringLiteral("text"),
+                 QString::fromUtf8("🦊🎉"),
+                 QString(40, QChar(0x2600)),
+             }) {
+            call.sendCallReaction(invalid, QString());
+        }
+        QCOMPARE(client.reactionSends.size(), 0);
+
         call.sendCallReaction(kThumbsUpEmoji,
                               QStringLiteral("thumbsup"));
         QCOMPARE(client.reactionSends.size(), 1);
@@ -8732,18 +8745,20 @@ private Q_SLOTS:
         // ...unless the send failed, so the user can retry at once.
         client.answerRtcSend(client.lastReactionOp, false,
                              QStringLiteral("network"));
-        call.sendCallReaction(kPartyEmoji,
-                              QStringLiteral("party"));
+        const QString pickedEmoji = QString::fromUtf8("🦊");
+        call.sendCallReaction(pickedEmoji, QString());
         QCOMPARE(client.reactionSends.size(), 2);
+        QCOMPARE(client.reactionSends.at(1).emoji, pickedEmoji);
+        QCOMPARE(client.reactionSends.at(1).name, QString());
 
         // The returning event draws it, attributed through our membership.
         client.emitCallReaction(room, QStringLiteral("@me:example.org"),
                                 ownMembership,
-                                kPartyEmoji);
+                                pickedEmoji);
         QCOMPARE(participantRole(model, participantRowFor(model, ownIdentity),
                                  CallParticipantModel::ReactionEmojiRole)
                      .toString(),
-                 kPartyEmoji);
+                 pickedEmoji);
     }
 
     // A share-audio failure costs the share's sound, not the call:

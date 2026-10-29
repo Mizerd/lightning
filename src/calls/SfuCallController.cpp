@@ -26,6 +26,7 @@
 #include <QMap>
 #include <QRandomGenerator>
 #include <QSet>
+#include <QTextBoundaryFinder>
 #include <QUuid>
 #include <QVariantMap>
 
@@ -6486,7 +6487,19 @@ void SfuCallController::toggleHandRaised() { setHandRaised(!m_handRaised); }
 void SfuCallController::sendCallReaction(const QString &emoji,
                                          const QString &name)
 {
-    if (!active() || m_roomId.isEmpty() || !m_client || emoji.isEmpty())
+    // A call reaction is one Unicode emoji, never a pack image URI or text.
+    // Bound the input before grapheme segmentation and before crossing the FFI.
+    if (emoji.isEmpty() || emoji.toUtf8().size() > 64
+        || emoji.contains(QChar(0xFFFD))
+        || emoji.at(0).isLetter() || emoji.at(0).isSpace()
+        || (emoji.at(0).isDigit() && !emoji.endsWith(QChar(0x20E3)))
+        || (emoji.at(0).unicode() < 0x80
+            && !emoji.endsWith(QChar(0x20E3))))
+        return;
+    QTextBoundaryFinder finder(QTextBoundaryFinder::Grapheme, emoji);
+    if (finder.toNextBoundary() != emoji.size())
+        return;
+    if (!active() || m_roomId.isEmpty() || !m_client)
         return;
     // Outbound rate limit: the same 3 s window the reaction is shown for.
     // Receivers drop a second reaction inside it anyway, so a held or

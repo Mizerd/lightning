@@ -421,8 +421,8 @@ Rectangle {
         // by the same ReactionsReader as a raised hand. The set is the first
         // row (5) of element-call's ReactionSet (src/reactions/index.ts); each
         // `name` is what Element clients look the sound up by, so the pairs
-        // must match. rust/src/rtc.rs holds the same table and refuses pairs
-        // not in it.
+        // must match. The picker also offers any Unicode emoji with a generic
+        // sound (empty name), as Element Call's reader does.
         Loader {
             active: root.richMedia && !root.tight
             visible: active
@@ -436,6 +436,15 @@ Rectangle {
                 tooltip: qsTr("Send a reaction")
                 onClicked: reactionPopup.opened ? reactionPopup.close()
                                                 : reactionPopup.open()
+
+                EmojiPicker {
+                    id: callEmojiPicker
+                    objectName: "callEmojiPicker"
+                    mode: "reaction"
+                    openExpanded: true
+                    allowCustomEmoji: false
+                    onEmojiChosen: (emoji) => app.groupCall.sendCallReaction(emoji, "")
+                }
 
                 Popup {
                     id: reactionPopup
@@ -524,6 +533,41 @@ Rectangle {
                                         reactionChoice.modelData.name)
                                     reactionPopup.close()
                                 }
+                            }
+                        }
+                        AbstractButton {
+                            objectName: "callReactionMore"
+                            implicitWidth: 36
+                            implicitHeight: 36
+                            hoverEnabled: true
+                            focusPolicy: Qt.StrongFocus
+                            Accessible.role: Accessible.Button
+                            Accessible.name: qsTr("More reactions")
+                            ToolTip.visible: hovered
+                            ToolTip.delay: 400
+                            ToolTip.text: qsTr("More reactions")
+                            background: Rectangle {
+                                radius: AppTheme.radiusSm
+                                color: parent.pressed ? AppTheme.selectedHover
+                                       : (parent.hovered || parent.activeFocus
+                                          ? AppTheme.hover : "transparent")
+                                border.width: parent.activeFocus ? 2 : 0
+                                border.color: AppTheme.focusRing
+                            }
+                            contentItem: Icon {
+                                name: "add_reaction"
+                                size: 20
+                                color: AppTheme.textPrimary
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                            onClicked: {
+                                callEmojiPicker.openExpanded = true
+                                callEmojiPicker.anchorPoint = reactButton.mapToItem(
+                                    Overlay.overlay, reactButton.width / 2,
+                                    root.dock ? 0 : reactButton.height)
+                                reactionPopup.close()
+                                callEmojiPicker.open()
                             }
                         }
                     }

@@ -2413,6 +2413,23 @@ Item {
         }
     }
 
+    void theCallReactionMoreChoiceUsesTheUnicodePickerAndSameSendPath()
+    {
+        const QString bar = normalized(
+            read(QStringLiteral(QML_DIR "/CallHeaderBar.qml")));
+        const QString picker = normalized(
+            read(QStringLiteral(QML_DIR "/EmojiPicker.qml")));
+        QVERIFY(bar.contains(QStringLiteral("objectName: \"callReactionMore\"")));
+        QVERIFY(bar.contains(QStringLiteral("EmojiPicker {")));
+        QVERIFY(bar.contains(QStringLiteral("mode: \"reaction\"")));
+        QVERIFY(bar.contains(QStringLiteral("allowCustomEmoji: false")));
+        QVERIFY(bar.contains(QStringLiteral("callEmojiPicker.openExpanded = true")));
+        QVERIFY(bar.contains(QStringLiteral("callEmojiPicker.open()")));
+        QVERIFY(bar.contains(QStringLiteral(
+            "onEmojiChosen: (emoji) => app.groupCall.sendCallReaction(emoji, \"\")")));
+        QVERIFY(picker.contains(QStringLiteral("app.emojiCatalog.recordUse(emoji)")));
+    }
+
     void theCallReactionWireFormatIsElementCallsOwn()
     {
         const QString rtc =
