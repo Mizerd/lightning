@@ -661,12 +661,12 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     </message>
     <message>
         <location line="+1"/>
-        <location line="+397"/>
+        <location line="+420"/>
         <source>Following</source>
         <translation>Nachfolgend</translation>
     </message>
     <message>
-        <location line="-396"/>
+        <location line="-419"/>
         <source>All known</source>
         <translation>Alles bekannt</translation>
     </message>
@@ -736,7 +736,7 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <translation>Noch nichts da. Erwähnungen, Antworten und Reaktionen auf dich erscheinen hier, sobald sie eintreffen.</translation>
     </message>
     <message>
-        <location line="+169"/>
+        <location line="+192"/>
         <location line="+83"/>
         <location line="+33"/>
         <source>Encrypted message</source>
@@ -753,17 +753,20 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <translation>Thread-Aktivität</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="-148"/>
+        <location line="+169"/>
         <source>Loading…</source>
         <translation>Wird geladen …</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="-167"/>
+        <location line="+169"/>
         <source>Retry older activity</source>
         <translation>Ältere Aktivität erneut versuchen</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="-168"/>
+        <location line="+169"/>
         <source>Load older activity</source>
         <translation>Ältere Aktivitäten laden</translation>
     </message>
@@ -2861,7 +2864,7 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <translation>Reaktion senden</translation>
     </message>
     <message>
-        <location line="+37"/>
+        <location line="+46"/>
         <source>Thumbs up</source>
         <translation>Daumen hoch</translation>
     </message>
@@ -2886,7 +2889,13 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <translation>Katze</translation>
     </message>
     <message>
-        <location line="+66"/>
+        <location line="+55"/>
+        <location line="+3"/>
+        <source>More reactions</source>
+        <translation type="unfinished">Weitere Reaktionen</translation>
+    </message>
+    <message>
+        <location line="+43"/>
         <source>Show who&apos;s in the call (%1)</source>
         <translation>Anzeigen, wer im Anruf ist (%1)</translation>
     </message>
@@ -4350,7 +4359,7 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
 <context>
     <name>ContextView</name>
     <message>
-        <location filename="../qml/ContextView.qml" line="+108"/>
+        <location filename="../qml/ContextView.qml" line="+130"/>
         <source>Viewing an older message</source>
         <translation>Du siehst eine ältere Nachricht</translation>
     </message>
@@ -4360,7 +4369,7 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <translation>Zur neuesten springen</translation>
     </message>
     <message>
-        <location line="+132"/>
+        <location line="+145"/>
         <location line="+29"/>
         <source>Could not load. Try again</source>
         <translation>Konnte nicht geladen werden. Erneut versuchen</translation>
@@ -7299,7 +7308,7 @@ Größe: %3</translation>
 <context>
     <name>EmojiPicker</name>
     <message>
-        <location filename="../qml/EmojiPicker.qml" line="+73"/>
+        <location filename="../qml/EmojiPicker.qml" line="+75"/>
         <source>Search results</source>
         <translation>Suchergebnisse</translation>
     </message>
@@ -7646,7 +7655,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location filename="../src/models/TimelineModel.cpp" line="+2966"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+2975"/>
         <source>Voice message</source>
         <translation>Sprachnachricht</translation>
     </message>
@@ -11108,7 +11117,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Raumliste in der Größe ändern</translation>
     </message>
     <message>
-        <location line="+265"/>
+        <location line="+271"/>
         <source>Signing out…</source>
         <translation>Abmeldung läuft …</translation>
     </message>
@@ -12518,14 +12527,14 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <location line="-663"/>
         <location line="+70"/>
         <location line="+590"/>
-        <location line="+4835"/>
+        <location line="+4851"/>
         <location line="+1192"/>
         <location line="+89"/>
         <source>Video</source>
         <translation>Video</translation>
     </message>
     <message>
-        <location line="-6774"/>
+        <location line="-6790"/>
         <source>Voice message</source>
         <translation>Sprachnachricht</translation>
     </message>
@@ -12538,24 +12547,24 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     <message>
         <location line="-656"/>
         <location line="+654"/>
-        <location line="+4214"/>
+        <location line="+4230"/>
         <location line="+462"/>
         <location line="+587"/>
         <source>GIF</source>
         <translation>GIF</translation>
     </message>
     <message>
-        <location line="-5917"/>
+        <location line="-5933"/>
         <location line="+66"/>
         <location line="+587"/>
-        <location line="+4837"/>
+        <location line="+4853"/>
         <source>Image</source>
         <translation>Bild</translation>
     </message>
     <message>
-        <location line="-5489"/>
+        <location line="-5505"/>
         <location line="+656"/>
-        <location line="+4946"/>
+        <location line="+4962"/>
         <location line="+1388"/>
         <location line="+4"/>
         <location line="+30"/>
@@ -12563,7 +12572,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Datei</translation>
     </message>
     <message>
-        <location line="-7023"/>
+        <location line="-7039"/>
         <source>Attachment</source>
         <translation>Anhang</translation>
     </message>
@@ -12589,7 +12598,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         </translation>
     </message>
     <message>
-        <location line="+272"/>
+        <location line="+282"/>
         <source>Today</source>
         <translation>Heute</translation>
     </message>
@@ -12620,19 +12629,19 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     </message>
     <message>
         <location line="+14"/>
-        <location line="+1229"/>
+        <location line="+1233"/>
         <source>Retry decryption</source>
         <translation>Entschlüsselung erneut versuchen</translation>
     </message>
     <message>
-        <location line="-1021"/>
-        <location line="+214"/>
+        <location line="-1022"/>
+        <location line="+213"/>
         <source>Avatar for %1</source>
         <translation>Avatar von %1</translation>
     </message>
     <message>
-        <location line="-170"/>
-        <location line="+243"/>
+        <location line="-169"/>
+        <location line="+242"/>
         <source>Sent at %1</source>
         <translation>Gesendet um %1</translation>
     </message>
@@ -12668,13 +12677,13 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     </message>
     <message>
         <location line="+102"/>
-        <location line="+1005"/>
-        <location line="+1316"/>
+        <location line="+1007"/>
+        <location line="+1318"/>
         <source>Reply</source>
         <translation>Antworten</translation>
     </message>
     <message>
-        <location line="-2305"/>
+        <location line="-2309"/>
         <source>Original message removed</source>
         <translation>Ursprüngliche Nachricht entfernt</translation>
     </message>
@@ -12698,7 +12707,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Nachricht gelöscht</translation>
     </message>
     <message>
-        <location line="+122"/>
+        <location line="+124"/>
         <source>Missing room key. Restore your recovery key in Settings, or wait for another verified device to share the key.</source>
         <translation>Raumschlüssel fehlt. Stelle deinen Wiederherstellungsschlüssel in den Einstellungen wieder her oder warte, bis ein anderes verifiziertes Gerät den Schlüssel teilt.</translation>
     </message>
@@ -12789,30 +12798,30 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     </message>
     <message>
         <location line="+17"/>
-        <location line="+2627"/>
+        <location line="+2629"/>
         <location line="+1144"/>
         <source>Retry</source>
         <translation>Wiederholen</translation>
     </message>
     <message>
-        <location line="-3741"/>
-        <location line="+1385"/>
+        <location line="-3743"/>
+        <location line="+1387"/>
         <source>Cancel</source>
         <translation>Abbrechen</translation>
     </message>
     <message>
-        <location line="-1380"/>
+        <location line="-1382"/>
         <source>Cancel sending this message</source>
         <translation>Senden dieser Nachricht abbrechen</translation>
     </message>
     <message>
         <location line="+167"/>
-        <location line="+1604"/>
+        <location line="+1606"/>
         <source>Hide image</source>
         <translation>Bild ausblenden</translation>
     </message>
     <message>
-        <location line="-1600"/>
+        <location line="-1602"/>
         <source>Hide</source>
         <translation>Ausblenden</translation>
     </message>
@@ -12834,23 +12843,23 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     <message>
         <location line="+31"/>
         <location line="+4"/>
-        <location line="+1295"/>
+        <location line="+1297"/>
         <source>Reply in thread</source>
         <translation>Im Thread antworten</translation>
     </message>
     <message>
-        <location line="-1276"/>
+        <location line="-1278"/>
         <source>Edit message</source>
         <translation>Nachricht bearbeiten</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+1582"/>
+        <location line="+1584"/>
         <source>Edit</source>
         <translation>Bearbeiten</translation>
     </message>
     <message>
-        <location line="-1558"/>
+        <location line="-1560"/>
         <source>More message actions</source>
         <translation>Weitere Nachrichtenaktionen</translation>
     </message>
@@ -12860,7 +12869,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Mehr</translation>
     </message>
     <message>
-        <location line="+187"/>
+        <location line="+188"/>
         <source>%1 and 1 other</source>
         <translation>%1 und 1 weitere Person</translation>
     </message>
@@ -12906,7 +12915,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Reaktion hinzufügen</translation>
     </message>
     <message>
-        <location line="+57"/>
+        <location line="+55"/>
         <source>Sent</source>
         <translation>Gesendet</translation>
     </message>
@@ -12936,7 +12945,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Gelesen von %1, %2 und %3 weiteren</translation>
     </message>
     <message>
-        <location line="+633"/>
+        <location line="+636"/>
         <source>Message · %1 · %2</source>
         <translation>Nachricht · %1 · %2</translation>
     </message>
@@ -13113,12 +13122,12 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Löschen</translation>
     </message>
     <message>
-        <location line="-2953"/>
+        <location line="-2957"/>
         <source>Open this thread</source>
         <translation>Diesen Thread öffnen</translation>
     </message>
     <message>
-        <location line="+2195"/>
+        <location line="+2199"/>
         <source>Delete message?</source>
         <translation>Nachricht löschen?</translation>
     </message>
@@ -18810,7 +18819,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
 <context>
     <name>RoomsPanel</name>
     <message>
-        <location filename="../qml/RoomsPanel.qml" line="+221"/>
+        <location filename="../qml/RoomsPanel.qml" line="+227"/>
         <location line="+3"/>
         <location line="+5"/>
         <source>Lightning</source>
@@ -19320,7 +19329,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <location line="+215"/>
         <location line="+61"/>
         <location line="+151"/>
-        <location line="+5112"/>
+        <location line="+5126"/>
         <location line="+96"/>
         <location line="+13"/>
         <location line="+50"/>
@@ -19329,15 +19338,15 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Nicht angemeldet.</translation>
     </message>
     <message>
-        <location line="-5513"/>
+        <location line="-5527"/>
         <location line="+61"/>
         <location line="+151"/>
-        <location line="+5307"/>
+        <location line="+5321"/>
         <source>Unknown room: %1</source>
         <translation>Unbekannter Raum: %1</translation>
     </message>
     <message>
-        <location line="-5515"/>
+        <location line="-5529"/>
         <location line="+61"/>
         <location line="+151"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -19345,13 +19354,13 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     </message>
     <message>
         <location line="+796"/>
-        <location line="+2906"/>
+        <location line="+2920"/>
         <location line="+73"/>
         <source>The sticker could not be sent.</source>
         <translation>Der Sticker konnte nicht gesendet werden.</translation>
     </message>
     <message>
-        <location line="-1597"/>
+        <location line="-1611"/>
         <source>Lightning cannot send that yet.</source>
         <translation>Lightning kann das noch nicht senden.</translation>
     </message>
@@ -19391,7 +19400,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Die erneute Anmeldung als dieses Gerät hat nicht funktioniert. Auf diesem Gerät wurde nichts geändert. Versuche es erneut oder entferne dieses Konto unten.</translation>
     </message>
     <message>
-        <location line="+151"/>
+        <location line="+165"/>
         <source>Matrix session is no longer authorized.</source>
         <translation>Die Matrix-Sitzung ist nicht mehr autorisiert.</translation>
     </message>
@@ -19539,7 +19548,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
 <context>
     <name>RustTimeline</name>
     <message>
-        <location filename="../src/matrix/RustTimelineIngest.cpp" line="+561"/>
+        <location filename="../src/matrix/RustTimelineIngest.cpp" line="+565"/>
         <source>[unable to decrypt yet]</source>
         <translation>[noch nicht entschlüsselbar]</translation>
     </message>
@@ -25578,7 +25587,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
 <context>
     <name>SfuCallController</name>
     <message>
-        <location filename="../src/calls/SfuCallController.cpp" line="+803"/>
+        <location filename="../src/calls/SfuCallController.cpp" line="+813"/>
         <location line="+466"/>
         <location line="+131"/>
         <source>Screen sharing isn&apos;t available on this desktop.</source>
@@ -25972,7 +25981,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Gerade ist nichts zu hören.</translation>
     </message>
     <message>
-        <location line="+445"/>
+        <location line="+457"/>
         <source>The call was declined.</source>
         <translation>Der Anruf wurde abgelehnt.</translation>
     </message>
@@ -31213,7 +31222,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
 <context>
     <name>TimelineModel</name>
     <message>
-        <location filename="../src/models/TimelineModel.cpp" line="-1691"/>
+        <location filename="../src/models/TimelineModel.cpp" line="-1700"/>
         <source>%1 changed their display name from “%2” to “%3” and changed their avatar.</source>
         <translation>%1 hat den Anzeigenamen von „%2“ in „%3“ geändert und den Avatar geändert.</translation>
     </message>
@@ -31263,7 +31272,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>%1 hat einen Anruf gestartet.</translation>
     </message>
     <message>
-        <location line="+1415"/>
+        <location line="+1424"/>
         <source>%1 is typing…</source>
         <translation>%1 schreibt …</translation>
     </message>
@@ -33649,7 +33658,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2640"/>
+        <location filename="../src/main.cpp" line="+2649"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>Nativer Qt/QML-Matrix-Client. Backend: --backend={mock,http,rust}. Standard: rust (http in Versionen ohne das Rust-SDK).</translation>
     </message>

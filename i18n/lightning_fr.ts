@@ -656,12 +656,12 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
     </message>
     <message>
         <location line="+1"/>
-        <location line="+397"/>
+        <location line="+420"/>
         <source>Following</source>
         <translation>Suite</translation>
     </message>
     <message>
-        <location line="-396"/>
+        <location line="-419"/>
         <source>All known</source>
         <translation>Tous connus</translation>
     </message>
@@ -716,22 +716,25 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Rien pour l&apos;instant. Les mentions, réponses et réactions qui vous concernent apparaîtront à leur arrivée.</translation>
     </message>
     <message>
-        <location line="+203"/>
+        <location line="+226"/>
         <source>Threads activity</source>
         <translation>Activité des fils</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="-148"/>
+        <location line="+169"/>
         <source>Loading…</source>
         <translation>Chargement…</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="-167"/>
+        <location line="+169"/>
         <source>Retry older activity</source>
         <translation>Réessayer une activité plus ancienne</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="-168"/>
+        <location line="+169"/>
         <source>Load older activity</source>
         <translation>Charger une activité plus ancienne</translation>
     </message>
@@ -756,7 +759,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Mentionner</translation>
     </message>
     <message>
-        <location line="-553"/>
+        <location line="-576"/>
         <source>encrypted message</source>
         <translation>message chiffré</translation>
     </message>
@@ -776,7 +779,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Aucun mot-clé défini. Ajoutez-en dans Paramètres, sous Notifications.</translation>
     </message>
     <message>
-        <location line="+173"/>
+        <location line="+196"/>
         <location line="+83"/>
         <location line="+33"/>
         <source>Encrypted message</source>
@@ -2831,7 +2834,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Envoyer une réaction</translation>
     </message>
     <message>
-        <location line="+37"/>
+        <location line="+46"/>
         <source>Thumbs up</source>
         <translation>Pouce levé</translation>
     </message>
@@ -2856,7 +2859,13 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Chat</translation>
     </message>
     <message>
-        <location line="+66"/>
+        <location line="+55"/>
+        <location line="+3"/>
+        <source>More reactions</source>
+        <translation type="unfinished">Plus de réactions</translation>
+    </message>
+    <message>
+        <location line="+43"/>
         <source>Show who&apos;s in the call (%1)</source>
         <translation>Afficher qui participe à l&apos;appel (%1)</translation>
     </message>
@@ -2871,7 +2880,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Détacher l&apos;appel dans une fenêtre flottante</translation>
     </message>
     <message>
-        <location line="-359"/>
+        <location line="-403"/>
         <source>Unmute microphone</source>
         <translation>Activer le microphone</translation>
     </message>
@@ -2901,7 +2910,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Choisir le périphérique de sortie</translation>
     </message>
     <message>
-        <location line="+340"/>
+        <location line="+384"/>
         <source>Leave call</source>
         <translation>Quitter l&apos;appel</translation>
     </message>
@@ -4350,7 +4359,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
 <context>
     <name>ContextView</name>
     <message>
-        <location filename="../qml/ContextView.qml" line="+108"/>
+        <location filename="../qml/ContextView.qml" line="+130"/>
         <source>Viewing an older message</source>
         <translation>Vous consultez un message plus ancien</translation>
     </message>
@@ -4360,7 +4369,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Aller au plus récent</translation>
     </message>
     <message>
-        <location line="+132"/>
+        <location line="+145"/>
         <location line="+29"/>
         <source>Could not load. Try again</source>
         <translation>Chargement impossible. Réessayez</translation>
@@ -7299,7 +7308,7 @@ Taille : %3</translation>
 <context>
     <name>EmojiPicker</name>
     <message>
-        <location filename="../qml/EmojiPicker.qml" line="+73"/>
+        <location filename="../qml/EmojiPicker.qml" line="+75"/>
         <source>Search results</source>
         <translation>Résultats de la recherche</translation>
     </message>
@@ -7646,7 +7655,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="+4"/>
-        <location filename="../src/models/TimelineModel.cpp" line="+2966"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+2975"/>
         <source>Voice message</source>
         <translation>Message vocal</translation>
     </message>
@@ -11108,7 +11117,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Redimensionner la liste des salons</translation>
     </message>
     <message>
-        <location line="+265"/>
+        <location line="+271"/>
         <source>Signing out…</source>
         <translation>Déconnexion…</translation>
     </message>
@@ -12494,7 +12503,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
 <context>
     <name>MessageDelegate</name>
     <message>
-        <location filename="../qml/MessageDelegate.qml" line="+1379"/>
+        <location filename="../qml/MessageDelegate.qml" line="+1389"/>
         <source>Today</source>
         <translation>Aujourd&apos;hui</translation>
     </message>
@@ -12514,14 +12523,14 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Nouveaux messages</translation>
     </message>
     <message>
-        <location line="+304"/>
-        <location line="+214"/>
+        <location line="+307"/>
+        <location line="+213"/>
         <source>Avatar for %1</source>
         <translation>Avatar de %1</translation>
     </message>
     <message>
-        <location line="-170"/>
-        <location line="+243"/>
+        <location line="-169"/>
+        <location line="+242"/>
         <source>Sent at %1</source>
         <translation>Envoyé à %1</translation>
     </message>
@@ -12542,13 +12551,13 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="+102"/>
-        <location line="+1005"/>
-        <location line="+1316"/>
+        <location line="+1007"/>
+        <location line="+1318"/>
         <source>Reply</source>
         <translation>Répondre</translation>
     </message>
     <message>
-        <location line="-2303"/>
+        <location line="-2307"/>
         <source>(original message not loaded)</source>
         <translation>(message d&apos;origine non chargé)</translation>
     </message>
@@ -12562,7 +12571,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         </translation>
     </message>
     <message>
-        <location line="+128"/>
+        <location line="+130"/>
         <source>Missing room key. Restore your recovery key in Settings, or wait for another verified device to share the key.</source>
         <translation>Clé de salon manquante. Restaurez votre clé de récupération dans les Paramètres, ou attendez qu&apos;un autre appareil vérifié partage la clé.</translation>
     </message>
@@ -12592,8 +12601,8 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>En attente des clés…</translation>
     </message>
     <message>
-        <location line="-1219"/>
-        <location line="+1229"/>
+        <location line="-1223"/>
+        <location line="+1233"/>
         <source>Retry decryption</source>
         <translation>Réessayer le déchiffrement</translation>
     </message>
@@ -12603,17 +12612,17 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Paramètres de sécurité</translation>
     </message>
     <message>
-        <location line="-2324"/>
+        <location line="-2338"/>
         <source>Link</source>
         <translation>Lien</translation>
     </message>
     <message>
-        <location line="+1614"/>
+        <location line="+1626"/>
         <source>Open this thread</source>
         <translation>Ouvrir ce fil</translation>
     </message>
     <message>
-        <location line="+799"/>
+        <location line="+801"/>
         <source>Show the link preview again</source>
         <translation>Afficher à nouveau l&apos;aperçu du lien</translation>
     </message>
@@ -12649,30 +12658,30 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="+17"/>
-        <location line="+2627"/>
+        <location line="+2629"/>
         <location line="+1144"/>
         <source>Retry</source>
         <translation>Réessayer</translation>
     </message>
     <message>
-        <location line="-3741"/>
-        <location line="+1385"/>
+        <location line="-3743"/>
+        <location line="+1387"/>
         <source>Cancel</source>
         <translation>Annuler</translation>
     </message>
     <message>
-        <location line="-1380"/>
+        <location line="-1382"/>
         <source>Cancel sending this message</source>
         <translation>Annuler l&apos;envoi de ce message</translation>
     </message>
     <message>
         <location line="+167"/>
-        <location line="+1604"/>
+        <location line="+1606"/>
         <source>Hide image</source>
         <translation>Masquer l&apos;image</translation>
     </message>
     <message>
-        <location line="-1600"/>
+        <location line="-1602"/>
         <source>Hide</source>
         <translation>Masquer</translation>
     </message>
@@ -12707,7 +12716,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Plus</translation>
     </message>
     <message>
-        <location line="+187"/>
+        <location line="+188"/>
         <source>%1 and 1 other</source>
         <translation>%1 et 1 autre</translation>
     </message>
@@ -12753,7 +12762,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Ajouter une réaction</translation>
     </message>
     <message>
-        <location line="+57"/>
+        <location line="+55"/>
         <source>Sent</source>
         <translation>Envoyé</translation>
     </message>
@@ -12783,24 +12792,24 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Lu par %1, %2 et %3 autres</translation>
     </message>
     <message>
-        <location line="+633"/>
+        <location line="+636"/>
         <source>Message · %1 · %2</source>
         <translation>Message · %1 · %2</translation>
     </message>
     <message>
-        <location line="-1170"/>
+        <location line="-1172"/>
         <location line="+4"/>
-        <location line="+1295"/>
+        <location line="+1297"/>
         <source>Reply in thread</source>
         <translation>Répondre dans un fil</translation>
     </message>
     <message>
-        <location line="-2315"/>
+        <location line="-2319"/>
         <source>Original message removed</source>
         <translation>Message d&apos;origine supprimé</translation>
     </message>
     <message>
-        <location line="+2328"/>
+        <location line="+2332"/>
         <source>Open in room</source>
         <translation>Ouvrir dans le salon</translation>
     </message>
@@ -12992,13 +13001,13 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Réessayer</translation>
     </message>
     <message>
-        <location line="-4189"/>
-        <location line="+1582"/>
+        <location line="-4191"/>
+        <location line="+1584"/>
         <source>Edit</source>
         <translation>Modifier</translation>
     </message>
     <message>
-        <location line="-4530"/>
+        <location line="-4546"/>
         <source>%1 B</source>
         <translation>%1 o</translation>
     </message>
@@ -13032,22 +13041,22 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     <message>
         <location line="-656"/>
         <location line="+654"/>
-        <location line="+4214"/>
+        <location line="+4230"/>
         <location line="+462"/>
         <location line="+587"/>
         <source>GIF</source>
         <translation>GIF</translation>
     </message>
     <message>
-        <location line="-5917"/>
+        <location line="-5933"/>
         <location line="+66"/>
         <location line="+587"/>
-        <location line="+4837"/>
+        <location line="+4853"/>
         <source>Image</source>
         <translation>Image</translation>
     </message>
     <message>
-        <location line="-5488"/>
+        <location line="-5504"/>
         <source>Attachment</source>
         <translation>Pièce jointe</translation>
     </message>
@@ -13068,7 +13077,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         </translation>
     </message>
     <message>
-        <location line="+491"/>
+        <location line="+501"/>
         <source>A reply in a thread is waiting for keys</source>
         <translation>Une réponse dans un fil attend des clés</translation>
     </message>
@@ -13078,7 +13087,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Ouvrir le fil</translation>
     </message>
     <message>
-        <location line="+544"/>
+        <location line="+546"/>
         <source>Back to the room</source>
         <translation>Retour au salon</translation>
     </message>
@@ -13098,7 +13107,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Message supprimé</translation>
     </message>
     <message>
-        <location line="+532"/>
+        <location line="+534"/>
         <source>%1 • not sent: connection problem</source>
         <translation>%1 • non envoyé : problème de connexion</translation>
     </message>
@@ -13113,7 +13122,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>(modifié)</translation>
     </message>
     <message>
-        <location line="+1806"/>
+        <location line="+1808"/>
         <source>Add :%1: to my emoji</source>
         <translation>Ajouter :%1: à mes emoji</translation>
     </message>
@@ -13251,12 +13260,12 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Cible de la réponse</translation>
     </message>
     <message>
-        <location line="-2225"/>
+        <location line="-2227"/>
         <source>Show preview</source>
         <translation>Afficher l&apos;aperçu</translation>
     </message>
     <message>
-        <location line="+2050"/>
+        <location line="+2052"/>
         <source>Remove edits?</source>
         <translation>Supprimer les modifications ?</translation>
     </message>
@@ -13378,10 +13387,10 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Échec du chargement de l&apos;autocollant — cliquez pour réessayer</translation>
     </message>
     <message>
-        <location line="-6361"/>
+        <location line="-6377"/>
         <location line="+70"/>
         <location line="+590"/>
-        <location line="+4835"/>
+        <location line="+4851"/>
         <location line="+1192"/>
         <location line="+89"/>
         <source>Video</source>
@@ -13394,9 +13403,9 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>vidéo</translation>
     </message>
     <message>
-        <location line="-6788"/>
+        <location line="-6804"/>
         <location line="+656"/>
-        <location line="+4946"/>
+        <location line="+4962"/>
         <location line="+1388"/>
         <location line="+4"/>
         <location line="+30"/>
@@ -18810,7 +18819,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
 <context>
     <name>RoomsPanel</name>
     <message>
-        <location filename="../qml/RoomsPanel.qml" line="+221"/>
+        <location filename="../qml/RoomsPanel.qml" line="+227"/>
         <location line="+3"/>
         <location line="+5"/>
         <source>Lightning</source>
@@ -19290,7 +19299,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <location line="+215"/>
         <location line="+61"/>
         <location line="+151"/>
-        <location line="+5112"/>
+        <location line="+5126"/>
         <location line="+96"/>
         <location line="+13"/>
         <location line="+50"/>
@@ -19299,15 +19308,15 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Non connecté.</translation>
     </message>
     <message>
-        <location line="-5513"/>
+        <location line="-5527"/>
         <location line="+61"/>
         <location line="+151"/>
-        <location line="+5307"/>
+        <location line="+5321"/>
         <source>Unknown room: %1</source>
         <translation>Salon inconnu : %1</translation>
     </message>
     <message>
-        <location line="-5515"/>
+        <location line="-5529"/>
         <location line="+61"/>
         <location line="+151"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -19315,13 +19324,13 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="+796"/>
-        <location line="+2906"/>
+        <location line="+2920"/>
         <location line="+73"/>
         <source>The sticker could not be sent.</source>
         <translation>L&apos;autocollant n&apos;a pas pu être envoyé.</translation>
     </message>
     <message>
-        <location line="-1597"/>
+        <location line="-1611"/>
         <source>Lightning cannot send that yet.</source>
         <translation>Lightning ne peut pas encore envoyer cela.</translation>
     </message>
@@ -19361,7 +19370,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>La reconnexion de cet appareil a échoué. Rien sur cet appareil n&apos;a été modifié. Réessayez, ou supprimez ce compte ci-dessous.</translation>
     </message>
     <message>
-        <location line="+151"/>
+        <location line="+165"/>
         <source>Matrix session is no longer authorized.</source>
         <translation>La session Matrix n&apos;est plus autorisée.</translation>
     </message>
@@ -19413,7 +19422,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>L&apos;action sur le sondage n&apos;a pas pu être effectuée.</translation>
     </message>
     <message>
-        <location line="-7376"/>
+        <location line="-7390"/>
         <source>This account&apos;s data is still in use by a background session. Wait a moment and try again.</source>
         <translation>Les données de ce compte sont encore utilisées par une session en arrière-plan. Patientez un instant et réessayez.</translation>
     </message>
@@ -19443,7 +19452,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Saisissez votre mot de passe.</translation>
     </message>
     <message>
-        <location line="+6317"/>
+        <location line="+6331"/>
         <source>Message could not be sent. You can retry from the message&apos;s Retry action.</source>
         <translation>Le message n&apos;a pas pu être envoyé. Vous pouvez réessayer depuis l&apos;action Réessayer du message.</translation>
     </message>
@@ -19539,7 +19548,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
 <context>
     <name>RustTimeline</name>
     <message>
-        <location filename="../src/matrix/RustTimelineIngest.cpp" line="+561"/>
+        <location filename="../src/matrix/RustTimelineIngest.cpp" line="+565"/>
         <source>[unable to decrypt yet]</source>
         <translation>[déchiffrement impossible pour l&apos;instant]</translation>
     </message>
@@ -25578,7 +25587,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
 <context>
     <name>SfuCallController</name>
     <message>
-        <location filename="../src/calls/SfuCallController.cpp" line="+803"/>
+        <location filename="../src/calls/SfuCallController.cpp" line="+813"/>
         <location line="+466"/>
         <location line="+131"/>
         <source>Screen sharing isn&apos;t available on this desktop.</source>
@@ -25957,12 +25966,12 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Rien n&apos;est entendu en ce moment.</translation>
     </message>
     <message>
-        <location line="+445"/>
+        <location line="+457"/>
         <source>The call was declined.</source>
         <translation>L&apos;appel a été refusé.</translation>
     </message>
     <message>
-        <location line="-4608"/>
+        <location line="-4620"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>Cette salle est cryptée et les appels cryptés ne sont pas encore disponibles sur cette version.</translation>
     </message>
@@ -31213,7 +31222,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
 <context>
     <name>TimelineModel</name>
     <message>
-        <location filename="../src/models/TimelineModel.cpp" line="-1691"/>
+        <location filename="../src/models/TimelineModel.cpp" line="-1700"/>
         <source>%1 changed their display name from “%2” to “%3” and changed their avatar.</source>
         <translation>%1 a changé son nom affiché de « %2 » en « %3 » et a changé son avatar.</translation>
     </message>
@@ -31263,7 +31272,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>%1 a démarré un appel.</translation>
     </message>
     <message>
-        <location line="+1415"/>
+        <location line="+1424"/>
         <source>%1 is typing…</source>
         <translation>%1 est en train d&apos;écrire…</translation>
     </message>
@@ -33649,7 +33658,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2640"/>
+        <location filename="../src/main.cpp" line="+2649"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>Client Matrix natif Qt/QML. Backend : --backend={mock,http,rust}. Par défaut : rust (http dans les versions sans le Rust SDK).</translation>
     </message>
