@@ -1986,6 +1986,25 @@ fn delayed_refusal_recorded_for_client(client: &Client) -> bool {
 static OWN_MEMBERSHIP_PUBLISHED: Mutex<BTreeSet<String>> =
     Mutex::new(BTreeSet::new());
 
+/// A bridge's membership writes share one lock. Operation tombstones survive
+/// a successful leave, so a queued old publish cannot recreate that call and
+/// a queued old leave cannot retract a newer join. Op ids come from C++'s
+/// monotonically increasing nextOpId, scoped by room + account/device key.
+#[derive(Default)]
+pub(crate) struct MembershipDelayRegistry {
+    delays: BTreeMap<String, String>,
+    operations: BTreeMap<String, u64>,
+}
+
+impl MembershipDelayRegistry {
+    fn accept_operation(&mut self, key: &str, operation: u64) -> bool {
+        let latest = self.operations.entry(key.to_owned()).or_default();
+        if operation < *latest { return false; }
+        *latest = operation;
+        true
+    }
+}
+
 /// Key for both halves. U+001F cannot occur in a room id or state key.
 fn membership_publish_key(room_id: &str, state_key: &str) -> String {
     format!("{room_id}\u{1f}{state_key}")
@@ -2242,11 +2261,16 @@ pub(crate) fn publish_membership(
         })
     };
 
+    let delays = Arc::clone(&bridge.rtc_membership_delays);
     let events = Arc::clone(&bridge.events);
     let timelines = Arc::clone(&bridge.timelines);
     let lifecycle = timelines.lifecycle();
 
     bridge.spawn_room_action(async move {
+        // A fallback/refresh must not arm a second `{}` timer on this state key.
+        // Serialize publish and retract, including their network operations.
+        let mut registry = delays.lock().await;
+        if !timelines.lifecycle_current(lifecycle) { return; }
         // Our compatibility membership always describes where we publish.
         // Mixed calls may initially select the oldest focus, but a publish
         // denial moves this device home; legacy peers still use the oldest
@@ -2271,6 +2295,34 @@ pub(crate) fn publish_membership(
         // on a join, so a crashed session's ghost cannot leak in.
         let publish_key =
             membership_publish_key(room.room_id().as_str(), &state_key);
+        if !registry.accept_operation(&publish_key, op_id) {
+            enqueue(&events, json!({
+                "type": "rtc_membership_published", "op_id": op_id,
+                "lifecycle": lifecycle, "room_id": room_id, "ok": false,
+                "category": "cancelled", "event_id": "", "delay_id": "",
+                "delayed_category": "",
+            }));
+            return;
+        }
+        let delays = &mut registry.delays;
+        // Keep an existing timer alive before the metadata write. A lost
+        // timer can be replaced; an ambiguous failure must retain its id.
+        let previous_delay = delays.get(&publish_key).cloned().unwrap_or_default();
+        let reusable_delay = match reuse_membership_delay(&previous_delay, |id| {
+            restart_membership_delay(&client, id)
+        }).await {
+            Ok(id) => id,
+            Err(category) => {
+                enqueue(&events, json!({
+                    "type": "rtc_membership_published", "op_id": op_id,
+                    "lifecycle": lifecycle, "room_id": room_id, "ok": false,
+                    "category": category, "event_id": "", "delay_id": previous_delay,
+                    "delayed_category": "",
+                }));
+                return;
+            }
+        };
+        if reusable_delay.is_empty() { delays.remove(&publish_key); }
         let is_refresh = membership_published_in_this_process(&publish_key);
         let created_ts = if is_refresh {
             read_own_created_ts(&room, &state_key).await
@@ -2289,7 +2341,11 @@ pub(crate) fn publish_membership(
 
         // The expiry assumed from what we know about this server; checked against
         // what the server does with the delayed retraction below.
-        let assumed_no_delayed = delayed_refusal_recorded_for_client(&client);
+        // A successful restart is stronger evidence than another room's
+        // cached refusal. A live timer needs the long expiry: C++ heartbeats
+        // restart it instead of re-publishing and extending short expires.
+        let assumed_no_delayed = reusable_delay.is_empty()
+            && delayed_refusal_recorded_for_client(&client);
         let period_ms = if assumed_no_delayed {
             MEMBERSHIP_EXPIRY_NO_DELAYED_MS
         } else {
@@ -2342,9 +2398,11 @@ pub(crate) fn publish_membership(
         // fix.
         let mut delay_id = String::new();
         let mut delayed_category = String::new();
-        if ok && delayed_retraction_is_repairable(assumed_no_delayed) {
-            match schedule_delayed_leave(&client, room.room_id().as_str(),
-                                         &state_key).await
+        if ok {
+            match ensure_membership_delay(&reusable_delay,
+                delayed_retraction_is_repairable(assumed_no_delayed),
+                |id| restart_membership_delay(&client, id),
+                || schedule_delayed_leave(&client, room.room_id().as_str(), &state_key)).await
             {
                 Ok(id) => {
                     // A successful arm clears this server's refusal entry, so a server that
@@ -2352,7 +2410,13 @@ pub(crate) fn publish_membership(
                     if !id.is_empty() {
                         mark_delayed_refusal_for_client(&client, false);
                     }
+                    delays.insert(publish_key.clone(), id.clone());
                     delay_id = id;
+                }
+                Err(reason) if !reusable_delay.is_empty() => {
+                    ok = false;
+                    category = reason;
+                    delay_id = reusable_delay.clone();
                 }
                 Err(category) => delayed_category = category,
             }
@@ -2481,18 +2545,64 @@ fn inheritable_created_ts(
     Some(created)
 }
 
-/// Cancel one delayed event. Best effort: callers are committed, and an
-/// uncancelled event would retract a membership we are about to rewrite.
-async fn cancel_delayed_leave(client: &Client, delay_id: &str) {
-    use matrix_sdk::ruma::api::client::delayed_events::update_delayed_event;
-    if delay_id.is_empty() {
-        return;
+/// Reuse the timer attached to a live membership. Only a definitive missing
+/// event permits a replacement; a timeout may still have restarted it.
+async fn reuse_membership_delay<F, Fut>(existing: &str, restart: F) -> Result<String, String>
+where
+    F: FnOnce(String) -> Fut,
+    Fut: std::future::Future<Output = Result<(), String>>,
+{
+    if existing.is_empty() { return Ok(String::new()); }
+    match restart(existing.to_owned()).await {
+        Ok(()) => Ok(existing.to_owned()),
+        Err(reason) if reason == "not_found" => Ok(String::new()),
+        Err(reason) => Err(reason),
     }
+}
+
+async fn ensure_membership_delay<F, Fut, G, Gut>(
+    existing: &str, allow_new_timer: bool, restart: F, schedule: G,
+) -> Result<String, String>
+where
+    F: FnOnce(String) -> Fut,
+    Fut: std::future::Future<Output = Result<(), String>>,
+    G: FnOnce() -> Gut,
+    Gut: std::future::Future<Output = Result<String, String>>,
+{
+    // This runs after the state write. A missing existing timer may have
+    // already retracted that state: replacing only the timer would report a
+    // healthy membership that is actually absent. Keep the old id on failure
+    // so the controller's heartbeat repair performs a fresh state write.
+    if !existing.is_empty() {
+        restart(existing.to_owned()).await?;
+        return Ok(existing.to_owned());
+    }
+    if allow_new_timer { schedule().await } else { Ok(String::new()) }
+}
+
+async fn restart_membership_delay(client: &Client, id: String) -> Result<(), String> {
+    use matrix_sdk::ruma::api::client::delayed_events::update_delayed_event;
     let request = update_delayed_event::unstable::Request::new(
-        delay_id.to_owned(),
-        update_delayed_event::unstable::UpdateAction::Cancel,
-    );
-    let _ = tokio::time::timeout(DISCOVERY_TIMEOUT, client.send(request)).await;
+        id, update_delayed_event::unstable::UpdateAction::Restart);
+    match tokio::time::timeout(DISCOVERY_TIMEOUT, client.send(request)).await {
+        Ok(Ok(_)) => Ok(()),
+        Ok(Err(err)) => Err(classify_room_error(&err.to_string()).to_owned()),
+        Err(_) => Err("network".to_owned()),
+    }
+}
+
+/// Cancel a delayed event, retaining its id after an ambiguous failure so a
+/// rapid rejoin can reuse it instead of leaving an orphaned cleanup timer.
+async fn cancel_membership_delay(client: &Client, id: &str) -> bool {
+    use matrix_sdk::ruma::api::client::delayed_events::update_delayed_event;
+    if id.is_empty() { return true; }
+    let request = update_delayed_event::unstable::Request::new(
+        id.to_owned(), update_delayed_event::unstable::UpdateAction::Cancel);
+    match tokio::time::timeout(DISCOVERY_TIMEOUT, client.send(request)).await {
+        Ok(Ok(_)) => true,
+        Ok(Err(err)) => classify_room_error(&err.to_string()) == "not_found",
+        Err(_) => false,
+    }
 }
 
 /// Whether a delayed retraction may be armed on this publish: only where
@@ -2635,11 +2745,14 @@ pub(crate) fn retract_membership(
         .ok_or_else(|| "no session".to_owned())?
         .to_string();
 
+    let delays = Arc::clone(&bridge.rtc_membership_delays);
     let events = Arc::clone(&bridge.events);
     let timelines = Arc::clone(&bridge.timelines);
     let lifecycle = timelines.lifecycle();
 
     bridge.spawn_room_action(async move {
+        let mut registry = delays.lock().await;
+        if !timelines.lifecycle_current(lifecycle) { return; }
         let room_version = room
             .clone_info()
             .room_version()
@@ -2647,6 +2760,17 @@ pub(crate) fn retract_membership(
             .unwrap_or_default();
         let state_key =
             membership_state_key(&user_id, &device_id, &room_version);
+
+        let publish_key = membership_publish_key(room.room_id().as_str(), &state_key);
+        if !registry.accept_operation(&publish_key, op_id) {
+            enqueue(&events, json!({
+                "type": "rtc_membership_retracted", "op_id": op_id,
+                "lifecycle": lifecycle, "room_id": room_id, "ok": false,
+                "category": "cancelled",
+            }));
+            return;
+        }
+        let delays = &mut registry.delays;
 
         // The next publish for this state key is a join. Forgotten before and
         // regardless of the retraction's outcome (see OWN_MEMBERSHIP_PUBLISHED).
@@ -2661,7 +2785,15 @@ pub(crate) fn retract_membership(
         )
         .await;
 
-        cancel_delayed_leave(&client, &delay_id).await;
+        let current_delay = delays.get(&publish_key).cloned().unwrap_or(delay_id);
+        if !current_delay.is_empty() {
+            delays.insert(publish_key.clone(), current_delay.clone());
+        }
+        // Retain the id on an ambiguous cancellation failure: a rapid rejoin
+        // must reuse it rather than leave a timer that removes the new call.
+        if cancel_membership_delay(&client, &current_delay).await {
+            delays.remove(&publish_key);
+        }
 
         if !timelines.lifecycle_current(lifecycle) {
             return;
@@ -3937,6 +4069,102 @@ pub(crate) fn register_rtc_handlers(
 mod tests {
     use super::*;
     use matrix_sdk::ruma::events::StaticEventContent;
+
+    // Regression: publish denial causes an immediate membership refresh.
+    // Arming a second timer leaves the first firing at t=8s, removing us
+    // despite heartbeats on the second one. A refresh must keep one id.
+    #[tokio::test]
+    async fn membership_refresh_keeps_one_cleanup_timer() {
+        use std::cell::{Cell, RefCell};
+        let now = Cell::new(0_u64);
+        let timers = RefCell::new(BTreeMap::<String, u64>::new());
+        let armed = Cell::new(0);
+        let mut live = String::new();
+        for at in [0, 1000, 5000] {
+            now.set(at);
+            live = ensure_membership_delay(&live, true,
+                |id| {
+                    let result = match timers.borrow_mut().get_mut(&id) {
+                        Some(deadline) => { *deadline = now.get() + 8000; Ok(()) },
+                        None => Err("not_found".to_owned()),
+                    };
+                    std::future::ready(result)
+                },
+                || {
+                    armed.set(armed.get() + 1);
+                    let id = format!("timer-{}", armed.get());
+                    timers.borrow_mut().insert(id.clone(), now.get() + 8000);
+                    std::future::ready(Ok(id))
+                }).await.unwrap();
+        }
+        assert_eq!(armed.get(), 1, "a refresh orphaned the original cleanup timer");
+        assert_eq!(live, "timer-1");
+        assert!(timers.borrow().values().all(|deadline| *deadline > 9000),
+                "an old timer removes the live membership after eight seconds");
+    }
+
+    #[tokio::test]
+    async fn membership_missing_timer_after_write_requires_state_repair() {
+        let id = ensure_membership_delay("expired", true,
+            |_| std::future::ready(Err("not_found".to_owned())),
+            || { panic!("must restore membership state before replacing its timer");
+                 #[allow(unreachable_code)]
+                 std::future::ready(Ok(String::new())) }).await;
+        assert_eq!(id, Err("not_found".to_owned()));
+    }
+
+    #[tokio::test]
+    async fn membership_missing_timer_before_write_allows_fresh_publish() {
+        let id = reuse_membership_delay("expired",
+            |_| std::future::ready(Err("not_found".to_owned()))).await.unwrap();
+        assert!(id.is_empty());
+    }
+
+    #[tokio::test]
+    async fn membership_ambiguous_restart_never_arms_a_second_timer() {
+        for reason in ["network", "rate_limited", "forbidden", "unrecognized"] {
+            let id = ensure_membership_delay("possibly-live", true,
+                |_| std::future::ready(Err(reason.to_owned())),
+                || { panic!("an ambiguous restart must not orphan the old timer");
+                     #[allow(unreachable_code)]
+                     std::future::ready(Ok(String::new())) }).await;
+            assert_eq!(id, Err(reason.to_owned()));
+        }
+    }
+
+    #[tokio::test]
+    async fn membership_refusal_cache_does_not_abandon_a_live_timer() {
+        let id = ensure_membership_delay("working", false,
+            |_| std::future::ready(Ok(())),
+            || std::future::ready(Err("must not schedule".to_owned()))).await.unwrap();
+        assert_eq!(id, "working");
+        let id = ensure_membership_delay("", false,
+            |_| std::future::ready(Err("not_found".to_owned())),
+            || std::future::ready(Err("must not schedule".to_owned()))).await.unwrap();
+        assert!(id.is_empty());
+    }
+
+    #[test]
+    fn membership_out_of_order_leave_cannot_cancel_a_new_join() {
+        let mut registry = MembershipDelayRegistry::default();
+        let key = "room\u{1f}device";
+        assert!(registry.accept_operation(key, 20)); // newer publish ran first
+        registry.delays.insert(key.to_owned(), "current-timer".to_owned());
+        assert!(!registry.accept_operation(key, 19)); // queued old leave
+        assert_eq!(registry.delays.get(key).map(String::as_str), Some("current-timer"));
+        assert!(registry.accept_operation("other-room\u{1f}device", 18));
+        assert!(registry.accept_operation("room\u{1f}other-device", 17));
+    }
+
+    #[test]
+    fn membership_out_of_order_publish_cannot_resurrect_a_left_call() {
+        let mut registry = MembershipDelayRegistry::default();
+        let key = "room\u{1f}device";
+        assert!(registry.accept_operation(key, 30)); // leave ran first
+        registry.delays.remove(key);
+        assert!(!registry.accept_operation(key, 29)); // queued old publish
+        assert!(registry.accept_operation(key, 31)); // deliberate new join
+    }
 
     // We send only 16-byte media keys: sable-core drops any other length
     // ("ignoring a call media key that is not 16 bytes"), so a 32-byte key

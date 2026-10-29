@@ -238,6 +238,8 @@ struct RustClient {
     // separate Arc so teardown can invalidate the task without taking the
     // session mutex.
     sfu: sfu::SfuState,
+    // Serialize membership writes and retain their one live delayed leave.
+    rtc_membership_delays: Arc<tokio::sync::Mutex<rtc::MembershipDelayRegistry>>,
     sfu_generation: Arc<std::sync::atomic::AtomicU64>,
     // The sliding-sync RoomListService, published by the modern sync loop and
     // withdrawn on every exit path. Room opens use it to subscribe the active
@@ -442,6 +444,7 @@ impl RustClient {
             recovery_nudges: Arc::new(Mutex::new(None)),
             sync_notify: Arc::new(syncnotify::SyncNotify::default()),
             sfu: sfu::SfuState::default(),
+            rtc_membership_delays: Arc::new(tokio::sync::Mutex::new(rtc::MembershipDelayRegistry::default())),
             sfu_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         })
     }
