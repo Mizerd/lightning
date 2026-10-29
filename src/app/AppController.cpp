@@ -58,6 +58,7 @@
 #include "app/ScreenshotDemoController.h"
 #endif
 #include "calls/CallController.h"
+#include "calls/OneToOneDm.h"
 #include "calls/CallSoundPlayer.h"
 #ifdef HAVE_LIGHTNING_WEBRTC
 #include "calls/CameraPortal.h"
@@ -4661,19 +4662,11 @@ QString AppController::preferredCallLane(const QString &roomId) const
 
 QString AppController::legacyCallPeer(const QString &roomId) const
 {
-    // `isDirect` only means m.direct lists a target; the legacy lane needs
-    // exactly one peer, since the invite and every later signal are bound to
-    // them.
-    if (!m_roomList)
+    // m.direct can survive inviting a third member. Use the same member-count
+    // guard as ringing, or a group room can fall back to a one-person call.
+    if (!m_client)
         return QString();
-    const QVariantMap room = m_roomList->findRoom(roomId);
-    if (!room.value(QStringLiteral("isDirect")).toBool())
-        return QString();
-    const QStringList targets =
-        room.value(QStringLiteral("directUserIds")).toStringList();
-    if (targets.size() != 1 || targets.first().isEmpty())
-        return QString();
-    return targets.first();
+    return calls::oneToOneDmPeer(m_client->roomInfo(roomId));
 }
 
 void AppController::withdrawCallFailure()

@@ -167,6 +167,9 @@ public:
     // Hang up our own call (outbound from Inviting; inbound once answered).
     Q_INVOKABLE bool hangup();
 
+    void setTurnWaitTimeoutForTest(int ms) { m_turnWaitTimer.setInterval(qMax(1, ms)); }
+    void setMediaConnectionTimeoutForTest(int ms) { m_mediaConnectionTimeoutMs = qMax(1, ms); }
+
     // Reasons that can mean "missed". Not sufficient alone: an answered call
     // also ends with RemoteHangup, so the `missed` flag on incomingCallEnded
     // (which also requires Ringing) is authoritative.
@@ -259,6 +262,9 @@ private:
         bool offerPending = false;
         // Inbound: the media backend is producing the answer.
         bool answerPending = false;
+        // TURN must reach the backend before it creates its webrtcbin.
+        bool mediaWaitingForTurn = false;
+        QString pendingRemoteOffer;
         // Outbound: the invite was sent, so a media failure needs a wire
         // hangup rather than only a local end.
         bool inviteDispatched = false;
@@ -307,13 +313,14 @@ private:
                                const QString &sdpMid, int sdpMLineIndex);
     void onMediaGatheringComplete(const QString &callId);
     void onRemoteCandidates(const QString &roomId, const QString &callId,
-                            const QString &partyId, bool own,
+                            const QString &partyId, const QString &sender, bool own,
                             const QVariantList &candidates);
     void onTurnServers(quint64 opId, bool ok, const QString &username,
                        const QString &password, const QStringList &uris,
                        qint64 ttlSeconds, const QString &category);
     void flushLocalCandidates();
     void requestTurnServersIfStale();
+    void startPendingMedia();
 
     bool matchesSession(const CallSignal &signal) const;
     // True when `signal.sender` is the bound remote user, or none is bound
@@ -337,6 +344,8 @@ private:
     EndReason m_endReason = EndReason::None;
     Session m_session;
     QTimer m_lifetimeTimer;
+    QTimer m_turnWaitTimer;
+    int m_mediaConnectionTimeoutMs = 30000;
     QStringList m_recentEnded; // bounded LRU of finished call ids
     // Send ops, each tied to its call, so a stale result cannot affect the
     // live session.

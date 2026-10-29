@@ -12001,6 +12001,7 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             event.value(QStringLiteral("room_id")).toString(),
             event.value(QStringLiteral("call_id")).toString(),
             event.value(QStringLiteral("party_id")).toString(),
+            event.value(QStringLiteral("sender")).toString(),
             event.value(QStringLiteral("own")).toBool(), candidates);
         return true;
     }

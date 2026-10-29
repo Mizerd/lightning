@@ -4,6 +4,8 @@
 #include <QLoggingCategory>
 #include <QUuid>
 
+#include <utility>
+
 #include "CallMediaBackend.h"
 #include "OneToOneDm.h"
 #include "matrix/MatrixClient.h"
@@ -45,6 +47,10 @@ CallController::CallController(QObject *parent)
     m_lifetimeTimer.setSingleShot(true);
     connect(&m_lifetimeTimer, &QTimer::timeout, this,
             &CallController::onLifetimeExpired);
+    m_turnWaitTimer.setSingleShot(true);
+    m_turnWaitTimer.setInterval(5000);
+    connect(&m_turnWaitTimer, &QTimer::timeout, this,
+            &CallController::startPendingMedia);
     m_candidateFlushTimer.setSingleShot(true);
     m_candidateFlushTimer.setInterval(150);
     connect(&m_candidateFlushTimer, &QTimer::timeout, this,
@@ -55,6 +61,10 @@ void CallController::onLifetimeExpired()
 {
     if (!sessionLive())
         return;
+    if (m_state == State::Connecting) {
+        onMediaFailed(m_session.callId, QStringLiteral("connection_timeout"));
+        return;
+    }
     // Media production timed out before anything was sent: a local failure,
     // nothing to announce.
     if (m_session.offerPending || m_session.answerPending) {
@@ -77,8 +87,13 @@ void CallController::setClient(MatrixClient *client)
 {
     if (m_client == client)
         return;
-    if (m_client)
+    if (sessionLive())
+        endSession(EndReason::SessionLost);
+    if (m_mediaBackend && (m_client || m_turnOp != 0 || m_turnExpiryMs != 0))
+        m_mediaBackend->setIceServers({}, {}, {});
+    if (m_client) {
         disconnect(m_client, nullptr, this, nullptr);
+    }
     m_client = client;
     // A new client is a new homeserver: drop the TURN cache and any in-flight
     // fetch, or a stale m_turnOp would block every future fetch.
@@ -197,10 +212,9 @@ void CallController::setMediaBackend(CallMediaBackend *backend)
 {
     if (m_mediaBackend == backend)
         return;
+    if (m_mediaBackend && sessionLive())
+        endSession(EndReason::SessionLost);
     if (m_mediaBackend) {
-        // A live call's media job belongs to the old backend: close it there.
-        if (sessionLive())
-            m_mediaBackend->close(m_session.callId);
         disconnect(m_mediaBackend, nullptr, this, nullptr);
     }
     m_mediaBackend = backend;
@@ -242,6 +256,15 @@ void CallController::requestTurnServersIfStale()
                                       m_turnPassword);
         return;
     }
+    if (m_turnExpiryMs != 0) {
+        // Refreshing stale credentials must not leave them installed when
+        // the bridge refuses the request synchronously (operation id zero).
+        m_turnExpiryMs = 0;
+        m_turnUris.clear();
+        m_turnUsername.clear();
+        m_turnPassword.clear();
+        m_mediaBackend->setIceServers({}, {}, {});
+    }
     m_turnOp = m_client->requestCallTurnServers();
     m_turnRequestedAtMs = nowMs;
 }
@@ -253,7 +276,7 @@ void CallController::onTurnServers(quint64 opId, bool ok,
                                    qint64 ttlSeconds,
                                    const QString &category)
 {
-    if (opId != m_turnOp)
+    if (opId == 0 || opId != m_turnOp)
         return;
     m_turnOp = 0;
     if (!ok) {
@@ -276,7 +299,11 @@ void CallController::onTurnServers(quint64 opId, bool ok,
                 m_mediaBackend->setIceServers({}, QString(), QString());
         } else {
             qCInfo(lcCalls) << "TURN fetch failed category=" << category;
+            // An expired answer must not leak into the next media session.
+            if (m_mediaBackend)
+                m_mediaBackend->setIceServers({}, {}, {});
         }
+        startPendingMedia();
         return;
     }
     if (uris.isEmpty()) {
@@ -293,17 +320,52 @@ void CallController::onTurnServers(quint64 opId, bool ok,
     if (m_mediaBackend)
         m_mediaBackend->setIceServers(m_turnUris, m_turnUsername,
                                       m_turnPassword);
+    startPendingMedia();
+}
+
+void CallController::startPendingMedia()
+{
+    m_turnWaitTimer.stop();
+    if (!sessionLive() || !m_session.mediaWaitingForTurn || !m_mediaBackend)
+        return;
+    m_session.mediaWaitingForTurn = false;
+    if (m_turnOp != 0)
+        m_mediaBackend->setIceServers({}, {}, {}); // bounded direct fallback
+    const QString callId = m_session.callId;
+    armLifetimeTimer(kMediaProductionTimeoutMs);
+    if (m_session.direction == Direction::Outbound) {
+        m_mediaBackend->createOffer(callId);
+    } else {
+        const QString offer = std::exchange(m_session.pendingRemoteOffer, {});
+        m_mediaBackend->createAnswer(callId, offer);
+    }
+    if (!sessionLive() || callId != m_session.callId)
+        return;
+    applyAudioStateToBackend();
+    const QVariantList early = std::exchange(m_session.earlyRemoteCandidates, {});
+    for (const QVariant &value : early) {
+        const QVariantMap entry = value.toMap();
+        m_mediaBackend->addRemoteCandidate(
+            callId, entry.value(QStringLiteral("candidate")).toString(),
+            entry.value(QStringLiteral("sdpMid")).toString(),
+            entry.value(QStringLiteral("sdpMLineIndex"), 0).toInt());
+    }
 }
 
 void CallController::onRemoteCandidates(const QString &roomId,
                                         const QString &callId,
-                                        const QString &partyId, bool own,
+                                        const QString &partyId,
+                                        const QString &sender, bool own,
                                         const QVariantList &candidates)
 {
     if (own)
         return; // our other device's candidates are not for our engine
     if (!m_mediaBackend || !sessionLive() || m_session.rtc
         || roomId != m_session.roomId || callId != m_session.callId)
+        return;
+    // Call and party IDs are room-visible. Only the bound peer may direct
+    // connectivity checks, including before their answering device is known.
+    if (m_session.remoteUserId.isEmpty() || sender != m_session.remoteUserId)
         return;
     // Once the remote party is known (from the invite or first answer), only
     // its candidates are used: each is a STUN check to an address of the
@@ -314,8 +376,9 @@ void CallController::onRemoteCandidates(const QString &roomId,
         return;
     // Inbound and still ringing: the engine has no session until answer(), so
     // hold the trickle. Bounded.
-    if (m_session.direction == Direction::Inbound
-        && m_state == State::Ringing && !m_session.answerPending) {
+    if (m_session.mediaWaitingForTurn
+        || (m_session.direction == Direction::Inbound
+            && m_state == State::Ringing && !m_session.answerPending)) {
         for (const QVariant &value : candidates) {
             if (m_session.earlyRemoteCandidates.size() >= 64)
                 break;
@@ -518,6 +581,7 @@ bool CallController::placeCall(const QString &roomId, const QString &invitee)
     session.direction = Direction::Outbound;
     session.lifetimeMs = 60000;
     session.offerPending = true;
+    session.mediaWaitingForTurn = true;
     session.invitee = invitee;
     session.remoteUserId = invitee;
     m_session = session;
@@ -528,11 +592,10 @@ bool CallController::placeCall(const QString &roomId, const QString &invitee)
     // The invite is sent once the backend delivers the offer; until then the
     // timer bounds offer production, then re-arms for the wire lifetime.
     armLifetimeTimer(kMediaProductionTimeoutMs);
-    m_mediaBackend->createOffer(m_session.callId);
-    // Apply the user's mute/deafen intent now: the pipeline starts unmuted and
-    // `connected` arrives through a queued signal after RTP is already
-    // flowing.
-    applyAudioStateToBackend();
+    if (m_turnOp != 0)
+        m_turnWaitTimer.start();
+    else
+        startPendingMedia();
     return true;
 }
 
@@ -541,6 +604,10 @@ bool CallController::answer()
     m_lastRefusal.clear();
     if (m_state != State::Ringing) {
         m_lastRefusal = QStringLiteral("not_ringing");
+        return false;
+    }
+    if (m_session.answerPending) {
+        m_lastRefusal = QStringLiteral("call_in_progress");
         return false;
     }
     if (m_client && m_client->networkRouteActive()) {
@@ -575,25 +642,15 @@ bool CallController::answer()
         return false;
     }
     m_session.answerPending = true;
+    m_session.mediaWaitingForTurn = true;
+    m_session.pendingRemoteOffer = remoteOffer;
     requestTurnServersIfStale();
     // The user acted, so the timer now bounds answer production instead.
     armLifetimeTimer(kMediaProductionTimeoutMs);
-    m_mediaBackend->createAnswer(m_session.callId, remoteOffer);
-    // Seed the audio intent before media can flow, as for outbound.
-    applyAudioStateToBackend();
-    // Drain candidates the caller trickled while we were ringing.
-    const QVariantList early = m_session.earlyRemoteCandidates;
-    m_session.earlyRemoteCandidates.clear();
-    for (const QVariant &value : early) {
-        const QVariantMap entry = value.toMap();
-        m_mediaBackend->addRemoteCandidate(
-            m_session.callId,
-            entry.value(QStringLiteral("candidate")).toString(),
-            entry.value(QStringLiteral("sdpMid")).toString(),
-            entry.contains(QStringLiteral("sdpMLineIndex"))
-                ? entry.value(QStringLiteral("sdpMLineIndex")).toInt()
-                : 0);
-    }
+    if (m_turnOp != 0)
+        m_turnWaitTimer.start();
+    else
+        startPendingMedia();
     return true;
 }
 
@@ -1021,7 +1078,7 @@ void CallController::handleAnswer(const CallSignal &signal)
                         m_session.ourPartyId, signal.partyId),
                     m_session.callId);
         }
-        m_lifetimeTimer.stop();
+        armLifetimeTimer(m_mediaConnectionTimeoutMs);
         setState(State::Connecting);
         // Hand the peer's answer to the media backend (single-shot take from
         // the bridge; empty without a backend).
@@ -1224,7 +1281,7 @@ void CallController::onMediaAnswerReady(const QString &callId,
         return;
     }
     trackOp(opId, m_session.callId);
-    m_lifetimeTimer.stop();
+    armLifetimeTimer(m_mediaConnectionTimeoutMs);
     setState(State::Connecting);
 }
 
@@ -1232,6 +1289,7 @@ void CallController::onMediaConnected(const QString &callId)
 {
     if (m_state != State::Connecting || callId != m_session.callId)
         return;
+    m_lifetimeTimer.stop();
     setState(State::Active);
     // The engine's mute state starts clean per session, so push the user's
     // intent down, or a muted user is live on connect.
@@ -1296,6 +1354,10 @@ void CallController::endSession(EndReason reason)
     if (!sessionLive())
         return;
     m_lifetimeTimer.stop();
+    m_turnWaitTimer.stop();
+    m_session.mediaWaitingForTurn = false;
+    m_session.pendingRemoteOffer.clear();
+    m_session.earlyRemoteCandidates.clear();
     rememberEnded(m_session.callId);
     const QString callId = m_session.callId;
     const QString roomId = m_session.roomId;
