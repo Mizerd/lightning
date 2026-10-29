@@ -35,13 +35,22 @@ Installed on the Mac, not by this pipeline:
 
 | Component | Source | Notes |
 | --- | --- | --- |
-| Qt 6.11.1 | Homebrew `qt` (`/opt/homebrew/opt/qt`) | arm64-only bottle; sets the deployment floor |
+| Qt Multimedia ≥6.11.2 | Homebrew `qt` (`/opt/homebrew/opt/qt`) | arm64-only bottle; sets the deployment floor; includes CoreAudio device-removal fixes |
 | OpenSSL 3 | Homebrew `openssl@3` (`/opt/homebrew/opt/openssl@3`) | **required** since the update-manifest verifier; keg-only, so it is passed explicitly (see below) |
 | CMake, Ninja, pkg-config | Homebrew | |
 | GStreamer 1.28.6 | official framework, unpacked into `~/opt/gstreamer` by `scripts/install-macos-gstreamer.sh` | **required** — without it voice and video calls are compiled out; deliberately NOT Homebrew, see below |
 | Rust 1.93.0 | rustup, in the `runner` account (`~/.cargo`) | matches the pinned toolchain the Linux `deb`/`rpm` builds use |
 | clang + macOS SDK | Xcode / Command Line Tools | either works; see below |
 | `jq`, `iconutil`, `sips`, `codesign`, `ditto`, `lipo`, `otool`, `spctl` | macOS 26 base system | `jq` ships with macOS 26 |
+
+The macOS packaging script checks the Qt Multimedia framework's own patch
+version. Qt 6.11.0/6.11.1 can crash in CoreAudio's
+`AudioObjectRemovePropertyListenerBlock` when an output device disappears,
+even outside a call. Qt 6.11.2 includes the upstream
+[device-liveness](https://github.com/qt/qtmultimedia/commit/4d9d108653021120c33880eca7faf74a59df4330)
+and [listener-lifetime](https://github.com/qt/qtmultimedia/commit/401a10fc65599ea25fbe31200a8dc0e69846b001)
+fixes (QTBUG-145704); updating only Lightning's application code does not
+replace an affected bundled Qt framework.
 
 `build-macos.sh` fails fast with a named tool if any of these is missing, rather
 than dying halfway through a long build.
