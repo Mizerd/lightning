@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <cstring>
 #include <cstdlib>
+#include <atomic>
 
 namespace {
 struct AudioQueue {
@@ -40,7 +41,8 @@ struct AudioQueue {
 - (void)stream:(SCStream *)stream didStopWithError:(NSError *)error
 {
     (void)stream;
-    NSLog(@"Lightning system audio stopped: %@", error.localizedDescription);
+    // System errors may contain local paths or other machine metadata.
+    NSLog(@"Lightning system audio stopped (code=%ld)", (long)error.code);
     std::lock_guard lock(audioQueue->mutex);
     audioQueue->failed = true;
     audioQueue->ready.notify_all();
@@ -141,11 +143,12 @@ gboolean start(GstBaseSrc *base)
             onScreenWindowsOnly:YES completionHandler:^(SCShareableContent *value, NSError *error) {
                 content = value; failure = error; dispatch_semaphore_signal(fetched);
             }];
-        if (dispatch_semaphore_wait(fetched, dispatch_time(DISPATCH_TIME_NOW, 10*NSEC_PER_SEC))
-            || failure || content.displays.count == 0) {
+        const bool fetchTimedOut = dispatch_semaphore_wait(
+            fetched, dispatch_time(DISPATCH_TIME_NOW, 10*NSEC_PER_SEC)) != 0;
+        if (fetchTimedOut || failure || content.displays.count == 0) {
             GST_ELEMENT_ERROR(base, RESOURCE, OPEN_READ,
                 ("Allow Lightning in System Settings > Privacy & Security > Screen & System Audio Recording"),
-                ("ScreenCaptureKit: %s", failure ? failure.localizedDescription.UTF8String : "no display or timed out"));
+                ("ScreenCaptureKit failed or timed out (code=%ld)", fetchTimedOut ? 0L : (long)failure.code));
             return FALSE;
         }
         SCContentFilter *filter = [[SCContentFilter alloc]
@@ -169,23 +172,34 @@ gboolean start(GstBaseSrc *base)
             sampleHandlerQueue:dispatch_queue_create("net.smetonis.lightning.share-audio", DISPATCH_QUEUE_SERIAL)
             error:&addError]) {
             GST_ELEMENT_ERROR(base, RESOURCE, OPEN_READ, ("Cannot attach system audio capture"),
-                ("%s", addError.localizedDescription.UTF8String));
+                ("ScreenCaptureKit output failed (code=%ld)", (long)addError.code));
             return FALSE;
         }
         dispatch_semaphore_t started = dispatch_semaphore_create(0);
         __block NSError *startError = nil;
-        [session->stream startCaptureWithCompletionHandler:^(NSError *error) {
+        auto cancelled = std::make_shared<std::atomic_bool>(false);
+        SCStream *stream = session->stream;
+        [stream startCaptureWithCompletionHandler:^(NSError *error) {
+            // A timed-out start can still succeed later. Stop it from this
+            // completion too, so capture cannot outlive the failed publish.
+            if (cancelled->load())
+                [stream stopCaptureWithCompletionHandler:^(NSError *) {}];
             startError = error; dispatch_semaphore_signal(started);
         }];
-        if (dispatch_semaphore_wait(started, dispatch_time(DISPATCH_TIME_NOW, 10*NSEC_PER_SEC)) || startError) {
-            [session->stream stopCaptureWithCompletionHandler:^(NSError *) {}];
+        const bool startTimedOut = dispatch_semaphore_wait(
+            started, dispatch_time(DISPATCH_TIME_NOW, 10*NSEC_PER_SEC)) != 0;
+        if (startTimedOut || startError) {
+            cancelled->store(true);
+            [stream stopCaptureWithCompletionHandler:^(NSError *) {}];
             GST_ELEMENT_ERROR(base, RESOURCE, OPEN_READ, ("Cannot start system audio capture"),
-                ("%s", startError ? startError.localizedDescription.UTF8String : "timed out"));
+                ("ScreenCaptureKit start failed or timed out (code=%ld)", startTimedOut ? 0L : (long)startError.code));
             return FALSE;
         }
         GstCaps *caps = gst_caps_from_string("audio/x-raw,format=F32LE,layout=interleaved,rate=48000,channels=2");
         gboolean ok = gst_base_src_set_caps(base, caps);
         gst_caps_unref(caps);
+        if (!ok)
+            [stream stopCaptureWithCompletionHandler:^(NSError *) {}];
         return ok;
     }
 }
@@ -368,11 +382,13 @@ int captureDiagnostic()
     }
     if (playback) { gst_element_set_state(playback, GST_STATE_NULL); gst_object_unref(playback); }
     GstBus *bus = gst_element_get_bus(pipeline);
+    bool captureFailed = false;
     if (GstMessage *message = gst_bus_pop_filtered(bus, GST_MESSAGE_ERROR)) {
+        captureFailed = true;
         GError *captureError = nullptr;
         gchar *details = nullptr;
         gst_message_parse_error(message, &captureError, &details);
-        fprintf(stderr, "macOS capture failed: %s\n", captureError->message);
+        fprintf(stderr, "macOS capture failed (code=%d)\n", captureError->code);
         g_error_free(captureError); g_free(details); gst_message_unref(message);
     }
     gst_object_unref(bus);
@@ -393,6 +409,6 @@ int captureDiagnostic()
     printf("audio timing: max-capture-age-ms=%.3f max-decoded-pts-gap-ms=%.6f timestamp-breaks=%llu dropped=%llu\n",
         maxCaptureAge / double(GST_MSECOND), maxPtsGap / double(GST_MSECOND),
         static_cast<unsigned long long>(timestampBreaks), static_cast<unsigned long long>(dropped));
-    return frames > 0 && (selfTest ? playbackStarted && tonePeak < 0.001 : peak > 0.0001) ? 0 : 1;
+    return !captureFailed && frames > 0 && (selfTest ? playbackStarted && tonePeak < 0.001 : peak > 0.0001) ? 0 : 1;
 }
 }
