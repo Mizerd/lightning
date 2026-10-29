@@ -171,6 +171,11 @@ fn sane_string(value: Option<&serde_json::Value>, max: usize) -> Option<String> 
 /// authorization is exchanged.
 fn sane_https_url(value: &str) -> Option<String> {
     let trimmed = sane(value, MAX_URL_LEN)?;
+    // `Url::parse` drops surrounding whitespace, and we advertise this string
+    // as written, so refuse it rather than publish a spelling nobody matches.
+    if trimmed.trim() != trimmed {
+        return None;
+    }
     let parsed = url::Url::parse(trimmed).ok()?;
     if parsed.scheme() != "https" {
         return None;
@@ -6389,6 +6394,8 @@ mod tests {
         assert!(!same_focus_url("https://sfu.example.org", "https://other.example.org"));
         assert!(!same_focus_url("https://sfu.example.org:8443", "https://sfu.example.org"));
         assert!(sane_https_url("http://sfu.example.org").is_none());
+        assert!(sane_https_url("https://sfu.example.org ").is_none());
+        assert!(sane_https_url(" https://sfu.example.org").is_none());
     }
 
     #[test]

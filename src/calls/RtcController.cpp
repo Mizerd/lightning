@@ -1063,17 +1063,29 @@ QStringList RtcController::subscriberFocusUrlsFor(const QString &roomId) const
             ? member.focusServiceUrl
             : member.focusSelection == QLatin1String("oldest_membership")
                 ? oldest : QString();
-        // The same focus may be spelled with or without a trailing slash by
-        // different members (GitHub #57); one connection serves both.
         const auto sameFocus = [&url](const QString &existing) {
-            return QUrl(existing).adjusted(QUrl::StripTrailingSlash)
-                == QUrl(url).adjusted(QUrl::StripTrailingSlash);
+            return sameFocusUrl(existing, url);
         };
         if (!url.isEmpty() && std::none_of(urls.cbegin(), urls.cend(), sameFocus)
             && urls.size() < 8)
             urls.append(url);
     }
     return urls;
+}
+
+bool RtcController::sameFocusUrl(const QString &left, const QString &right)
+{
+    if (left == right)
+        return true;
+    QUrl a(left);
+    QUrl b(right);
+    if (!a.isValid() || !b.isValid() || a.isEmpty() || b.isEmpty())
+        return false;
+    if (a.path().isEmpty())
+        a.setPath(QStringLiteral("/"));
+    if (b.path().isEmpty())
+        b.setPath(QStringLiteral("/"));
+    return a == b;
 }
 
 RtcController::JoinBlock RtcController::joinBlock(const QString &roomId) const

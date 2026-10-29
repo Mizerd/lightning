@@ -1071,6 +1071,47 @@ private Q_SLOTS:
         QCOMPARE(client.focusPlans.last(), QStringList({own}));
     }
 
+    void aFocusSpelledWithATrailingSlashIsTheSameConnection()
+    {
+        // GitHub #57: we advertise our focus as written, so a member on the
+        // same SFU may spell it with the bare origin's slash. One connection.
+        RecordingCallClient client;
+        RtcController rtc;
+        rtc.setClient(&client);
+        const QString room = QStringLiteral("!slash:example.org");
+        const QString own = QStringLiteral("https://own.example.org");
+        const QString slashed = QStringLiteral("https://own.example.org/");
+        QVERIFY(RtcController::sameFocusUrl(own, slashed));
+        QVERIFY(!RtcController::sameFocusUrl(
+            QStringLiteral("https://own.example.org/a"),
+            QStringLiteral("https://own.example.org/a/")));
+        QVERIFY(!RtcController::sameFocusUrl(
+            own, QStringLiteral("https://own.example.org:8443")));
+        rtc.discover(room);
+        client.answerTransports({own});
+        RtcSessionData session;
+        session.roomId = room;
+        RtcParticipant b;
+        b.rtcIdentity = QStringLiteral("@b:example.org:B");
+        b.focusSelection = QStringLiteral("multi_sfu");
+        b.focusServiceUrl = slashed;
+        b.expiresAtMs = std::numeric_limits<qint64>::max();
+        session.participants = {b};
+        session.focusServiceUrl = slashed;
+        rtc.refresh(room);
+        client.answerSession(client.lastSessionOp, session);
+
+        SfuCallController call;
+        call.setClient(&client);
+        call.setRtcController(&rtc);
+        const quint64 op = call.beginMembershipPublishForTest(room,
+                                                               rtc.focusUrlFor(room));
+        client.answerPublish(op, true, QString());
+        QCOMPARE(client.focusPlans.last().size(), 1);
+        QCOMPARE(call.connectionFocusUrlsForTest().size(), 1);
+        call.leave();
+    }
+
     void multiSfuPlanCreatesPublisherAndTwoFocusRoutes()
     {
         RecordingCallClient client;

@@ -234,6 +234,14 @@ constexpr int kIceDisconnectedGraceMs = 10000;
 /// key rotation fanned out over to-device.
 constexpr int kMaxReconnectEpisodes = 3;
 constexpr qint64 kReconnectEpisodeWindowMs = 10 * 60 * 1000;
+
+/// One connection per SFU, however a member spells its focus URL.
+bool containsFocusUrl(const QStringList &urls, const QString &url)
+{
+    return std::any_of(urls.cbegin(), urls.cend(), [&url](const QString &existing) {
+        return RtcController::sameFocusUrl(existing, url);
+    });
+}
 } // namespace
 
 SfuCallController::SfuCallController(QObject *parent) : QObject(parent)
@@ -477,7 +485,8 @@ void SfuCallController::setRtcController(RtcController *rtc)
                 if (m_state == State::Connected && m_sfuGeneration != 0
                     && !m_publishFallbackTried) {
                     const QString selected = m_rtc->focusUrlFor(roomId);
-                    if (!selected.isEmpty() && selected != m_focusUrl) {
+                    if (!selected.isEmpty()
+                        && !RtcController::sameFocusUrl(selected, m_focusUrl)) {
                         m_focusUrl = selected;
                         republishMembership();
                     }
@@ -485,7 +494,7 @@ void SfuCallController::setRtcController(RtcController *rtc)
                 if (m_state == State::Connected && m_sfuGeneration != 0) {
                     QStringList desired{m_focusUrl};
                     for (const QString &url : m_rtc->subscriberFocusUrlsFor(roomId)) {
-                        if (!desired.contains(url) && desired.size() < 8)
+                        if (!containsFocusUrl(desired, url) && desired.size() < 8)
                             desired.append(url);
                     }
                     if (desired != m_connectionFocusUrls)
@@ -2229,7 +2238,7 @@ bool SfuCallController::join(const QString &roomId, bool withVideo)
         roomId, m_focusUrl, withVideo ? QStringLiteral("video")
                                       : QStringLiteral("audio"),
         !m_rtc->ownFocusUrlFor().isEmpty()
-            && m_focusUrl == m_rtc->ownFocusUrlFor()
+            && RtcController::sameFocusUrl(m_focusUrl, m_rtc->ownFocusUrlFor())
             && (!m_rtc->usesLegacyFocusFor(roomId) || m_publishFallbackTried));
     qCInfo(lcSfuCall) << "membership publish op=" << m_publishOp;
     if (m_publishOp == 0) {
@@ -2562,7 +2571,7 @@ quint64 SfuCallController::connectFocusPlan()
     m_connectionFocusUrls = {m_focusUrl};
     for (const QString &url : m_rtc ? m_rtc->subscriberFocusUrlsFor(m_roomId)
                                     : QStringList()) {
-        if (!m_connectionFocusUrls.contains(url)
+        if (!containsFocusUrl(m_connectionFocusUrls, url)
             && m_connectionFocusUrls.size() < 8)
             m_connectionFocusUrls.append(url);
     }
@@ -2735,7 +2744,7 @@ void SfuCallController::onSfuState(const QString &state,
         && category == QLatin1String("publish_denied")
         && !m_publishFallbackTried && m_rtc && m_client) {
         const QString own = m_rtc->ownFocusUrlFor();
-        if (!own.isEmpty() && own != m_focusUrl) {
+        if (!own.isEmpty() && !RtcController::sameFocusUrl(own, m_focusUrl)) {
             m_publishFallbackTried = true;
             m_client->sfuDisconnect();
             m_focusUrl = own;
@@ -3440,7 +3449,7 @@ bool SfuCallController::mergeParticipants(const QVariantList &updates)
                     .value(QStringLiteral("focusServiceUrl")).toString()
                 : QString();
             const bool preferred = !ownFocus.isEmpty()
-                && m_connectionFocusUrls.value(id) == ownFocus;
+                && RtcController::sameFocusUrl(m_connectionFocusUrls.value(id), ownFocus);
             const bool currentHasTracks = !current.value(QStringLiteral("tracks"))
                 .toList().isEmpty();
             const bool candidateHasTracks = !it.value()
@@ -4765,7 +4774,7 @@ void SfuCallController::republishMembership()
         m_roomId, m_focusUrl,
         m_withVideo ? QStringLiteral("video") : QStringLiteral("audio"),
         m_rtc && !m_rtc->ownFocusUrlFor().isEmpty()
-            && m_focusUrl == m_rtc->ownFocusUrlFor()
+            && RtcController::sameFocusUrl(m_focusUrl, m_rtc->ownFocusUrlFor())
             && (!m_rtc->usesLegacyFocusFor(m_roomId) || m_publishFallbackTried));
     if (m_refreshOp == 0) {
         qCWarning(lcSfuCall)
@@ -7084,7 +7093,7 @@ quint64 SfuCallController::beginMembershipPublishForTest(
     m_publishOp = m_client->rtcPublishMembership(roomId, focusUrl,
         QStringLiteral("audio"),
         m_rtc && !m_rtc->ownFocusUrlFor().isEmpty()
-            && focusUrl == m_rtc->ownFocusUrlFor()
+            && RtcController::sameFocusUrl(focusUrl, m_rtc->ownFocusUrlFor())
             && !m_rtc->usesLegacyFocusFor(roomId));
     return m_publishOp;
 }
