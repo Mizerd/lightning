@@ -179,6 +179,11 @@ fn sane_https_url(value: &str) -> Option<String> {
     if !parsed.username().is_empty() || parsed.password().is_some() {
         return None;
     }
+    // This is an endpoint base. Appending /get_token or /sfu/get must
+    // extend the path, never a query or fragment (including empty ?/#).
+    if parsed.query().is_some() || parsed.fragment().is_some() {
+        return None;
+    }
     let host = parsed.host()?;
     // Foci come from remote participants, so refuse the obvious SSRF shapes
     // here; a DNS-resolution check happens at connection time. Uses the same
@@ -415,7 +420,11 @@ impl LivekitTransport {
     fn to_json(&self) -> serde_json::Value {
         let mut value = json!({
             "type": "livekit",
-            "livekit_service_url": self.service_url,
+            // Element appends authorization endpoint paths to this wire
+            // string and keys its connection pool by it. Url::to_string()
+            // adds a root slash; publishing that creates //get_token and
+            // a different connection key from the discovered service.
+            "livekit_service_url": self.service_url.trim_end_matches('/'),
         });
         if let Some(alias) = &self.alias {
             value["livekit_alias"] = json!(alias);
@@ -4328,6 +4337,89 @@ mod tests {
             ],
         });
         assert!(pick(&wrong).is_empty());
+    }
+
+    #[test]
+    fn published_focus_joins_element_authorization_endpoints_without_double_slashes() {
+        for (advertised, prefix) in [
+            ("https://sfu.example.org", ""),
+            ("https://sfu.example.org/", ""),
+            ("https://sfu.example.org/matrix/rtc", "/matrix/rtc"),
+            ("https://sfu.example.org/matrix/rtc/", "/matrix/rtc"),
+        ] {
+            let transport = parse_transport(&json!({
+                "type": "livekit", "livekit_service_url": advertised,
+            })).expect("valid focus");
+            let content = own_membership_content(
+                "DEVICE", "@a:example.org", Some(&transport), "audio", None,
+                DEFAULT_EXPIRE_MS,
+            );
+            let base = content["foci_preferred"][0]["livekit_service_url"]
+                .as_str().expect("published service URL");
+            // Element appends the endpoint to the advertised base as a
+            // string. A URL-library-added root slash must not turn it into
+            // //get_token or //sfu/get (both return 404 on real services).
+            for endpoint in ["get_token", "sfu/get"] {
+                let request = url::Url::parse(&format!("{base}/{endpoint}"))
+                    .expect("Element endpoint");
+                assert_eq!(request.path(), format!("{prefix}/{endpoint}"),
+                           "advertised focus {advertised}");
+            }
+        }
+    }
+
+    #[test]
+    fn published_focus_preserves_elements_service_connection_key() {
+        let advertised = "https://sfu.example.org";
+        let transport = parse_transport(&json!({
+            "type": "livekit", "livekit_service_url": advertised,
+        })).expect("valid focus");
+        // Element keys its connection pool by this exact wire string. A
+        // synthetic trailing slash would create a second connection to the
+        // same service instead of reusing the publisher's connection.
+        assert_eq!(transport.to_json()["livekit_service_url"], advertised);
+    }
+
+    #[test]
+    fn published_focus_round_trips_and_reuses_a_shared_service() {
+        let parse = |url: &str| parse_transport(&json!({
+            "type": "livekit", "livekit_service_url": url,
+        })).expect("valid focus");
+        for base in ["https://sfu.example.org", "https://sfu.example.org/matrix/rtc"] {
+            let own = parse(base);
+            // Prefixes keep their path, including on membership refresh.
+            let wire = own.to_json();
+            let refreshed = parse_transport(&wire).expect("refreshed focus");
+            assert_eq!(refreshed, own);
+            assert_eq!(refreshed.to_json(), wire);
+        }
+        // Root URL spellings canonicalize to one internal service. Publishing
+        // the corrected base must not duplicate a shared SFU connection.
+        let mut a = member_at("@a:x", "A", 10, 9_000);
+        a.focus_selection = FocusSelection::MultiSfu;
+        a.foci = vec![parse("https://sfu.example.org/")];
+        let mut b = member_at("@b:x", "B", 20, 9_000);
+        b.focus_selection = FocusSelection::MultiSfu;
+        b.foci = vec![parse("https://sfu.example.org")];
+        let plan = plan_foci(&[a, b], "@me:x:ME", Some(parse("https://sfu.example.org")));
+        assert_eq!(plan.subscribers.len(), 1);
+        assert_eq!(plan.publisher.as_ref(), plan.subscribers.first());
+        assert_eq!(plan.publisher.unwrap().to_json()["livekit_service_url"], "https://sfu.example.org");
+    }
+
+    #[test]
+    fn authorization_service_bases_cannot_hide_endpoints_in_queries_or_fragments() {
+        for base in [
+            "https://sfu.example.org?", "https://sfu.example.org?next=/",
+            "https://sfu.example.org#", "https://sfu.example.org/#ignored",
+        ] {
+            assert!(parse_transport(&json!({
+                "type": "livekit", "livekit_service_url": base,
+            })).is_none(), "not an endpoint base: {base}");
+        }
+        assert!(parse_transport(&json!({
+            "type": "livekit", "livekit_service_url": "https://sfu.example.org/prefix%3Fpart",
+        })).is_some());
     }
 
     #[test]

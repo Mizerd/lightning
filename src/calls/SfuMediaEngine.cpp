@@ -5,6 +5,7 @@
 #include <atomic>
 #include <cmath>
 #include <memory>
+#include <utility>
 
 #include <fcntl.h>
 #include <unistd.h>
@@ -151,6 +152,10 @@ struct PromiseCtx {
     SfuMediaEngine *engine = nullptr;
     GstElement *webrtc = nullptr; // owns one ref
     bool publisher = false;
+    quint64 generation = 0;
+    quint64 revision = 0;
+    bool offer = false;
+    QString sdp;
 };
 
 PromiseCtx *promiseCtxNew(SfuMediaEngine *engine, GstElement *webrtc,
@@ -6325,11 +6330,31 @@ void SfuMediaEngine::renegotiatePublisher()
             << "renegotiation skipped: this publisher has no media section";
         return;
     }
-    GstPromise *promise = gst_promise_new_with_change_func(
-        onOfferCreated, promiseCtxNew(this, m_publisher.webrtc, true),
-        promiseCtxFree);
-    g_signal_emit_by_name(m_publisher.webrtc, "create-offer", nullptr,
-                          promise);
+    Peer &peer = m_publisher;
+    peer.negotiationDirty = true;
+    if (peer.offerPending || peer.negotiationScheduled)
+        return;
+    peer.negotiationScheduled = true;
+    const quintptr token = reinterpret_cast<quintptr>(peer.webrtc);
+    const quint64 generation = m_generation.load();
+    // Coalesce synchronous video/audio removal and queued teardown callbacks.
+    // All negotiation state belongs to the GUI thread.
+    marshal(this, [this, token, generation] {
+        Target target = Target::Publisher;
+        if (!tokenIsLive(token, generation, &target) || target != Target::Publisher)
+            return;
+        Peer &peer = m_publisher;
+        peer.negotiationScheduled = false;
+        if (peer.offerPending || !peer.negotiationDirty)
+            return;
+        peer.negotiationDirty = false;
+        peer.offerPending = true;
+        auto *ctx = promiseCtxNew(this, peer.webrtc, true);
+        ctx->generation = generation;
+        GstPromise *promise = gst_promise_new_with_change_func(
+            onOfferCreated, ctx, promiseCtxFree);
+        g_signal_emit_by_name(peer.webrtc, "create-offer", nullptr, promise);
+    });
 }
 
 void SfuMediaEngine::awaitPublishTeardowns()
@@ -6444,7 +6469,7 @@ void SfuMediaEngine::applyRemoteDescription(Target target, const QString &kind,
     }
     // Log the section count only. Fewer sections than offered means the SFU
     // refused a track, which is otherwise invisible.
-    qCInfo(lcSfuMedia) << "remote description applied kind=" << kind
+    qCInfo(lcSfuMedia) << "remote description submitted kind=" << kind
                        << "target=" << static_cast<int>(target)
                        << "sections=" << gst_sdp_message_medias_len(message);
     if (!qEnvironmentVariableIsEmpty("LIGHTNING_SDP_TRACE")) {
@@ -6467,35 +6492,84 @@ void SfuMediaEngine::applyRemoteDescription(Target target, const QString &kind,
         : GST_WEBRTC_SDP_TYPE_ANSWER;
     GstWebRTCSessionDescription *description =
         gst_webrtc_session_description_new(type, message);
-    GstPromise *promise = gst_promise_new();
+    peer.remoteDescriptionSet = false;
+    auto *ctx = promiseCtxNew(this, peer.webrtc, target == Target::Publisher);
+    ctx->generation = m_generation.load();
+    ctx->revision = ++peer.remoteDescriptionRevision;
+    ctx->offer = type == GST_WEBRTC_SDP_TYPE_OFFER;
+    GstPromise *promise = gst_promise_new_with_change_func(
+        onRemoteDescriptionSet, ctx, promiseCtxFree);
     g_signal_emit_by_name(peer.webrtc, "set-remote-description", description,
                           promise);
-    gst_promise_interrupt(promise);
-    gst_promise_unref(promise);
     gst_webrtc_session_description_free(description);
-    peer.remoteDescriptionSet = true;
+}
 
-    // Apply candidates that arrived before the description; the SFU trickles
-    // immediately, so dropping them would kill the call.
-    for (const QString &pending : peer.pendingCandidates) {
-        QString line;
-        int mline = 0;
-        if (parseCandidateInit(pending, &line, &mline)) {
-            g_signal_emit_by_name(peer.webrtc, "add-ice-candidate", mline,
-                                  line.toUtf8().constData());
+void SfuMediaEngine::onRemoteDescriptionSet(GstPromise *promise, void *userData)
+{
+    auto *ctx = static_cast<PromiseCtx *>(userData);
+    const lightning::webrtc::CallbackScope scope(ctx->webrtc);
+    if (!scope.live()) {
+        gst_promise_unref(promise);
+        return;
+    }
+    auto *engine = ctx->engine;
+    const quintptr token = reinterpret_cast<quintptr>(ctx->webrtc);
+    const quint64 generation = ctx->generation;
+    const quint64 revision = ctx->revision;
+    const bool offer = ctx->offer;
+    bool ok = gst_promise_wait(promise) == GST_PROMISE_RESULT_REPLIED;
+    int errorCode = -1;
+    if (ok) {
+        const GstStructure *reply = gst_promise_get_reply(promise);
+        ok = !reply || !gst_structure_has_field(reply, "error");
+        GError *error = nullptr;
+        if (!ok && gst_structure_get(reply, "error", G_TYPE_ERROR, &error, nullptr)
+            && error) {
+            errorCode = error->code;
+            g_error_free(error);
         }
     }
-    peer.pendingCandidates.clear();
-
-    // The server offers on the subscriber and expects our answer.
-    if (type == GST_WEBRTC_SDP_TYPE_OFFER) {
-        GstPromise *answerPromise = gst_promise_new_with_change_func(
-            onAnswerCreated,
-            promiseCtxNew(this, peer.webrtc, target == Target::Publisher),
-            promiseCtxFree);
-        g_signal_emit_by_name(peer.webrtc, "create-answer", nullptr,
-                              answerPromise);
-    }
+    gst_promise_unref(promise); // ctx can be freed here
+    marshal(engine, [engine, token, generation, revision, offer, ok, errorCode] {
+        Target target = Target::Publisher;
+        if (!engine->tokenIsLive(token, generation, &target))
+            return;
+        Peer &peer = engine->peerFor(target);
+        if (revision != peer.remoteDescriptionRevision)
+            return;
+        if (!ok) {
+            peer.offerPending = false;
+            peer.negotiationDirty = false;
+            qCWarning(lcSfuMedia) << "remote description rejected target="
+                                 << static_cast<int>(target)
+                                 << "errorCode=" << errorCode;
+            Q_EMIT engine->failed(QStringLiteral("remote_sdp_rejected"));
+            return;
+        }
+        peer.remoteDescriptionSet = true;
+        qCInfo(lcSfuMedia) << "remote description accepted target="
+                          << static_cast<int>(target)
+                          << "queuedCandidates=" << peer.pendingCandidates.size();
+        const auto pending = std::exchange(peer.pendingCandidates, {});
+        for (const QString &candidate : pending) {
+            QString line;
+            int mline = 0;
+            if (parseCandidateInit(candidate, &line, &mline))
+                g_signal_emit_by_name(peer.webrtc, "add-ice-candidate", mline,
+                                      line.toUtf8().constData());
+        }
+        if (offer) {
+            auto *ctx = promiseCtxNew(engine, peer.webrtc, target == Target::Publisher);
+            ctx->generation = generation;
+            GstPromise *answer = gst_promise_new_with_change_func(
+                onAnswerCreated, ctx, promiseCtxFree);
+            g_signal_emit_by_name(peer.webrtc, "create-answer", nullptr, answer);
+        } else if (target == Target::Publisher) {
+            peer.offerPending = false;
+            if (peer.negotiationDirty)
+                engine->renegotiatePublisher();
+        }
+    });
 }
 
 void SfuMediaEngine::applyRemoteCandidate(Target target,
@@ -6504,6 +6578,12 @@ void SfuMediaEngine::applyRemoteCandidate(Target target,
     if (!m_active)
         return;
     Peer &peer = peerFor(target);
+    ++peer.remoteCandidatesReceived;
+    if (peer.remoteCandidatesReceived <= 3 || peer.remoteCandidatesReceived % 20 == 0)
+        qCInfo(lcSfuMedia) << "remote ICE candidates target=" << static_cast<int>(target)
+                          << "received=" << peer.remoteCandidatesReceived
+                          << "descriptionReady=" << peer.remoteDescriptionSet;
+
     if (!peer.webrtc || !peer.remoteDescriptionSet) {
         // Bounded, in case the peer never negotiates.
         if (peer.pendingCandidates.size() < 256)
@@ -8672,20 +8752,17 @@ void SfuMediaEngine::onNegotiationNeeded(GstElement *webrtc, void *userData)
     const lightning::webrtc::CallbackScope scope(webrtc);
     if (!scope.live())
         return;
-    // Starts the offer chain; if it never fires, nothing is published.
     auto *engine = static_cast<SfuMediaEngine *>(userData);
-    // webrtcbin raises this at PLAYING before any track exists, and an offer
-    // with no media section is a state mismatch to the SFU. The real offer
-    // comes from renegotiatePublisher() once a track is linked.
-    const int media = engine->m_publishedMedia.load();
-    if (media == 0) {
-        qCInfo(lcSfuMedia) << "negotiation needed: deferred, no media yet";
-        return;
-    }
-    qCInfo(lcSfuMedia) << "negotiation needed: offering" << media << "track(s)";
-    GstPromise *promise = gst_promise_new_with_change_func(
-        onOfferCreated, promiseCtxNew(engine, webrtc, true), promiseCtxFree);
-    g_signal_emit_by_name(webrtc, "create-offer", nullptr, promise);
+    const quintptr token = reinterpret_cast<quintptr>(webrtc);
+    const quint64 generation = engine->m_generation.load();
+    // The automatic signal must use the same transaction as explicit track
+    // changes, never create a competing offer on the GStreamer thread.
+    marshal(engine, [engine, token, generation] {
+        Target target = Target::Publisher;
+        if (engine->tokenIsLive(token, generation, &target)
+            && target == Target::Publisher)
+            engine->renegotiatePublisher();
+    });
 }
 
 // promiseCtxFree runs when the promise is finalized, which on the error-reply
@@ -8702,35 +8779,37 @@ void SfuMediaEngine::onOfferCreated(GstPromise *promise, void *userData)
         return;
     }
     auto *engine = ctx->engine;
+    const quint64 generation = ctx->generation;
     GstElement *webrtc = GST_ELEMENT(gst_object_ref(ctx->webrtc));
     const GstStructure *reply = gst_promise_get_reply(promise);
     GstWebRTCSessionDescription *description = nullptr;
     if (reply)
-        gst_structure_get(reply, "offer",
-                          GST_TYPE_WEBRTC_SESSION_DESCRIPTION, &description,
-                          nullptr);
-    gst_promise_unref(promise); // may free ctx: read nothing from it below
+        gst_structure_get(reply, "offer", GST_TYPE_WEBRTC_SESSION_DESCRIPTION,
+                          &description, nullptr);
+    gst_promise_unref(promise);
+    const quintptr token = reinterpret_cast<quintptr>(webrtc);
     if (!description) {
         gst_object_unref(webrtc);
+        marshal(engine, [engine, token, generation] {
+            if (!engine->tokenIsLive(token, generation))
+                return;
+            engine->m_publisher.offerPending = false;
+            engine->m_publisher.negotiationDirty = false;
+            Q_EMIT engine->failed(QStringLiteral("local_offer_failed"));
+        });
         return;
     }
-
-    GstPromise *local = gst_promise_new();
-    g_signal_emit_by_name(webrtc, "set-local-description", description, local);
-    gst_promise_interrupt(local);
-    gst_promise_unref(local);
-
     gchar *text = gst_sdp_message_as_text(description->sdp);
-    const QString sdp = QString::fromUtf8(text ? text : "");
+    auto *localCtx = promiseCtxNew(engine, webrtc, true);
+    localCtx->generation = generation;
+    localCtx->offer = true;
+    localCtx->sdp = QString::fromUtf8(text ? text : "");
     g_free(text);
+    GstPromise *local = gst_promise_new_with_change_func(
+        onLocalDescriptionSet, localCtx, promiseCtxFree);
+    g_signal_emit_by_name(webrtc, "set-local-description", description, local);
     gst_webrtc_session_description_free(description);
-
-    const quintptr token = reinterpret_cast<quintptr>(webrtc);
     gst_object_unref(webrtc);
-    const quint64 generation = engine->m_generation.load();
-    marshal(engine, [engine, token, generation, sdp] {
-        engine->handleLocalDescription(token, generation, /*offer=*/true, sdp);
-    });
 }
 
 void SfuMediaEngine::onAnswerCreated(GstPromise *promise, void *userData)
@@ -8744,6 +8823,7 @@ void SfuMediaEngine::onAnswerCreated(GstPromise *promise, void *userData)
     // Read ctx above the unref; see onOfferCreated.
     auto *engine = ctx->engine;
     const bool publisher = ctx->publisher;
+    const quint64 generation = ctx->generation;
     GstElement *webrtc = GST_ELEMENT(gst_object_ref(ctx->webrtc));
     const GstStructure *reply = gst_promise_get_reply(promise);
     GstWebRTCSessionDescription *description = nullptr;
@@ -8753,14 +8833,14 @@ void SfuMediaEngine::onAnswerCreated(GstPromise *promise, void *userData)
                           nullptr);
     gst_promise_unref(promise); // may free ctx: read nothing from it below
     if (!description) {
+        const quintptr token = reinterpret_cast<quintptr>(webrtc);
         gst_object_unref(webrtc);
+        marshal(engine, [engine, token, generation] {
+            if (engine->tokenIsLive(token, generation))
+                Q_EMIT engine->failed(QStringLiteral("local_answer_failed"));
+        });
         return;
     }
-
-    GstPromise *local = gst_promise_new();
-    g_signal_emit_by_name(webrtc, "set-local-description", description, local);
-    gst_promise_interrupt(local);
-    gst_promise_unref(local);
 
     // Log what webrtcbin built for the subscriber, which can differ from the
     // SDP we answered: no transceivers means nothing can arrive; RECVONLY or
@@ -8800,15 +8880,47 @@ void SfuMediaEngine::onAnswerCreated(GstPromise *promise, void *userData)
     }
 
     gchar *text = gst_sdp_message_as_text(description->sdp);
-    const QString sdp = QString::fromUtf8(text ? text : "");
+    auto *localCtx = promiseCtxNew(engine, webrtc, publisher);
+    localCtx->generation = generation;
+    localCtx->sdp = QString::fromUtf8(text ? text : "");
     g_free(text);
+    GstPromise *local = gst_promise_new_with_change_func(
+        onLocalDescriptionSet, localCtx, promiseCtxFree);
+    g_signal_emit_by_name(webrtc, "set-local-description", description, local);
     gst_webrtc_session_description_free(description);
-
-    const quintptr token = reinterpret_cast<quintptr>(webrtc);
     gst_object_unref(webrtc);
-    const quint64 generation = engine->m_generation.load();
-    marshal(engine, [engine, token, generation, sdp] {
-        engine->handleLocalDescription(token, generation, /*offer=*/false, sdp);
+}
+
+void SfuMediaEngine::onLocalDescriptionSet(GstPromise *promise, void *userData)
+{
+    auto *ctx = static_cast<PromiseCtx *>(userData);
+    const lightning::webrtc::CallbackScope scope(ctx->webrtc);
+    if (!scope.live()) {
+        gst_promise_unref(promise);
+        return;
+    }
+    auto *engine = ctx->engine;
+    const quintptr token = reinterpret_cast<quintptr>(ctx->webrtc);
+    const quint64 generation = ctx->generation;
+    const bool offer = ctx->offer;
+    const QString sdp = ctx->sdp;
+    const bool replied = gst_promise_wait(promise) == GST_PROMISE_RESULT_REPLIED;
+    const GstStructure *reply = replied ? gst_promise_get_reply(promise) : nullptr;
+    const bool ok = replied && (!reply || !gst_structure_has_field(reply, "error"));
+    gst_promise_unref(promise);
+    marshal(engine, [engine, token, generation, offer, sdp, ok] {
+        Target target = Target::Publisher;
+        if (!engine->tokenIsLive(token, generation, &target))
+            return;
+        if (!ok) {
+            Peer &peer = engine->peerFor(target);
+            peer.offerPending = false;
+            peer.negotiationDirty = false;
+            Q_EMIT engine->failed(QStringLiteral("local_sdp_rejected"));
+            return;
+        }
+        // An answer cannot arrive before the local offer is installed.
+        engine->handleLocalDescription(token, generation, offer, sdp);
     });
 }
 

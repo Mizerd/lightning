@@ -138,8 +138,11 @@ public:
     quint64 requestCallTurnServers() override
     {
         lastTurnOp = ++opCounter;
-        return lastTurnOp;
+        return deferTurn ? lastTurnOp : 0;
     }
+    // Most controller tests model a backend with no TURN operation. The
+    // ordering tests explicitly keep the homeserver response pending.
+    bool deferTurn = false;
     // The SFU's only removal-shaped verb: there is no unpublish message, so a
     // stopped camera or share must arrive here.
     void sfuMuteTrack(const QString &sid, bool muted) override
@@ -317,10 +320,12 @@ public:
     int sfuDisconnects = 0;
     QList<QPair<QString, QString>> sfuConnects;
     void emitCandidates(const QString &roomId, const QString &callId,
-                        bool own, const QVariantList &candidates)
+                        bool own, const QVariantList &candidates,
+                        const QString &sender = QStringLiteral("@peer:x"))
     {
         Q_EMIT callCandidatesReceived(roomId, callId,
-                                      QStringLiteral("peer-party"), own,
+                                      QStringLiteral("peer-party"),
+                                      sender, own,
                                       candidates);
     }
     void emitTurnServers(quint64 opId, bool ok, const QStringList &uris)
@@ -4162,7 +4167,7 @@ private Q_SLOTS:
         // OUTBOUND call: the engine session exists from placeCall, so the
         // peer's candidates forward immediately (the inbound pre-answer
         // BUFFERING path has its own test).
-        QVERIFY(calls.placeCall(QStringLiteral("!r:x")));
+        QVERIFY(calls.placeCall(QStringLiteral("!r:x"), QStringLiteral("@peer:x")));
         const QString callId = calls.activeCallId();
         media.deliverOffer(callId, QStringLiteral("v=0 offer"));
         QVariantList batch;
@@ -4182,9 +4187,198 @@ private Q_SLOTS:
         QCOMPARE(media.remoteCandidates.size(), 1);
     }
 
+    void firstOfferWaitsForTurnBeforeCreatingTheMediaSession()
+    {
+        RecordingCallClient client;
+        client.deferTurn = true;
+        FakeMediaBackend media;
+        CallController calls;
+        calls.setMediaBackend(&media);
+        calls.setClient(&client);
+        QVERIFY(calls.placeCall(QStringLiteral("!r:x"),
+                                QStringLiteral("@peer:x")));
+        QVERIFY(media.offerRequests.isEmpty());
+        client.emitTurnServers(client.lastTurnOp, true,
+                               {QStringLiteral("turn:relay.example:3478")});
+        QCOMPARE(media.offerRequests.size(), 1);
+        QCOMPARE(media.iceServerApplications.last(),
+                 QStringList{QStringLiteral("turn:relay.example:3478")});
+    }
+
+    void firstAnswerWaitsForTurnAndRetainsEarlyCandidates()
+    {
+        RecordingCallClient client;
+        client.deferTurn = true;
+        FakeMediaBackend media;
+        CallController calls;
+        calls.setMediaBackend(&media);
+        calls.setClient(&client);
+        const auto invite = freshInvite(QStringLiteral("call-turn"));
+        client.storedDescriptions.insert(invite.eventId, QStringLiteral("v=0 offer"));
+        client.emitSignal(invite);
+        QVariantMap candidate;
+        candidate.insert(QStringLiteral("candidate"), QStringLiteral("candidate:1 1 UDP x"));
+        client.emitCandidates(invite.roomId, invite.callId, false, {candidate});
+        QVERIFY(calls.answer());
+        QVERIFY(media.answerRequests.isEmpty());
+        QVERIFY(media.remoteCandidates.isEmpty());
+        // Trickle can continue after clicking Answer while TURN is pending.
+        client.emitCandidates(invite.roomId, invite.callId, false, {candidate});
+        client.emitTurnServers(client.lastTurnOp, true,
+                               {QStringLiteral("turn:relay.example:3478")});
+        QCOMPARE(media.answerRequests.size(), 1);
+        QCOMPARE(media.remoteCandidates.size(), 2);
+    }
+
+    void changingAccountsCancelsPendingMediaAndDropsThePreviousTurnCredentials()
+    {
+        RecordingCallClient first;
+        RecordingCallClient second;
+        first.deferTurn = second.deferTurn = true;
+        FakeMediaBackend media;
+        CallController calls;
+        calls.setMediaBackend(&media);
+        calls.setClient(&first);
+        QVERIFY(calls.placeCall(QStringLiteral("!first:x"), QStringLiteral("@peer:x")));
+        QVERIFY(media.offerRequests.isEmpty());
+        calls.setClient(&second);
+        QCOMPARE(calls.state(), CallController::State::Ended);
+        QCOMPARE(calls.endReason(), CallController::EndReason::SessionLost);
+        QVERIFY(calls.placeCall(QStringLiteral("!second:x"), QStringLiteral("@peer:x")));
+        first.emitTurnServers(first.lastTurnOp, true, {QStringLiteral("turn:old.example:3478")});
+        QVERIFY(media.offerRequests.isEmpty());
+        second.emitTurnServers(second.lastTurnOp, true, {QStringLiteral("turn:new.example:3478")});
+        QCOMPARE(media.offerRequests.size(), 1);
+        QCOMPARE(media.iceServerApplications.last(), QStringList{QStringLiteral("turn:new.example:3478")});
+    }
+
+    void anEndedCallCannotStartMediaFromALateTurnResponse()
+    {
+        RecordingCallClient client;
+        client.deferTurn = true;
+        FakeMediaBackend media;
+        CallController calls;
+        calls.setClient(&client);
+        calls.setMediaBackend(&media);
+        QVERIFY(calls.placeCall(QStringLiteral("!r:x"), QStringLiteral("@peer:x")));
+        QVERIFY(media.offerRequests.isEmpty());
+        calls.hangup();
+        client.emitTurnServers(client.lastTurnOp, true,
+                               {QStringLiteral("turn:relay.example:3478")});
+        QVERIFY(media.offerRequests.isEmpty());
+        QCOMPARE(calls.state(), CallController::State::Ended);
+    }
+
+    void aTurnTimeoutStartsDirectMediaOnceAndIgnoresTheLateReply()
+    {
+        RecordingCallClient client;
+        client.deferTurn = true;
+        FakeMediaBackend media;
+        CallController calls;
+        calls.setTurnWaitTimeoutForTest(30);
+        calls.setClient(&client);
+        calls.setMediaBackend(&media);
+        QVERIFY(calls.placeCall(QStringLiteral("!r:x"), QStringLiteral("@peer:x")));
+        QVERIFY(media.offerRequests.isEmpty());
+        QTRY_COMPARE_WITH_TIMEOUT(media.offerRequests.size(), 1, 1000);
+        client.emitTurnServers(client.lastTurnOp, true,
+                               {QStringLiteral("turn:relay.example:3478")});
+        QCOMPARE(media.offerRequests.size(), 1);
+    }
+
+    void anAcceptedCallHasABoundedMediaConnectionDeadline()
+    {
+        for (bool inbound : {false, true}) {
+            RecordingCallClient client;
+            FakeMediaBackend media;
+            CallController calls;
+            calls.setClient(&client);
+            calls.setMediaBackend(&media);
+            calls.setMediaConnectionTimeoutForTest(30);
+            if (inbound) {
+                const auto invite = freshInvite(QStringLiteral("call-connect"));
+                client.storedDescriptions.insert(invite.eventId, QStringLiteral("v=0 offer"));
+                client.emitSignal(invite);
+                QVERIFY(calls.answer());
+                media.deliverAnswer(invite.callId, QStringLiteral("v=0 answer"));
+            } else {
+                QVERIFY(calls.placeCall(QStringLiteral("!r:x"), QStringLiteral("@peer:x")));
+                const auto id = calls.activeCallId();
+                media.deliverOffer(id, QStringLiteral("v=0 offer"));
+                auto answer = freshInvite(id);
+                answer.kind = CallSignal::Kind::Answer;
+                client.storedDescriptions.insert(answer.eventId, QStringLiteral("v=0 answer"));
+                client.emitSignal(answer);
+            }
+            QCOMPARE(calls.state(), CallController::State::Connecting);
+            const auto id = calls.activeCallId();
+            QTRY_COMPARE_WITH_TIMEOUT(calls.state(), CallController::State::Ended, 1000);
+            QCOMPARE(calls.endReason(), CallController::EndReason::MediaFailed);
+            media.deliverConnected(id);
+            QCOMPARE(calls.state(), CallController::State::Ended);
+        }
+    }
+
+    void remoteIceCandidatesMustCarryTheBoundSender()
+    {
+        RecordingCallClient client;
+        FakeMediaBackend media;
+        CallController calls;
+        calls.setClient(&client);
+        calls.setMediaBackend(&media);
+        const auto invite = freshInvite(QStringLiteral("call-sender"));
+        client.storedDescriptions.insert(invite.eventId, QStringLiteral("v=0 offer"));
+        client.emitSignal(invite);
+        QVariantMap candidate;
+        candidate.insert(QStringLiteral("candidate"), QStringLiteral("candidate:1 1 UDP x"));
+        const QVariantList batch{candidate};
+        auto emitFrom = [&](const QString &sender) {
+            return QMetaObject::invokeMethod(&client, "callCandidatesReceived", Qt::DirectConnection,
+                Q_ARG(QString, invite.roomId), Q_ARG(QString, invite.callId),
+                Q_ARG(QString, invite.partyId), Q_ARG(QString, sender),
+                Q_ARG(bool, false), Q_ARG(QVariantList, batch));
+        };
+        // The public call and party IDs are deliberately correct; only the
+        // sender differs. Neither the early queue nor the live engine may
+        // accept a third room member's candidates.
+        QVERIFY(emitFrom(QStringLiteral("@mallory:x")));
+        QVERIFY(calls.answer());
+        QVERIFY(media.remoteCandidates.isEmpty());
+        QVERIFY(emitFrom(invite.sender));
+        QCOMPARE(media.remoteCandidates.size(), 1);
+        QVERIFY(emitFrom(QStringLiteral("@mallory:x")));
+        QCOMPARE(media.remoteCandidates.size(), 1);
+    }
+
+    void outgoingEarlyCandidatesBelongToTheInvitedUserEvenBeforeAnswer()
+    {
+        RecordingCallClient client;
+        client.deferTurn = true;
+        FakeMediaBackend media;
+        CallController calls;
+        calls.setClient(&client);
+        calls.setMediaBackend(&media);
+        const QString room = QStringLiteral("!r:x");
+        QVERIFY(calls.placeCall(room, QStringLiteral("@peer:x")));
+        const QString id = calls.activeCallId();
+        const QVariantList candidates{QVariantMap{
+            {QStringLiteral("candidate"), QStringLiteral("candidate:1 1 UDP x")}}};
+        client.emitCandidates(room, id, false, candidates, QStringLiteral("@mallory:x"));
+        client.emitCandidates(room, id, false, candidates);
+        QVERIFY(media.remoteCandidates.isEmpty());
+        client.emitTurnServers(client.lastTurnOp, true, {QStringLiteral("turn:relay.example:3478")});
+        QCOMPARE(media.remoteCandidates.size(), 1);
+        // With no answering party locked yet, the sender check still applies.
+        client.emitCandidates(room, id, false, candidates, QStringLiteral("@mallory:x"));
+        QCOMPARE(media.remoteCandidates.size(), 1);
+        client.emitCandidates(room, id, false, candidates);
+        QCOMPARE(media.remoteCandidates.size(), 2);
+    }
+
     void turnServersFlowToTheEngineOnceFetched()
     {
         RecordingCallClient client;
+        client.deferTurn = true;
         FakeMediaBackend media;
         CallController calls;
         // Production order: AppController registers the engine before the
@@ -4269,6 +4463,7 @@ private Q_SLOTS:
     void turnResponseIsBoundedDefensively()
     {
         RecordingCallClient client;
+        client.deferTurn = true;
         FakeMediaBackend media;
         CallController calls;
         calls.setMediaBackend(&media);
@@ -4885,17 +5080,12 @@ private Q_SLOTS:
         call.setOwnIdentityForTest(QStringLiteral("@me:example.org:MEDEV"));
 
         // The SFU announces a joiner before their membership comes back down
-        // sync; the row must be rebuilt when it lands. First, an anonymous row.
+        // sync; show a person only when membership resolves the endpoint.
         call.ingestParticipantsForTest({
             sfuParticipant(identity, QStringLiteral("PA_BEA"), {}),
         });
         CallParticipantModel *model = call.participantModel();
-        const int row = participantRowFor(model, identity);
-        QVERIFY2(row >= 0, "the SFU's announcement did not produce a row");
-        QCOMPARE(participantRole(model, row,
-                                 CallParticipantModel::DisplayNameRole)
-                     .toString(),
-                 QString());
+        QCOMPARE(participantRowFor(model, identity), -1);
 
         // ...and now the membership lands.
         RtcParticipant bea;
@@ -5122,6 +5312,40 @@ private Q_SLOTS:
         QCOMPARE(stage->layoutPreference(), QStringLiteral("auto"));
         QCOMPARE(stage->dismissedShareCount(), 0);
         QCOMPARE(stage->spotlightShareId(), QString());
+    }
+
+    void tracklessUnmatchedSfuConnectionsDoNotBecomePeople()
+    {
+        RecordingCallClient client;
+        RtcController rtc;
+        SfuCallController call;
+        const QString room = QStringLiteral("!room:x");
+        const QString identity = QStringLiteral("@peer:x:DEV");
+        stageOneRemoteParticipant(client, rtc, call, room, identity,
+                                  QStringLiteral("@peer:x"), QStringLiteral("DEV"),
+                                  QStringLiteral("$member"));
+        const int before = call.participantCount();
+        // Element's subscribe-only connection has an unrelated hashed identity,
+        // no tracks and no corresponding call membership.
+        const QString observer = QStringLiteral("unmatched-observer-hash");
+        call.ingestParticipantsForTest({sfuParticipant(observer, QStringLiteral("PA_OBSERVER"), {})});
+        QCOMPARE(call.participantCount(), before);
+        // A real muted member with no tracks becomes visible as soon as the
+        // authenticated Matrix membership arrives; the SFU row was retained.
+        RtcSessionData session;
+        session.roomId = room;
+        RtcParticipant peer;
+        peer.userId = QStringLiteral("@peer:x");
+        peer.deviceId = QStringLiteral("DEV");
+        peer.rtcIdentity = identity;
+        RtcParticipant late;
+        late.userId = QStringLiteral("@late:x");
+        late.deviceId = QStringLiteral("LATE");
+        late.rtcIdentity = observer;
+        session.participants = {peer, late};
+        rtc.refresh(room);
+        client.answerSession(client.lastSessionOp, session);
+        QCOMPARE(call.participantCount(), before + 1);
     }
 
     void participantsInvokableIsReadOutOfTheModel()
@@ -8031,16 +8255,10 @@ private Q_SLOTS:
             sfuParticipant(identity, QStringLiteral("PA_BEA"), {}),
         });
         CallParticipantModel *model = call.participantModel();
-        const int row = participantRowFor(model, identity);
-        QVERIFY(row >= 0);
-
-        // The reaction arrives first and cannot be attributed yet.
+        QCOMPARE(participantRowFor(model, identity), -1);
+        // The reaction arrives before a visible member can be attributed.
         client.emitHandChanged(room, QStringLiteral("@bea:example.org"),
                                membership, QStringLiteral("$raise"), true);
-        QCOMPARE(participantRole(model, row,
-                                 CallParticipantModel::HandRaisedRole)
-                     .toBool(),
-                 false);
 
         // ...then the membership lands.
         RtcParticipant bea;

@@ -12001,6 +12001,7 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             event.value(QStringLiteral("room_id")).toString(),
             event.value(QStringLiteral("call_id")).toString(),
             event.value(QStringLiteral("party_id")).toString(),
+            event.value(QStringLiteral("sender")).toString(),
             event.value(QStringLiteral("own")).toBool(), candidates);
         return true;
     }
@@ -12210,6 +12211,12 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                               << "category="
                               << event.value(QStringLiteral("category")).toString();
             return true;
+        }
+        if (type == QLatin1String("sfu_state") && event.contains(QStringLiteral("reason"))) {
+            qCInfo(lcRust) << "sfu connection leave connection="
+                           << event.value(QStringLiteral("connection_id")).toInt()
+                           << "reason=" << event.value(QStringLiteral("reason")).toInt()
+                           << "action=" << event.value(QStringLiteral("action")).toInt();
         }
         if (event.value(QStringLiteral("connection_id")).toInt() != 0)
             return true;

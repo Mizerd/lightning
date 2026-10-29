@@ -2623,7 +2623,8 @@ Q_SIGNALS:
     // Remote trickled ICE (media-capable mode only). Transport data for the
     // engine; never logged or rendered.
     void callCandidatesReceived(const QString &roomId, const QString &callId,
-                                const QString &partyId, bool own,
+                                const QString &partyId, const QString &sender,
+                                bool own,
                                 const QVariantList &candidates);
     // Short-lived TURN credentials: engine-only, never logged.
     void callTurnServersReceived(quint64 opId, bool ok,
