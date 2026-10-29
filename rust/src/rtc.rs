@@ -3126,6 +3126,7 @@ const ELEMENT_CALL_REACTIONS: &[(&str, &str)] = &[
     ("rock", "\u{1F918}"),
     ("wave", "\u{1F44B}"),
     ("drum", "\u{1F941}"),
+    ("bell", "\u{1F6CE}\u{FE0F}"),
 ];
 
 /// Send timeout. Reactions are fire-and-forget; this only bounds the task.
@@ -3222,6 +3223,24 @@ fn first_emoji_cluster(value: &str) -> String {
     out
 }
 
+/// The `name` to send with `emoji`, or `None` for a name Element Call does not
+/// pair with that emoji. A nameless preset emoji (one picked from the full
+/// picker) gets its preset name, so Element Call plays that preset's sound.
+fn reaction_wire_name(emoji: &str, name: &str) -> Option<String> {
+    if name.is_empty() {
+        let preset = ELEMENT_CALL_REACTIONS
+            .iter()
+            .find(|(_, known_emoji)| *known_emoji == emoji)
+            .map(|(known_name, _)| *known_name)
+            .unwrap_or("");
+        return Some(preset.to_owned());
+    }
+    ELEMENT_CALL_REACTIONS
+        .iter()
+        .any(|(known_name, known_emoji)| *known_name == name && *known_emoji == emoji)
+        .then(|| name.to_owned())
+}
+
 /// Send one transient call reaction.
 ///
 /// `membership_event_id` is this device's own `m.call.member` event, as
@@ -3249,12 +3268,8 @@ pub(crate) fn send_call_reaction(
     if sane(&emoji, MAX_REACTION_EMOJI_LEN).is_none() || emoji.trim() != emoji {
         return Err("unknown reaction".to_owned());
     }
-    if !name.is_empty()
-        && !ELEMENT_CALL_REACTIONS.iter().any(|(known_name, known_emoji)| {
-            *known_name == name && *known_emoji == emoji
-        }) {
-        return Err("unknown reaction".to_owned());
-    }
+    let name = reaction_wire_name(&emoji, &name)
+        .ok_or_else(|| "unknown reaction".to_owned())?;
 
     let content = ElementCallReactionEventContent {
         emoji,
@@ -6201,6 +6216,22 @@ mod tests {
             serde_json::from_value::<ElementCallReactionEventContent>(nameless)
                 .expect("a nameless reaction is still a reaction");
         assert_eq!(parsed.name, "");
+    }
+
+    #[test]
+    fn a_nameless_preset_reaction_is_sent_with_its_preset_name() {
+        assert_eq!(reaction_wire_name("\u{1F44D}", "").as_deref(), Some("thumbsup"));
+        assert_eq!(
+            reaction_wire_name("\u{1F6CE}\u{FE0F}", "").as_deref(),
+            Some("bell")
+        );
+        assert_eq!(reaction_wire_name("\u{1F98A}", "").as_deref(), Some(""));
+        assert_eq!(
+            reaction_wire_name("\u{1F44D}", "thumbsup").as_deref(),
+            Some("thumbsup")
+        );
+        assert_eq!(reaction_wire_name("\u{1F98A}", "thumbsup"), None);
+        assert_eq!(reaction_wire_name("\u{1F44D}", "fox"), None);
     }
 
     #[test]
