@@ -28,6 +28,8 @@
 #include <gst/app/gstappsrc.h>
 #include <gst/base/gstbasesink.h>
 #include <gst/gst.h>
+#define GST_USE_UNSTABLE_API
+#include <gst/webrtc/webrtc.h>
 #include <gst/rtp/gstrtpbuffer.h>
 #include <gst/rtp/gstrtphdrext.h>
 #include <gst/rtp/gstrtpbasepayload.h>
@@ -3818,9 +3820,15 @@ private slots:
     void theOfferAfterUnpublishNoLongerAdvertisesTheTrack()
     {
         SfuMediaEngine engine;
+        SfuMediaEngine receiver;
+        receiver.setTestSourceMode(true);
+        QString failure;
+        // Renegotiation requires acknowledging the preceding offer.
+        wireLoopback(engine, receiver, this, &failure);
         engine.setTestSourceMode(true);
         QSignalSpy offers(&engine, &SfuMediaEngine::localDescription);
         engine.start();
+        receiver.start();
         engine.publishVideo(QStringLiteral("cid-share"), /*screenShare=*/false,
                             /*nodeId=*/-1);
         QTest::qWait(400);
@@ -3883,7 +3891,9 @@ private slots:
                  "far end is told we are still sending on a media section "
                  "with no track behind it, and renders an empty tile that "
                  "never clears");
+        QVERIFY2(failure.isEmpty(), qPrintable(failure));
         engine.stop();
+        receiver.stop();
     }
 
     /// Stopping a share retires its transceiver: the m= section count comes
@@ -3892,8 +3902,14 @@ private slots:
     void stoppingAPublishRetiresItsTransceiver()
     {
         SfuMediaEngine engine;
+        SfuMediaEngine receiver;
+        receiver.setTestSourceMode(true);
+        QString failure;
+        // Renegotiation requires acknowledging the preceding offer.
+        wireLoopback(engine, receiver, this, &failure);
         engine.setTestSourceMode(true);
         engine.start();
+        receiver.start();
         // -1, not 0: the publisher webrtcbin is built lazily on first publish.
         QCOMPARE(engine.publisherTrackSlotsForTest(), -1);
 
@@ -3924,7 +3940,9 @@ private slots:
                             /*screenShare=*/false, /*nodeId=*/-1);
         QTest::qWait(400);
         QCOMPARE(engine.publisherTrackSlotsForTest(), 1);
+        QVERIFY2(failure.isEmpty(), qPrintable(failure));
         engine.stop();
+        receiver.stop();
     }
 
     /// Unpublishing a live video bin must not deadlock: the state change on
@@ -5008,6 +5026,186 @@ private slots:
         engine.setOutputMuted(false);
         engine.setParticipantVolume(QStringLiteral("PA_x"), 50);
         engine.stop();
+    }
+
+    void stoppingVideoAndShareAudioWaitsForTheOutstandingAnswer()
+    {
+        SfuMediaEngine sender;
+        SfuMediaEngine receiver;
+        sender.setTestSourceMode(true);
+        receiver.setTestSourceMode(true);
+        QSignalSpy failures(&sender, &SfuMediaEngine::failed);
+        QSignalSpy receiveFailures(&receiver, &SfuMediaEngine::failed);
+        QStringList offers;
+        QStringList heldAnswers;
+        bool holdAnswers = false;
+        int answered = 0;
+        connect(&sender, &SfuMediaEngine::localDescription, &receiver,
+            [&](int target, const QString &kind, const QString &sdp) {
+                if (target != int(SfuMediaEngine::Target::Publisher)
+                    || kind != QStringLiteral("offer"))
+                    return;
+                offers << sdp;
+                receiver.applyRemoteDescription(SfuMediaEngine::Target::Subscriber,
+                                                kind, sdp);
+            });
+        connect(&receiver, &SfuMediaEngine::localDescription, &sender,
+            [&](int target, const QString &kind, const QString &sdp) {
+                if (target != int(SfuMediaEngine::Target::Subscriber)
+                    || kind != QStringLiteral("answer"))
+                    return;
+                ++answered;
+                if (holdAnswers)
+                    heldAnswers << sdp;
+                else
+                    sender.applyRemoteDescription(SfuMediaEngine::Target::Publisher,
+                                                  kind, sdp);
+            });
+        connect(&sender, &SfuMediaEngine::localCandidate, &receiver,
+            [&](int target, const QString &candidate) {
+                if (target == int(SfuMediaEngine::Target::Publisher))
+                    receiver.applyRemoteCandidate(SfuMediaEngine::Target::Subscriber,
+                                                  candidate);
+            });
+        connect(&receiver, &SfuMediaEngine::localCandidate, &sender,
+            [&](int target, const QString &candidate) {
+                if (target == int(SfuMediaEngine::Target::Subscriber))
+                    sender.applyRemoteCandidate(SfuMediaEngine::Target::Publisher,
+                                                candidate);
+            });
+        sender.start();
+        receiver.start();
+        sender.publishAudio(QStringLiteral("microphone"));
+        QTRY_VERIFY_WITH_TIMEOUT(receiver.receiveBinForTest(QStringLiteral("microphone")), 10000);
+        QTRY_VERIFY_WITH_TIMEOUT(answered > 0, 5000);
+        QTest::qWait(150);
+        int before = answered;
+        sender.publishVideo(QStringLiteral("share-video"), false, -1);
+        QTRY_VERIFY_WITH_TIMEOUT(answered > before, 5000);
+        QTest::qWait(150);
+        before = answered;
+        // Synthetic PCM exercises the second audio transceiver without
+        // opening a user's desktop monitor or microphone.
+        sender.publishAudio(QStringLiteral("share-audio"));
+        QTRY_VERIFY_WITH_TIMEOUT(answered > before, 5000);
+        QTest::qWait(150);
+        QVERIFY(failures.isEmpty());
+        QVERIFY(receiveFailures.isEmpty());
+        holdAnswers = true;
+        const int initialOffers = offers.size();
+        sender.unpublish(QStringLiteral("share-video"));
+        sender.unpublish(QStringLiteral("share-audio"));
+        QTRY_VERIFY_WITH_TIMEOUT(!heldAnswers.isEmpty(), 5000);
+        QTest::qWait(300);
+        // Two teardown completions and negotiation-needed must not send
+        // competing offers while the SFU's first answer is still in flight.
+        QCOMPARE(offers.size(), initialOffers + 1);
+        const QString answer = heldAnswers.takeFirst();
+        holdAnswers = false;
+        sender.applyRemoteDescription(SfuMediaEngine::Target::Publisher,
+                                      QStringLiteral("answer"), answer);
+        QTest::qWait(500);
+        QVERIFY(failures.isEmpty());
+        QVERIFY(receiveFailures.isEmpty());
+        std::atomic<int> frames{0};
+        GstElement *sink = firstSinkOf(receiver.receiveBinForTest(QStringLiteral("microphone")));
+        QVERIFY(sink);
+        countBuffersAt(sink, &frames);
+        QTRY_VERIFY_WITH_TIMEOUT(frames.load() > 10, 5000);
+        sender.stop();
+        receiver.stop();
+    }
+
+    void localDescriptionCompletionIsCheckedAndSessionBound_data()
+    {
+        QTest::addColumn<QByteArray>("action");
+        QTest::addColumn<bool>("subscriber");
+        QTest::addColumn<bool>("restart");
+        QTest::addColumn<QString>("category");
+        QTest::newRow("local-offer-rejected") << QByteArray("set-local-description")
+            << false << false << QStringLiteral("local_sdp_rejected");
+        QTest::newRow("retired-local-completion") << QByteArray("set-local-description")
+            << false << true << QString();
+        QTest::newRow("offer-creation-rejected") << QByteArray("create-offer")
+            << false << false << QStringLiteral("local_offer_failed");
+        QTest::newRow("answer-creation-rejected") << QByteArray("create-answer")
+            << true << false << QStringLiteral("local_answer_failed");
+    }
+
+    void localDescriptionCompletionIsCheckedAndSessionBound()
+    {
+        QFETCH(QByteArray, action);
+        QFETCH(bool, subscriber);
+        QFETCH(bool, restart);
+        QFETCH(QString, category);
+        SfuMediaEngine sender;
+        SfuMediaEngine receiver;
+        sender.setTestSourceMode(true);
+        receiver.setTestSourceMode(true);
+        QString failure;
+        wireLoopback(sender, receiver, this, &failure);
+        sender.start();
+        receiver.start();
+        sender.publishAudio(QStringLiteral("microphone"));
+        QTRY_VERIFY_WITH_TIMEOUT(receiver.receiveBinForTest(QStringLiteral("microphone")), 10000);
+        QTest::qWait(150);
+        QVERIFY2(failure.isEmpty(), qPrintable(failure));
+        SfuMediaEngine *subject = subscriber ? &receiver : &sender;
+        GstElement *bin = subscriber
+            ? receiver.receiveBinForTest(QStringLiteral("microphone"))
+            : sender.publishedBinForTest(QStringLiteral("microphone"));
+        QVERIFY(bin);
+        GstElement *peer = gst_bin_get_by_name(GST_BIN(GST_OBJECT_PARENT(bin)),
+                                              subscriber ? "wb-sub" : "wb-pub");
+        QVERIFY(peer);
+        struct HeldReply {
+            GstPromise *promise = nullptr;
+            QByteArray action;
+            ~HeldReply() {
+                if (promise) {
+                    gst_promise_interrupt(promise);
+                    gst_promise_unref(promise);
+                }
+            }
+        } held{nullptr, action};
+        const gulong hold = g_signal_connect(peer, action.constData(),
+            G_CALLBACK(+[](GstElement *peer, gpointer,
+                           GstPromise *promise, gpointer data) {
+                auto *held = static_cast<HeldReply *>(data);
+                held->promise = gst_promise_ref(promise);
+                g_signal_stop_emission_by_name(peer, held->action.constData());
+            }), &held);
+        const auto cleanup = qScopeGuard([&] {
+            g_signal_handler_disconnect(peer, hold);
+            gst_object_unref(peer);
+        });
+        QSignalSpy descriptions(subject, &SfuMediaEngine::localDescription);
+        QSignalSpy failures(subject, &SfuMediaEngine::failed);
+        sender.publishVideo(QStringLiteral("share-video"), false, -1);
+        QTRY_VERIFY_WITH_TIMEOUT(held.promise, 5000);
+        QTest::qWait(100);
+        // A created SDP is not a committed local SDP, so nothing is sent.
+        QCOMPARE(descriptions.size(), 0);
+        if (restart) {
+            subject->stop();
+            subject->start();
+        }
+        GError *error = g_error_new_literal(GST_WEBRTC_ERROR,
+            GST_WEBRTC_ERROR_INVALID_STATE, "fixture rejection");
+        GstStructure *reply = gst_structure_new("fixture-error",
+            "error", G_TYPE_ERROR, error, nullptr);
+        g_error_free(error);
+        gst_promise_reply(held.promise, reply);
+        if (restart) {
+            QTest::qWait(150);
+            QVERIFY(failures.isEmpty());
+        } else {
+            QTRY_COMPARE_WITH_TIMEOUT(failures.size(), 1, 3000);
+            QCOMPARE(failures.first().first().toString(), category);
+        }
+        QVERIFY(descriptions.isEmpty());
+        sender.stop();
+        receiver.stop();
     }
 
     void trickleWaitsForTheRemoteDescriptionPromise()
