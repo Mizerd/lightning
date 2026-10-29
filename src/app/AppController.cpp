@@ -4662,11 +4662,11 @@ QString AppController::preferredCallLane(const QString &roomId) const
 
 QString AppController::legacyCallPeer(const QString &roomId) const
 {
-    // m.direct can survive inviting a third member. Use the same member-count
-    // guard as ringing, or a group room can fall back to a one-person call.
+    // m.direct can survive inviting a third member. An unavailable count
+    // cannot establish that a legacy invite will reach only one peer.
     if (!m_client)
         return QString();
-    return calls::oneToOneDmPeer(m_client->roomInfo(roomId));
+    return calls::oneToOneDmPeer(m_client->roomInfo(roomId), /*requireKnownCount=*/true);
 }
 
 void AppController::withdrawCallFailure()

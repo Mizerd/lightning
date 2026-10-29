@@ -4,6 +4,7 @@
 #include <QtTest/QtTest>
 
 #include "calls/CallLanePolicy.h"
+#include "calls/OneToOneDm.h"
 
 using lightning::calls::CallFailureNotice;
 using lightning::calls::LegacyFallbackArm;
@@ -18,6 +19,24 @@ class CallLanePolicyTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
+    void legacyFallbackRequiresAKnownOneToOneRoster()
+    {
+        RoomInfo room;
+        room.isDirect = true;
+        room.directUserIds = {QStringLiteral("@peer:x")};
+        // m.direct remains unchanged after a third member joins. Missing
+        // counts (zero on the Rust path) must also fail closed.
+        for (int count : {0, 3, -1}) {
+            room.activeMemberCount = count;
+            QVERIFY(::calls::oneToOneDmPeer(room, true).isEmpty());
+        }
+        room.activeMemberCount = 2;
+        QCOMPARE(::calls::oneToOneDmPeer(room, true), QStringLiteral("@peer:x"));
+        // Mock/HTTP ringing compatibility is explicitly retained.
+        room.activeMemberCount = 0;
+        QCOMPARE(::calls::oneToOneDmPeer(room), QStringLiteral("@peer:x"));
+    }
+
     // The call button's join, refused as forbidden: falls back once.
     void theButtonsRefusedJoinFallsBackOnce()
     {

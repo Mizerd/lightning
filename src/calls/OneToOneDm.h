@@ -19,11 +19,15 @@ namespace calls {
 /// third member is not a DM here. Backends that report only `directUserId`
 /// count as one target; a backend that reports no member count
 /// (activeMemberCount 0) is judged by the target alone.
-inline QString oneToOneDmPeer(const RoomInfo &room)
+/// Outgoing legacy invites reach every active member, so callers selecting that
+/// lane pass requireKnownCount; ringing keeps its older target-only
+/// compatibility with mock/HTTP backends that do not report counts.
+inline QString oneToOneDmPeer(const RoomInfo &room, bool requireKnownCount = false)
 {
     if (!room.isDirect)
         return {};
-    if (room.activeMemberCount > 2)
+    if (room.activeMemberCount > 2
+        || (requireKnownCount && room.activeMemberCount <= 0))
         return {};
     QStringList targets = room.directUserIds;
     if (targets.isEmpty() && !room.directUserId.isEmpty())
