@@ -16,6 +16,7 @@
 #include <QMutex>
 #include <QThread>
 #include <QSet>
+#include <QScopeGuard>
 #include <QSignalSpy>
 #include <QRegularExpression>
 #include <QtTest/QtTest>
@@ -5007,6 +5008,106 @@ private slots:
         engine.setOutputMuted(false);
         engine.setParticipantVolume(QStringLiteral("PA_x"), 50);
         engine.stop();
+    }
+
+    void trickleWaitsForTheRemoteDescriptionPromise()
+    {
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        QSignalSpy descriptions(&engine, &SfuMediaEngine::localDescription);
+        engine.start();
+        engine.publishAudio(QStringLiteral("fixture"));
+        QTRY_VERIFY_WITH_TIMEOUT(!descriptions.isEmpty(), 3000);
+        GstElement *bin = engine.publishedBinForTest(QStringLiteral("fixture"));
+        QVERIFY(bin);
+        GstElement *peer = gst_bin_get_by_name(GST_BIN(GST_OBJECT_PARENT(bin)), "wb-pub");
+        QVERIFY(peer);
+        struct HeldReply {
+            GstPromise *promise = nullptr;
+            ~HeldReply() {
+                if (promise) {
+                    gst_promise_interrupt(promise);
+                    gst_promise_unref(promise);
+                }
+            }
+        } held;
+        // Hold the action's promise instead of relying on scheduler timing.
+        // No real remote SDP is installed until this fixture releases it.
+        const gulong hold = g_signal_connect(peer, "set-remote-description",
+            G_CALLBACK(+[](GstElement *peer, gpointer,
+                           GstPromise *promise, gpointer data) {
+                auto *held = static_cast<HeldReply *>(data);
+                held->promise = gst_promise_ref(promise);
+                g_signal_stop_emission_by_name(peer, "set-remote-description");
+            }), &held);
+        int added = 0;
+        const gulong observe = g_signal_connect(peer, "add-ice-candidate",
+            G_CALLBACK(+[](GstElement *, guint, const gchar *, gpointer data) {
+                ++*static_cast<int *>(data);
+            }), &added);
+        const auto cleanup = qScopeGuard([&] {
+            g_signal_handler_disconnect(peer, hold);
+            g_signal_handler_disconnect(peer, observe);
+            gst_object_unref(peer);
+        });
+        engine.applyRemoteDescription(SfuMediaEngine::Target::Publisher,
+            QStringLiteral("answer"), descriptions.first().at(2).toString());
+        QVERIFY(held.promise);
+        engine.applyRemoteCandidate(SfuMediaEngine::Target::Publisher,
+            QStringLiteral(R"({"candidate":"candidate:fixture 1 UDP 1 127.0.0.1 9 typ host","sdpMLineIndex":0})"));
+        QCOMPARE(added, 0);
+        // Simulate the asynchronous successful reply: only now may the
+        // queued candidate reach webrtcbin. The live loopbacks test SDP itself.
+        gst_promise_reply(held.promise, nullptr);
+        QTRY_COMPARE_WITH_TIMEOUT(added, 1, 1000);
+        engine.stop();
+    }
+
+    void aRemoteAnswerWithoutAnOfferReportsNegotiationFailure()
+    {
+        SfuMediaEngine producer;
+        producer.setTestSourceMode(true);
+        QSignalSpy descriptions(&producer, &SfuMediaEngine::localDescription);
+        producer.start();
+        producer.publishAudio(QStringLiteral("fixture"));
+        QTRY_VERIFY_WITH_TIMEOUT(!descriptions.isEmpty(), 3000);
+        const QString sdp = descriptions.first().at(2).toString();
+        QVERIFY(!sdp.isEmpty());
+        SfuMediaEngine receiver;
+        receiver.setTestSourceMode(true);
+        receiver.start();
+        QSignalSpy failures(&receiver, &SfuMediaEngine::failed);
+        // Valid SDP, but an answer is invalid before this peer made an offer.
+        receiver.applyRemoteDescription(SfuMediaEngine::Target::Publisher,
+                                        QStringLiteral("answer"), sdp);
+        QTRY_COMPARE_WITH_TIMEOUT(failures.size(), 1, 3000);
+        QCOMPARE(failures.first().first().toString(), QStringLiteral("remote_sdp_rejected"));
+        producer.stop();
+        receiver.stop();
+    }
+
+    void remoteDescriptionCompletionCannotEndAReplacementSession()
+    {
+        SfuMediaEngine producer;
+        producer.setTestSourceMode(true);
+        QSignalSpy descriptions(&producer, &SfuMediaEngine::localDescription);
+        producer.start();
+        producer.publishAudio(QStringLiteral("fixture"));
+        QTRY_VERIFY_WITH_TIMEOUT(!descriptions.isEmpty(), 3000);
+        SfuMediaEngine receiver;
+        receiver.setTestSourceMode(true);
+        receiver.start();
+        QSignalSpy failures(&receiver, &SfuMediaEngine::failed);
+        // Its asynchronous rejection belongs to the old peer, even if the
+        // GUI thread receives that completion after restarting the engine.
+        receiver.applyRemoteDescription(SfuMediaEngine::Target::Publisher,
+            QStringLiteral("answer"), descriptions.first().at(2).toString());
+        receiver.stop();
+        receiver.start();
+        QTest::qWait(150);
+        QVERIFY(failures.isEmpty());
+        producer.stop();
+        receiver.stop();
     }
 
     // Every LiveKit-shaped subscriber offer is answered: the server will not

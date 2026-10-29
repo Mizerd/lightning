@@ -469,13 +469,10 @@ void SfuCallController::setRtcController(RtcController *rtc)
                 // onSfuParticipants() misses peers the SFU announced earlier.
                 noteParticipantIdentities();
                 distributeKeyIfNeeded();
-                // Retry annotations (raised hands) that arrived before the
-                // membership they refer to.
-                retryPendingAnnotations();
-                // Rebuild rows: names and avatars come from the membership,
-                // which often arrives after the SFU announced the joiner.
-                // rebuildModels() diffs, so an unchanged read emits nothing.
+                // Resolve newly visible members before replaying annotations
+                // that arrived before their membership.
                 rebuildModels();
+                retryPendingAnnotations();
                 if (m_state == State::Connected && m_sfuGeneration != 0
                     && !m_publishFallbackTried) {
                     const QString selected = m_rtc->focusUrlFor(roomId);
@@ -6882,6 +6879,12 @@ void SfuCallController::rebuildModels()
         const QVariantMap person = m_rtc
             ? m_rtc->participantForIdentity(m_roomId, identity)
             : QVariantMap{};
+        // Element opens anonymous subscriber connections on foreign foci.
+        // An unmatched trackless endpoint is not another person. Retain its
+        // SFU row so a real muted peer appears when membership sync arrives.
+        if (m_rtc && person.isEmpty() && identity != m_ownIdentity
+            && entry.value(QStringLiteral("tracks")).toList().isEmpty())
+            continue;
         CallParticipantRow row;
         row.identity = identity;
         row.sid = entry.value(QStringLiteral("sid")).toString();

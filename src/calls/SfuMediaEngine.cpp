@@ -5,6 +5,7 @@
 #include <atomic>
 #include <cmath>
 #include <memory>
+#include <utility>
 
 #include <fcntl.h>
 #include <unistd.h>
@@ -151,6 +152,9 @@ struct PromiseCtx {
     SfuMediaEngine *engine = nullptr;
     GstElement *webrtc = nullptr; // owns one ref
     bool publisher = false;
+    quint64 generation = 0;
+    quint64 revision = 0;
+    bool offer = false;
 };
 
 PromiseCtx *promiseCtxNew(SfuMediaEngine *engine, GstElement *webrtc,
@@ -6444,7 +6448,7 @@ void SfuMediaEngine::applyRemoteDescription(Target target, const QString &kind,
     }
     // Log the section count only. Fewer sections than offered means the SFU
     // refused a track, which is otherwise invisible.
-    qCInfo(lcSfuMedia) << "remote description applied kind=" << kind
+    qCInfo(lcSfuMedia) << "remote description submitted kind=" << kind
                        << "target=" << static_cast<int>(target)
                        << "sections=" << gst_sdp_message_medias_len(message);
     if (!qEnvironmentVariableIsEmpty("LIGHTNING_SDP_TRACE")) {
@@ -6467,35 +6471,78 @@ void SfuMediaEngine::applyRemoteDescription(Target target, const QString &kind,
         : GST_WEBRTC_SDP_TYPE_ANSWER;
     GstWebRTCSessionDescription *description =
         gst_webrtc_session_description_new(type, message);
-    GstPromise *promise = gst_promise_new();
+    peer.remoteDescriptionSet = false;
+    auto *ctx = promiseCtxNew(this, peer.webrtc, target == Target::Publisher);
+    ctx->generation = m_generation.load();
+    ctx->revision = ++peer.remoteDescriptionRevision;
+    ctx->offer = type == GST_WEBRTC_SDP_TYPE_OFFER;
+    GstPromise *promise = gst_promise_new_with_change_func(
+        onRemoteDescriptionSet, ctx, promiseCtxFree);
     g_signal_emit_by_name(peer.webrtc, "set-remote-description", description,
                           promise);
-    gst_promise_interrupt(promise);
-    gst_promise_unref(promise);
     gst_webrtc_session_description_free(description);
-    peer.remoteDescriptionSet = true;
+}
 
-    // Apply candidates that arrived before the description; the SFU trickles
-    // immediately, so dropping them would kill the call.
-    for (const QString &pending : peer.pendingCandidates) {
-        QString line;
-        int mline = 0;
-        if (parseCandidateInit(pending, &line, &mline)) {
-            g_signal_emit_by_name(peer.webrtc, "add-ice-candidate", mline,
-                                  line.toUtf8().constData());
+void SfuMediaEngine::onRemoteDescriptionSet(GstPromise *promise, void *userData)
+{
+    auto *ctx = static_cast<PromiseCtx *>(userData);
+    const lightning::webrtc::CallbackScope scope(ctx->webrtc);
+    if (!scope.live()) {
+        gst_promise_unref(promise);
+        return;
+    }
+    auto *engine = ctx->engine;
+    const quintptr token = reinterpret_cast<quintptr>(ctx->webrtc);
+    const quint64 generation = ctx->generation;
+    const quint64 revision = ctx->revision;
+    const bool offer = ctx->offer;
+    bool ok = gst_promise_wait(promise) == GST_PROMISE_RESULT_REPLIED;
+    int errorCode = -1;
+    if (ok) {
+        const GstStructure *reply = gst_promise_get_reply(promise);
+        ok = !reply || !gst_structure_has_field(reply, "error");
+        GError *error = nullptr;
+        if (!ok && gst_structure_get(reply, "error", G_TYPE_ERROR, &error, nullptr)
+            && error) {
+            errorCode = error->code;
+            g_error_free(error);
         }
     }
-    peer.pendingCandidates.clear();
-
-    // The server offers on the subscriber and expects our answer.
-    if (type == GST_WEBRTC_SDP_TYPE_OFFER) {
-        GstPromise *answerPromise = gst_promise_new_with_change_func(
-            onAnswerCreated,
-            promiseCtxNew(this, peer.webrtc, target == Target::Publisher),
-            promiseCtxFree);
-        g_signal_emit_by_name(peer.webrtc, "create-answer", nullptr,
-                              answerPromise);
-    }
+    gst_promise_unref(promise); // ctx can be freed here
+    marshal(engine, [engine, token, generation, revision, offer, ok, errorCode] {
+        Target target = Target::Publisher;
+        if (!engine->tokenIsLive(token, generation, &target))
+            return;
+        Peer &peer = engine->peerFor(target);
+        if (revision != peer.remoteDescriptionRevision)
+            return;
+        if (!ok) {
+            qCWarning(lcSfuMedia) << "remote description rejected target="
+                                 << static_cast<int>(target)
+                                 << "errorCode=" << errorCode;
+            Q_EMIT engine->failed(QStringLiteral("remote_sdp_rejected"));
+            return;
+        }
+        peer.remoteDescriptionSet = true;
+        qCInfo(lcSfuMedia) << "remote description accepted target="
+                          << static_cast<int>(target)
+                          << "queuedCandidates=" << peer.pendingCandidates.size();
+        const auto pending = std::exchange(peer.pendingCandidates, {});
+        for (const QString &candidate : pending) {
+            QString line;
+            int mline = 0;
+            if (parseCandidateInit(candidate, &line, &mline))
+                g_signal_emit_by_name(peer.webrtc, "add-ice-candidate", mline,
+                                      line.toUtf8().constData());
+        }
+        if (offer) {
+            GstPromise *answer = gst_promise_new_with_change_func(
+                onAnswerCreated,
+                promiseCtxNew(engine, peer.webrtc, target == Target::Publisher),
+                promiseCtxFree);
+            g_signal_emit_by_name(peer.webrtc, "create-answer", nullptr, answer);
+        }
+    });
 }
 
 void SfuMediaEngine::applyRemoteCandidate(Target target,
@@ -6504,6 +6551,12 @@ void SfuMediaEngine::applyRemoteCandidate(Target target,
     if (!m_active)
         return;
     Peer &peer = peerFor(target);
+    ++peer.remoteCandidatesReceived;
+    if (peer.remoteCandidatesReceived <= 3 || peer.remoteCandidatesReceived % 20 == 0)
+        qCInfo(lcSfuMedia) << "remote ICE candidates target=" << static_cast<int>(target)
+                          << "received=" << peer.remoteCandidatesReceived
+                          << "descriptionReady=" << peer.remoteDescriptionSet;
+
     if (!peer.webrtc || !peer.remoteDescriptionSet) {
         // Bounded, in case the peer never negotiates.
         if (peer.pendingCandidates.size() < 256)

@@ -1131,6 +1131,8 @@ private:
         GstElement *pipeline = nullptr;
         GstElement *webrtc = nullptr;
         bool remoteDescriptionSet = false;
+        quint64 remoteDescriptionRevision = 0;
+        quint64 remoteCandidatesReceived = 0;
         QList<QString> pendingCandidates;
     };
 
@@ -1174,6 +1176,7 @@ private:
     static void onPadRemoved(GstElement *webrtc, void *pad, void *userData);
     static void onOfferCreated(GstPromise *promise, void *userData);
     static void onAnswerCreated(GstPromise *promise, void *userData);
+    static void onRemoteDescriptionSet(GstPromise *promise, void *userData);
 
 public Q_SLOTS:
     /// `token` is the emitting webrtcbin and `generation` is m_generation when

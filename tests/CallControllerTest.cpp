@@ -5080,17 +5080,12 @@ private Q_SLOTS:
         call.setOwnIdentityForTest(QStringLiteral("@me:example.org:MEDEV"));
 
         // The SFU announces a joiner before their membership comes back down
-        // sync; the row must be rebuilt when it lands. First, an anonymous row.
+        // sync; show a person only when membership resolves the endpoint.
         call.ingestParticipantsForTest({
             sfuParticipant(identity, QStringLiteral("PA_BEA"), {}),
         });
         CallParticipantModel *model = call.participantModel();
-        const int row = participantRowFor(model, identity);
-        QVERIFY2(row >= 0, "the SFU's announcement did not produce a row");
-        QCOMPARE(participantRole(model, row,
-                                 CallParticipantModel::DisplayNameRole)
-                     .toString(),
-                 QString());
+        QCOMPARE(participantRowFor(model, identity), -1);
 
         // ...and now the membership lands.
         RtcParticipant bea;
@@ -5317,6 +5312,40 @@ private Q_SLOTS:
         QCOMPARE(stage->layoutPreference(), QStringLiteral("auto"));
         QCOMPARE(stage->dismissedShareCount(), 0);
         QCOMPARE(stage->spotlightShareId(), QString());
+    }
+
+    void tracklessUnmatchedSfuConnectionsDoNotBecomePeople()
+    {
+        RecordingCallClient client;
+        RtcController rtc;
+        SfuCallController call;
+        const QString room = QStringLiteral("!room:x");
+        const QString identity = QStringLiteral("@peer:x:DEV");
+        stageOneRemoteParticipant(client, rtc, call, room, identity,
+                                  QStringLiteral("@peer:x"), QStringLiteral("DEV"),
+                                  QStringLiteral("$member"));
+        const int before = call.participantCount();
+        // Element's subscribe-only connection has an unrelated hashed identity,
+        // no tracks and no corresponding call membership.
+        const QString observer = QStringLiteral("unmatched-observer-hash");
+        call.ingestParticipantsForTest({sfuParticipant(observer, QStringLiteral("PA_OBSERVER"), {})});
+        QCOMPARE(call.participantCount(), before);
+        // A real muted member with no tracks becomes visible as soon as the
+        // authenticated Matrix membership arrives; the SFU row was retained.
+        RtcSessionData session;
+        session.roomId = room;
+        RtcParticipant peer;
+        peer.userId = QStringLiteral("@peer:x");
+        peer.deviceId = QStringLiteral("DEV");
+        peer.rtcIdentity = identity;
+        RtcParticipant late;
+        late.userId = QStringLiteral("@late:x");
+        late.deviceId = QStringLiteral("LATE");
+        late.rtcIdentity = observer;
+        session.participants = {peer, late};
+        rtc.refresh(room);
+        client.answerSession(client.lastSessionOp, session);
+        QCOMPARE(call.participantCount(), before + 1);
     }
 
     void participantsInvokableIsReadOutOfTheModel()
@@ -8226,16 +8255,10 @@ private Q_SLOTS:
             sfuParticipant(identity, QStringLiteral("PA_BEA"), {}),
         });
         CallParticipantModel *model = call.participantModel();
-        const int row = participantRowFor(model, identity);
-        QVERIFY(row >= 0);
-
-        // The reaction arrives first and cannot be attributed yet.
+        QCOMPARE(participantRowFor(model, identity), -1);
+        // The reaction arrives before a visible member can be attributed.
         client.emitHandChanged(room, QStringLiteral("@bea:example.org"),
                                membership, QStringLiteral("$raise"), true);
-        QCOMPARE(participantRole(model, row,
-                                 CallParticipantModel::HandRaisedRole)
-                     .toBool(),
-                 false);
 
         // ...then the membership lands.
         RtcParticipant bea;
