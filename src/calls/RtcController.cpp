@@ -8,6 +8,8 @@
 #include <QJsonObject>
 #include <QVariantMap>
 #include <algorithm>
+
+#include <QUrl>
 #include <utility>
 
 #include "matrix/MatrixClient.h"
@@ -1061,7 +1063,14 @@ QStringList RtcController::subscriberFocusUrlsFor(const QString &roomId) const
             ? member.focusServiceUrl
             : member.focusSelection == QLatin1String("oldest_membership")
                 ? oldest : QString();
-        if (!url.isEmpty() && !urls.contains(url) && urls.size() < 8)
+        // The same focus may be spelled with or without a trailing slash by
+        // different members (GitHub #57); one connection serves both.
+        const auto sameFocus = [&url](const QString &existing) {
+            return QUrl(existing).adjusted(QUrl::StripTrailingSlash)
+                == QUrl(url).adjusted(QUrl::StripTrailingSlash);
+        };
+        if (!url.isEmpty() && std::none_of(urls.cbegin(), urls.cend(), sameFocus)
+            && urls.size() < 8)
             urls.append(url);
     }
     return urls;

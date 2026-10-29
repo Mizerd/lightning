@@ -221,7 +221,17 @@ fn sane_https_url(value: &str) -> Option<String> {
             }
         }
     }
-    Some(parsed.to_string())
+    // Keep the validated spelling: Element Call keys transports by this
+    // literal string, including whether a bare origin has a trailing slash.
+    Some(trimmed.to_owned())
+}
+
+/// Compare validated focus URLs without changing the value we advertise.
+fn same_focus_url(left: &str, right: &str) -> bool {
+    match (url::Url::parse(left), url::Url::parse(right)) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => false,
+    }
 }
 
 /// Names that can only resolve locally: `localhost`, `.local` (mDNS),
@@ -391,11 +401,20 @@ pub(crate) fn plan_foci(
     for member in remote {
         let focus = focus_for_member(member, oldest.as_ref());
         if let Some(focus) = focus {
+            let same_transport = |other: &LivekitTransport| {
+                same_focus_url(&other.service_url, &focus.service_url)
+                    && other.alias == focus.alias
+            };
             let distinct_with_publisher = subscribers.len()
-                + usize::from(publisher.as_ref() != Some(&focus)
-                    && !subscribers.contains(publisher.as_ref().unwrap_or(&focus)));
+                + usize::from(!publisher.as_ref().is_some_and(same_transport)
+                    && !publisher.as_ref().is_some_and(|publisher| {
+                        subscribers.iter().any(|existing: &LivekitTransport| {
+                            same_focus_url(&existing.service_url, &publisher.service_url)
+                                && existing.alias == publisher.alias
+                        })
+                    }));
             if distinct_with_publisher < MAX_TRANSPORTS
-                && !subscribers.contains(&focus) {
+                && !subscribers.iter().any(same_transport) {
                 subscribers.push(focus);
             }
         }
@@ -456,7 +475,10 @@ fn parse_transport_list(value: Option<&serde_json::Value>) -> Vec<LivekitTranspo
     let mut out = Vec::new();
     for entry in array.iter().take(MAX_TRANSPORTS) {
         if let Some(transport) = parse_transport(entry) {
-            if !out.contains(&transport) {
+            if !out.iter().any(|existing: &LivekitTransport| {
+                same_focus_url(&existing.service_url, &transport.service_url)
+                    && existing.alias == transport.alias
+            }) {
                 out.push(transport);
             }
         }
@@ -4398,7 +4420,7 @@ mod tests {
         assert_eq!(member.slot_id, "m.call#ROOM");
         assert_eq!(member.expires_at_ms, 1_000 + 14_400_000);
         assert_eq!(member.foci.len(), 1);
-        assert_eq!(member.foci[0].service_url, "https://sfu.example.org/");
+        assert_eq!(member.foci[0].service_url, "https://sfu.example.org");
         assert_eq!(member.kind, MembershipKind::Session);
     }
 
@@ -5353,7 +5375,7 @@ mod tests {
         let member = parse_session_membership(&content, "@b:server-a", 100)
             .expect("membership");
         assert_eq!(member.focus_selection, FocusSelection::MultiSfu);
-        assert_eq!(member.foci[0].service_url, "https://a.example/");
+        assert_eq!(member.foci[0].service_url, "https://a.example");
     }
 
     #[test]
@@ -6318,6 +6340,24 @@ mod tests {
         assert_eq!(fallback_for("example.org"), Ok(None));
         assert_eq!(fallback_for("example.org:443"), Ok(None));
         assert!(fallback_for("evil.example/x:8448").is_err());
+    }
+
+    /// GitHub #57: Element Call keys its transports by the literal focus URL,
+    /// so we advertise it exactly as written and compare it tolerantly.
+    #[test]
+    fn a_focus_url_is_kept_as_written_and_compared_by_meaning() {
+        for spelled in [
+            "https://sfu.example.org",
+            "https://sfu.example.org/",
+            "https://sfu.example.org:8443",
+            "https://sfu.example.org/livekit/jwt",
+        ] {
+            assert_eq!(sane_https_url(spelled).as_deref(), Some(spelled));
+        }
+        assert!(same_focus_url("https://sfu.example.org", "https://sfu.example.org/"));
+        assert!(!same_focus_url("https://sfu.example.org", "https://other.example.org"));
+        assert!(!same_focus_url("https://sfu.example.org:8443", "https://sfu.example.org"));
+        assert!(sane_https_url("http://sfu.example.org").is_none());
     }
 
     #[test]
