@@ -40,7 +40,7 @@ class QObject;
 // and go, are pure functions here (streamIsForeign, Selection::wants,
 // planScan), unit-tested without PipeWire, WASAPI or GStreamer. Linux without
 // a reachable PipeWire has no share audio: a sink monitor would echo the call.
-// macOS has no loopback capture.
+// macOS uses ScreenCaptureKit with excludesCurrentProcessAudio.
 
 struct _GObject;   // GLib's GObject, without pulling GLib into this header
 
@@ -327,9 +327,10 @@ struct ExclusionElements {
     bool wasapiProcessLoopback = false;
     /// `wasapi2src` itself, to tell a package without it from an old Windows.
     bool wasapiSource = false;
+    bool screenCaptureKit = false;
 };
 
-enum class Platform { Linux, Windows, Other };
+enum class Platform { Linux, Windows, MacOS, Other };
 
 /// Whether a share of "the whole system" can leave Lightning out.
 struct SystemExclusion {
@@ -373,7 +374,7 @@ SystemCapture systemCapture(qint64 ourPid);
 /// Why share sound is off, for the sentence the picker and the call bar show.
 enum class Unavailability {
     None,
-    /// A build without the media engine, or macOS: nothing captures playback.
+    /// A build without the media engine or a supported playback capture.
     NoCapture,
     /// A package without the plugins an excluding capture needs.
     MissingPlugin,

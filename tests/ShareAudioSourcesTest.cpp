@@ -62,6 +62,19 @@ private:
     }
 
 private slots:
+    void macCaptureRequiresNativeSourceAndExcludesOurPlayback()
+    {
+        ExclusionElements elements;
+        QVERIFY(!systemExclusionFor(Platform::MacOS, elements).possible);
+        QCOMPARE(unavailabilityFor(Platform::MacOS, elements, false), Unavailability::MissingPlugin);
+        QVERIFY(!systemCaptureFor(Platform::MacOS, false, false, 42).excludesUs);
+        elements.screenCaptureKit = true;
+        QVERIFY(systemExclusionFor(Platform::MacOS, elements).possible);
+        QCOMPARE(unavailabilityFor(Platform::MacOS, elements, false), Unavailability::None);
+        const auto capture = systemCaptureFor(Platform::MacOS, false, true, 42);
+        QVERIFY(capture.excludesUs);
+        QCOMPARE(capture.description, QStringLiteral("lightningmacsystemaudiosrc name=sharesrc"));
+    }
     // Our own playback must never be captured, whichever way the node
     // identifies itself.
     void ourOwnPlaybackIsNeverCaptured()

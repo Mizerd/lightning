@@ -7753,6 +7753,14 @@ set(LIGHTNING_SPELL_SOURCES
 if(APPLE)
     enable_language(OBJCXX)
     list(APPEND LIGHTNING_SPELL_SOURCES src/text/SpellBackendMac.mm)
+    if(HAVE_LIGHTNING_WEBRTC)
+        target_sources(lightning-matrix PRIVATE src/calls/MacSystemAudioSrc.mm)
+        target_compile_definitions(lightning-matrix PRIVATE HAVE_LIGHTNING_MAC_SYSTEM_AUDIO=1)
+        set_source_files_properties(src/calls/MacSystemAudioSrc.mm PROPERTIES
+            COMPILE_OPTIONS "-fobjc-arc")
+        target_link_libraries(lightning-matrix PRIVATE
+            "-framework ScreenCaptureKit" "-framework CoreMedia" "-framework AudioToolbox")
+    endif()
 endif()
 # Linux: where Hunspell and its dictionaries live when the platform has no
 # global library path (Nix passes store paths; see nix/package.nix). Both are

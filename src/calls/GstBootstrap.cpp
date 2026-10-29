@@ -10,6 +10,9 @@
 #include <QLoggingCategory>
 
 #include <gst/gst.h>
+#ifdef HAVE_LIGHTNING_MAC_SYSTEM_AUDIO
+#include "calls/MacSystemAudioSrc.h"
+#endif
 
 Q_LOGGING_CATEGORY(lcGstBoot, "lightning.calls.gst")
 
@@ -151,6 +154,10 @@ bool ensureInitialised(QString *whyNot)
         installDeviceProbeNoiseCollapse();
         GError *error = nullptr;
         ok = gst_init_check(nullptr, nullptr, &error) == TRUE;
+#ifdef HAVE_LIGHTNING_MAC_SYSTEM_AUDIO
+        if (ok)
+            lightning::macaudio::registerSource();
+#endif
         if (error) {
             // Upstream text about the local machine: category only, never the
             // string or path.

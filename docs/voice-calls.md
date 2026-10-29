@@ -645,6 +645,23 @@ the cryptor refuses, and the receive-ring cap.
 
 ### Screen-share audio
 
+On macOS, the native `lightningmacsystemaudiosrc` uses ScreenCaptureKit to
+capture stereo system audio at 48 kHz. `excludesCurrentProcessAudio` excludes
+Lightning's call playback. Choose system audio in the share picker; choosing
+individual applications is not implemented on macOS. macOS must grant
+Lightning Screen & System Audio Recording access. Capture starts only when
+the audio track is published, and stops when it is removed. Availability
+checks do not request permission or start a capture.
+
+For a local capture check, run the bundled executable with
+`LIGHTNING_TEST_MAC_CAPTURE=1` and `--call-media-status`, and play sound in
+another application during its seven-second capture. It exercises the production
+Opus/RTP share chain, then decodes locally and reports a sample count and audio
+levels; no recording is saved. In a quiet system,
+adding `LIGHTNING_TEST_MAC_PLAYBACK=1` plays a tone inside the same process
+and checks that its capture stays silent. These checks do not substitute
+for verifying sound and absence of echo from the far end of a live call.
+
 **GitHub #26: current capture policy.** Entire-system share audio requires a
 capture that excludes Lightning's own call playback. On PipeWire this reuses
 per-application capture for every foreign output stream. On Windows it uses
@@ -656,7 +673,7 @@ is no fallback to a full speaker mix, because that would echo participants.
 The share menu and picker keep their sound section in that state, with the
 choice disabled and one plain-text line giving the reason (PulseAudio only, a
 Windows before build 20348, a package without the plugins, or no capture at all
-on macOS and in builds without the media engine). A probe that finds no PipeWire
+in builds without the media engine). A probe that finds no PipeWire
 daemon, or times out, is not final: it is asked again each time the menu or
 picker opens, and only a definite answer is cached for the run.
 `--call-media-status` reports the **plugin capability**, while runtime Linux
@@ -695,7 +712,7 @@ a separate LiveKit track. The source is chosen by a runtime probe in
 |---|---|---|
 | Linux | `pulsesrc device=@DEFAULT_MONITOR@` | the default sink's monitor |
 | Windows | `wasapi2src loopback=true` (else `wasapisrc loopback=true`) | loopback of the default render endpoint |
-| macOS | none — the toggle is hidden and no track is published | — |
+| macOS | `lightningmacsystemaudiosrc` (ScreenCaptureKit) | system audio excluding Lightning’s own playback |
 
 **Reported 2026-09-06, and it is a design gap rather than a slip: participants
 hear themselves.** Both of those capture the SYSTEM MIX, and Lightning's own
@@ -706,8 +723,8 @@ carries everyone's voices back to them.
 "Per-application share audio" below. The echo can only be observed from the
 far end of a real two-party call, so this is "the capture no longer includes
 us by construction", not "a tester confirmed they stopped hearing
-themselves". Windows and macOS are unchanged, and the table above still
-describes them.
+themselves". See the current capture policy above for subsequent Windows
+and macOS implementations.
 
 **A sink monitor is post-mix, so it cannot exclude one contributor.** That is
 true on PulseAudio and on PipeWire alike: the monitor source is the sink's
