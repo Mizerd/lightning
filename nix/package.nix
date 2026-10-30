@@ -100,6 +100,13 @@ stdenv.mkDerivation {
     (lib.cmakeFeature "CMAKE_LINKER_TYPE" "MOLD")
   ];
 
+  # Ninja's -j only limits CMake tasks; Cargo needs its own job budget.
+  # Set it at build time, after stdenv normalizes NIX_BUILD_CORES, and keep
+  # explicit package overrides of CARGO_BUILD_JOBS authoritative.
+  preBuild = lib.optionalString withRustBackend ''
+    export CARGO_BUILD_JOBS="''${CARGO_BUILD_JOBS:-$NIX_BUILD_CORES}"
+  '';
+
   qtWrapperArgs = [
     "--prefix LD_LIBRARY_PATH : ${
       lib.makeLibraryPath [
