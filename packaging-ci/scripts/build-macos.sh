@@ -100,6 +100,16 @@ OPENSSL_VERSION="$("$OPENSSL_PREFIX/bin/openssl" version 2>/dev/null || echo unk
 
 QT_VERSION="$("$QT_PREFIX/bin/qmake" -query QT_VERSION)"
 
+# Qt 6.11.0/6.11.1 have CoreAudio disconnect-listener lifetime bugs that
+# can crash an idle client when headphones are unplugged (QTBUG-145704).
+# Check the Multimedia module, which Homebrew may update separately from Core.
+QT_MULTIMEDIA_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' \
+    "$QT_PREFIX/lib/QtMultimedia.framework/Resources/Info.plist")"
+[[ "$QT_MULTIMEDIA_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || \
+    die "cannot determine the Qt Multimedia patch version"
+[[ "$(printf '%s\n' 6.11.2 "$QT_MULTIMEDIA_VERSION" | sort -V | head -1)" == 6.11.2 ]] || \
+    die "Qt Multimedia 6.11.2 or newer is required: older macOS builds can crash on audio-device removal (found $QT_MULTIMEDIA_VERSION)"
+
 MACOS_DEPLOYMENT_TARGET="$(
     for fw in $QT_LINKED_MODULES; do
         fw_bin="$QT_PREFIX/lib/${fw}.framework/Versions/A/${fw}"
