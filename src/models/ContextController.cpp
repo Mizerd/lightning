@@ -246,5 +246,14 @@ void ContextController::onPagination(const QString &roomId,
         if (pages > 0)
             --pages;
     }
+    // An event-focused timeline is a finite snapshot, not a live
+    // subscription. Once a forward request reaches its end, hand back to
+    // the live pane even if the request added no visible rows. In particular,
+    // a notification can focus the room's newest message, with only room
+    // activity (or filtered events) after it; no further scroll is possible.
+    if (forward && state == QLatin1String("idle") && reachedEdge) {
+        jumpToLatest();
+        return;
+    }
     Q_EMIT edgesChanged();
 }

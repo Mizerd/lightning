@@ -12181,6 +12181,65 @@ private Q_SLOTS:
         QVERIFY(!pill->isVisible());
     }
 
+    void contextLoadNewerAtTheEndRestoresTheLivePane_data()
+    {
+        QTest::addColumn<int>("messageCount");
+        QTest::newRow("content-fits") << 1;
+        QTest::newRow("live-pane-left-in-history") << 80;
+    }
+
+    void contextLoadNewerAtTheEndRestoresTheLivePane()
+    {
+        QFETCH(int, messageCount);
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        auto events = textFixture(roomId, messageCount,
+                                  QStringLiteral("end"), QStringLiteral("body"));
+        const QString target = events.last().eventId;
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+        QQuickItem *root = paneWithEvents(controller, engine, window, roomId,
+                                         events, 0, 600, &timeline);
+        QVERIFY(root != nullptr);
+        QVERIFY(timeline != nullptr);
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        mock->setEventContextEnabled(true);
+        double minY = 0.0, maxY = 0.0;
+        QVERIFY(wheelBounds(timeline, &minY, &maxY));
+        QVERIFY(timeline->setProperty("stickToBottom", false));
+        QVERIFY(timeline->setProperty("contentY", maxY));
+        auto *context = controller.eventContext();
+        QVERIFY(context->open(roomId, target));
+        auto *overlay = root->findChild<QQuickItem *>(QStringLiteral("contextView"));
+        auto *composer = root->findChild<QQuickItem *>(QStringLiteral("messageComposer"));
+        QVERIFY(overlay != nullptr);
+        QVERIFY(composer != nullptr);
+        QTRY_VERIFY(overlay->isVisible());
+        QVERIFY(!composer->isVisible());
+        auto *list = overlay->findChild<QQuickItem *>(QStringLiteral("contextList"));
+        QVERIFY(list != nullptr);
+        QTRY_VERIFY(list->property("count").toInt() > 0);
+        QVERIFY(QMetaObject::invokeMethod(list, "positionViewAtEnd"));
+        QQuickItem *load = nullptr;
+        QTRY_VERIFY((load = overlay->findChild<QQuickItem *>(
+                         QStringLiteral("contextLoadNewer"))) != nullptr);
+        QTRY_VERIFY(load->isVisible() && load->isEnabled());
+        QTest::mouseClick(&window, Qt::LeftButton, Qt::NoModifier,
+                          load->mapToScene(QPointF(load->width() / 2,
+                                                  load->height() / 2)).toPoint());
+        QTRY_COMPARE(context->state(), ContextController::Closed);
+        QVERIFY(!overlay->isVisible()); // no banner or forward footer
+        QVERIFY(composer->isVisible());
+        QTRY_VERIFY_WITH_TIMEOUT(timeline->property("stickToBottom").toBool(), 2000);
+        QVERIFY(wheelBounds(timeline, &minY, &maxY));
+        QTRY_VERIFY_WITH_TIMEOUT(
+            qAbs(timeline->property("contentY").toDouble() - minY) < 1.0, 2000);
+        QCOMPARE(mock->eventContextPaginateCount(), 1);
+    }
+
     // A pending invite opened as the current room (from Activity) shows the
     // invite card with Accept / Decline instead of a timeline and a composer
     // that cannot send before joining (break-it B037). The room's membership

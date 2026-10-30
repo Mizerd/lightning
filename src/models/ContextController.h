@@ -107,7 +107,7 @@ Q_SIGNALS:
     // the router opens the thread panel there instead.
     void threadReplyHit(const QString &roomId, const QString &threadRootId,
                         const QString &eventId);
-    // jumpToLatest() was used.
+    // Return to live: explicit jump, or forward pagination reached the end.
     void latestRequested();
 
 private:

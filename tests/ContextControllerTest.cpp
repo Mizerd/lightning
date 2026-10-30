@@ -377,9 +377,93 @@ private Q_SLOTS:
         context.loadOlder(); // refused, not dispatched
         QCOMPARE(client.eventContextPaginateCount(), 1);
         context.loadNewer();
-        QVERIFY(context.reachedEnd());
+        QCOMPARE(context.state(), ContextController::Closed);
         QVERIFY(!context.canLoadNewer());
         QCOMPARE(client.eventContextPaginateCount(), 2);
+    }
+
+    void loadingNewerAtTheLastMessageReturnsToLive_data()
+    {
+        QTest::addColumn<bool>("stateAfterTarget");
+        QTest::addColumn<bool>("showActivity");
+        QTest::newRow("newest-video") << false << true;
+        QTest::newRow("video-then-room-updates") << true << true;
+        QTest::newRow("video-then-hidden-room-updates") << true << false;
+    }
+
+    void loadingNewerAtTheLastMessageReturnsToLive()
+    {
+        QFETCH(bool, stateAfterTarget);
+        QFETCH(bool, showActivity);
+        MockMatrixClient client;
+        client.setEventContextEnabled(true);
+        QVERIFY(login(client));
+        TimelineEvent video;
+        video.roomId = kGeneral;
+        video.eventId = QStringLiteral("$last-video:mock.local");
+        video.type = TimelineEvent::Video;
+        video.body = QStringLiteral("video.mp4");
+        QList<TimelineEvent> events{video};
+        if (stateAfterTarget) {
+            for (int i = 0; i < 2; ++i) {
+                TimelineEvent update;
+                update.roomId = kGeneral;
+                update.eventId = QStringLiteral("$update%1:mock.local").arg(i);
+                update.type = TimelineEvent::StateChange;
+                update.stateKind = QStringLiteral("m.room.name");
+                update.body = QStringLiteral("Room name changed");
+                events.append(update);
+            }
+        }
+        client.resetTimelineForTest(kGeneral, events, 0);
+        ContextController context;
+        context.setClient(&client);
+        context.model()->setShowRoomActivity(showActivity);
+        QSignalSpy latest(&context, &ContextController::latestRequested);
+        QVERIFY(context.open(kGeneral, video.eventId));
+        QCOMPARE(context.state(), ContextController::Ready);
+        QVERIFY(context.targetRow() >= 0);
+        const int rows = context.model()->rowCount();
+        QVERIFY(rows > 0);
+        // The mock's forward request reports the SDK end with NO new rows.
+        // The real SDK reports the raw cursor's edge, regardless of filtering.
+        context.loadNewer();
+        QCOMPARE(client.eventContextPaginateCount(), 1);
+        QCOMPARE(context.state(), ContextController::Closed);
+        QCOMPARE(latest.count(), 1);
+        QCOMPARE(client.eventContextCloseCount(), 1);
+        QCOMPARE(context.model()->rowCount(), 0);
+        context.loadNewer();
+        QCOMPARE(client.eventContextPaginateCount(), 1);
+        QCOMPARE(latest.count(), 1);
+    }
+
+    void anEmptyForwardPageWithoutTheSdkEndDoesNotReturnToLive()
+    {
+        MockMatrixClient client;
+        client.setEventContextEnabled(true);
+        QVERIFY(login(client));
+        ContextController context;
+        context.setClient(&client);
+        const QString target = middleEventId(client);
+        QVERIFY(context.open(kGeneral, target));
+        QSignalSpy latest(&context, &ContextController::latestRequested);
+        const int rows = context.model()->rowCount();
+        Q_EMIT client.eventContextPagination(kGeneral, target, true,
+                                             QStringLiteral("loading"), false);
+        QVERIFY(context.loadingNewer());
+        Q_EMIT client.eventContextPagination(kGeneral, target, true,
+                                             QStringLiteral("idle"), false);
+        QCOMPARE(context.model()->rowCount(), rows);
+        QCOMPARE(context.state(), ContextController::Ready);
+        QVERIFY(!context.loadingNewer());
+        QVERIFY(context.canLoadNewer());
+        QCOMPARE(latest.count(), 0);
+        Q_EMIT client.eventContextPagination(kGeneral, target, true,
+                                             QStringLiteral("failed"), true);
+        QCOMPARE(context.state(), ContextController::Ready);
+        QVERIFY(context.newerFailed());
+        QCOMPARE(latest.count(), 0);
     }
 
     void aPaginationAnswerForAClosedViewIsIgnored()
