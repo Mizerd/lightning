@@ -2751,8 +2751,12 @@ pub(crate) fn retract_membership(
     let lifecycle = timelines.lifecycle();
 
     bridge.spawn_room_action(async move {
+        // No lifecycle check before the retraction itself: shutdown() advances
+        // the lifecycle BEFORE it joins the room-action pool, so a leave queued
+        // behind another membership write would otherwise be skipped exactly
+        // when the app quits or switches account, stranding the membership. Only
+        // the answer is suppressed when the lifecycle is stale (below).
         let mut registry = delays.lock().await;
-        if !timelines.lifecycle_current(lifecycle) { return; }
         let room_version = room
             .clone_info()
             .room_version()
@@ -4142,6 +4146,22 @@ mod tests {
             |_| std::future::ready(Err("not_found".to_owned())),
             || std::future::ready(Err("must not schedule".to_owned()))).await.unwrap();
         assert!(id.is_empty());
+    }
+
+    // Regression: shutdown() bumps the lifecycle before joining the room-action
+    // pool, so a retraction that waited on the registry lock must still run.
+    #[test]
+    fn membership_retraction_is_not_skipped_by_a_stale_lifecycle() {
+        let src = include_str!("rtc.rs");
+        let start = src.find("pub(crate) fn retract_membership(").expect("retract fn");
+        let body = &src[start..];
+        let end = body.find("\nfn update_delayed(").expect("next fn");
+        let body = &body[..end];
+        let write = body.find("json!({}))").expect("the retraction write");
+        assert!(!body[..write].contains("lifecycle_current"),
+                "a stale lifecycle must not skip the retraction write");
+        assert!(body[write..].contains("lifecycle_current"),
+                "the answer must still be suppressed for a stale lifecycle");
     }
 
     #[test]
