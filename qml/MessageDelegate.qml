@@ -7379,6 +7379,7 @@ Item {
             mimetype: model.mediaMimetype || ""
             fileSize: model.mediaSize || 0
             durationMs: model.mediaDurationMs || 0
+            thumbAvailable: model.mediaThumbAvailable === true
             isVoice: model.mediaIsVoice === true
             waveform: model.mediaWaveform || []
             rowOnScreen: root.rowOnScreen

@@ -212,6 +212,12 @@ public:
     // empty map. Rows read it at rest, so a file's art and title do not
     // appear and vanish with playback.
     Q_INVOKABLE QVariantMap clipInfo(const QString &mediaKey) const;
+    // A cover the sender attached to the event (not the file's own tags) that
+    // has loaded in a row: kept so the docked player and the pop-out show it
+    // too. Only MediaBridge's RAM image URLs are accepted, and the file's own
+    // embedded art, once read, replaces it.
+    Q_INVOKABLE void rememberEventCover(const QString &mediaKey,
+                                        const QString &source);
     // A timeline row reports whether it is on screen. `row` is the reporting
     // card (a QML item); only reports for the current clip count, a row's
     // destruction counts as hidden, and a new clip forgets every report.

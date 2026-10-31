@@ -170,6 +170,56 @@ private Q_SLOTS:
         QVERIFY(!sceneRectOf(play).intersects(sceneRectOf(tile)));
     }
 
+    // A cover another client attached to the event (info.thumbnail_url) stands
+    // in for the file's own art: it shows like embedded art, and a broken one
+    // looks exactly like no cover (no empty large square, no row growth).
+    void anEventCoverStandsInAndABrokenOneLooksLikeNone()
+    {
+        Card bare = makeCard(QUrl(), 360);
+        QVERIFY(bare.item != nullptr);
+        bare.item->setProperty("isVoice", false);
+        setLarge(bare, true);
+        auto *largeBare = bare.item->findChild<QQuickItem *>(
+            QStringLiteral("audioLargeCoverBox"));
+        QVERIFY(largeBare && !largeBare->isVisible());
+        const qreal bareHeight = bare.item->implicitHeight();
+
+        Card good = makeCard(QUrl(), 360);
+        QVERIFY(good.item != nullptr);
+        good.item->setProperty("isVoice", false);
+        setLarge(good, true);
+        good.item->setProperty("wireCoverSource",
+            makeImage(QStringLiteral("wire.png"), 500, 500).toString());
+        auto *large = good.item->findChild<QQuickItem *>(
+            QStringLiteral("audioLargeCoverBox"));
+        QVERIFY(large);
+        QTRY_VERIFY(large->isVisible());
+        QVERIFY(good.item->property("artworkSource").toString().endsWith(
+            QStringLiteral("wire.png")));
+
+        // Broken: the bytes are not an image. The Image errors and the card
+        // gives the cover up for good.
+        const QString junk = m_dir.filePath(QStringLiteral("junk.png"));
+        {
+            QFile f(junk);
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write("this is not a picture");
+        }
+        Card broken = makeCard(QUrl(), 360);
+        QVERIFY(broken.item != nullptr);
+        broken.item->setProperty("isVoice", false);
+        setLarge(broken, true);
+        broken.item->setProperty("wireCoverSource",
+                                 QUrl::fromLocalFile(junk).toString());
+        auto *largeBroken = broken.item->findChild<QQuickItem *>(
+            QStringLiteral("audioLargeCoverBox"));
+        QVERIFY(largeBroken);
+        QTRY_VERIFY(broken.item->property("wireCoverFailed").toBool());
+        QVERIFY(!largeBroken->isVisible());
+        QCOMPARE(broken.item->property("artworkSource").toString(), QString());
+        QCOMPARE(broken.item->implicitHeight(), bareHeight);
+    }
+
     // Any cover, square, tall or wide, is the same fixed 40 px tile, cropped
     // to fill it; the row is as tall as it was without one (B6).
     void everyCoverIsTheSameFixedTileAndTheRowKeepsItsHeight()

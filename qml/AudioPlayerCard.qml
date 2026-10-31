@@ -52,6 +52,10 @@ Rectangle {
     // for standalone hosts.
     property bool prefetchAllowed: true
     property bool canSave: false
+    // The event carries a cover another client attached (`info.thumbnail_url`
+    // or `thumbnail_file`). It is fetched through the media bridge, never from
+    // the URL, and only stands in until the file's own embedded art is read.
+    property bool thumbAvailable: false
     // Drawn inside a chat bubble (the Bubbles layout's DMs): the bubble is the
     // surface, so the card draws no second box inside it.
     property bool inBubble: false
@@ -85,7 +89,50 @@ Rectangle {
             ? ({}) : root.voice.clipInfo(root.mediaKey)
     }
     // The cover art as MediaBridge's RAM-only image URL, or "".
-    property string artworkSource: root.clipInfo.artworkSource || ""
+    property string artworkSource: root.clipInfo.artworkSource || root.wireCoverSource
+    // The event's own cover (see thumbAvailable): "" until the row is near the
+    // screen, and "" for good once it has failed to load, so a broken cover
+    // looks exactly like no cover (no empty square).
+    property string wireCoverSource: ""
+    property bool wireCoverFailed: false
+    function refreshWireCover() {
+        if (wireCoverSource.length > 0 || wireCoverFailed || !thumbAvailable
+                || isVoice || mediaKey.length === 0 || !rowOnScreen
+                || !app.mediaBridge || !app.mediaBridge.supported)
+            return
+        wireCoverSource = app.mediaBridge.mediaSource(mediaKey, "thumb") || ""
+    }
+    function noteCoverStatus(image) {
+        if (image.status === Image.Ready && root.wireCoverSource.length > 0
+                && image.source.toString() === root.wireCoverSource
+                && !root.clipInfo.artworkSource)
+            root.voice.rememberEventCover(root.mediaKey, root.wireCoverSource)
+
+        if (image.status === Image.Error && image.source.toString().length > 0
+                && image.source.toString() === root.wireCoverSource) {
+            root.wireCoverSource = ""
+            root.wireCoverFailed = true
+        }
+    }
+    onThumbAvailableChanged: refreshWireCover()
+    readonly property string wireCoverCacheKey: "thumb:" + root.mediaKey
+    Connections {
+        target: root.thumbAvailable && app.mediaBridge ? app.mediaBridge : null
+        function onMediaCached(cacheKey) {
+            if (cacheKey === root.wireCoverCacheKey && !root.wireCoverFailed)
+                root.wireCoverSource = app.mediaBridge.cachedSource(cacheKey)
+        }
+        function onMediaFetchFailed(cacheKey, category) {
+            if (cacheKey === root.wireCoverCacheKey)
+                root.wireCoverFailed = true
+        }
+        function onMediaRetryable(cacheKey) {
+            if (cacheKey === root.wireCoverCacheKey) {
+                root.wireCoverFailed = false
+                root.refreshWireCover()
+            }
+        }
+    }
     readonly property string trackTitle: root.clipInfo.title || ""
     readonly property string trackArtist: root.clipInfo.artist || ""
     // The speed this row plays at: the remembered voice speed for a voice
@@ -172,16 +219,24 @@ Rectangle {
     }
     onPrefetchAllowedChanged: if (prefetchAllowed) maybePrefetch()
     Component.onCompleted: {
+        refreshWireCover()
         maybePrefetch()
         reportVisibility()
     }
-    onMediaKeyChanged: maybePrefetch()
+    onMediaKeyChanged: {
+        wireCoverSource = ""
+        wireCoverFailed = false
+        refreshWireCover()
+        maybePrefetch()
+    }
     // Scrolling a playing row away does not pause it: the clip belongs to the
     // app. The player bar (or the popped-out card) carries it while the row
     // is off screen, so the row tells the player whether it is on screen.
     onRowOnScreenChanged: {
-        if (rowOnScreen)
+        if (rowOnScreen) {
+            refreshWireCover()
             maybePrefetch()
+        }
         reportVisibility()
     }
     // `rowOnScreen` is the timeline's ACTIVATION band (a viewport of slack
@@ -280,6 +335,7 @@ Rectangle {
                 objectName: "audioLargeCoverArtwork"
                 anchors.fill: parent
                 source: largeCoverBox.visible ? root.artworkSource : ""
+                onStatusChanged: root.noteCoverStatus(this)
                 sourceSize.width: 480
                 fillMode: Image.PreserveAspectCrop
                 asynchronous: true
@@ -314,6 +370,7 @@ Rectangle {
                     objectName: "audioCoverArtwork"
                     anchors.fill: parent
                     source: coverArtBox.visible ? root.artworkSource : ""
+                    onStatusChanged: root.noteCoverStatus(this)
                     sourceSize.width: 96
                     // A square thumbnail of the cover.
                     fillMode: Image.PreserveAspectCrop

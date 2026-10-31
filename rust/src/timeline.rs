@@ -5011,7 +5011,19 @@ fn event_item_to_json(
                         Some(event_id) if !event_id.is_empty() => event_id.to_owned(),
                         _ => unique_id.to_owned(),
                     };
-                    let sources = fill_message_media(&mut out, message.msgtype(), &key);
+                    let mut sources = fill_message_media(&mut out, message.msgtype(), &key);
+                    // ruma's audio info has no thumbnail fields, so a cover another client
+                    // attached (`info.thumbnail_url` / `thumbnail_file`) is read from the wire.
+                    if matches!(message.msgtype(), MessageType::Audio(_)) {
+                        let wire = event
+                            .original_json()
+                            .and_then(|raw| raw.deserialize_as::<serde_json::Value>().ok());
+                        if let (Some(wire), Some((_, primary))) = (wire, sources.first_mut()) {
+                            if primary.thumbnail.is_none() {
+                                primary.thumbnail = audio_thumbnail_from_wire(&wire);
+                            }
+                        }
+                    }
                     // Primary first: the row's media fields describe it; other gallery items
                     // go through `gallery_items`.
                     if let Some((primary_key, primary)) = sources.first() {
@@ -5491,6 +5503,29 @@ fn gallery_primary_index(gallery: &Gallery) -> usize {
         .iter()
         .position(|item| matches!(item, MessageType::Image(_)))
         .unwrap_or(0)
+}
+
+/// The cover another client attached to an `m.audio` event: `info.thumbnail_url`
+/// (an mxc URI) or, in an encrypted room, `info.thumbnail_file`. ruma's `AudioInfo`
+/// has neither, so it is read from the event's wire JSON. Anything that is not a
+/// well-formed mxc URI or encrypted-file object is ignored, never an error: a
+/// broken cover must leave the row exactly as it was.
+pub(crate) fn audio_thumbnail_from_wire(wire: &serde_json::Value) -> Option<MediaSource> {
+    let info = wire.get("content")?.get("info")?;
+    if let Some(file) = info.get("thumbnail_file").filter(|v| v.is_object()) {
+        if let Ok(file) = serde_json::from_value::<
+            matrix_sdk::ruma::events::room::EncryptedFile,
+        >(file.clone())
+        {
+            return Some(MediaSource::Encrypted(Box::new(file)));
+        }
+    }
+    let url = info.get("thumbnail_url")?.as_str()?;
+    if url.len() > 512 {
+        return None;
+    }
+    let mxc = matrix_sdk::ruma::OwnedMxcUri::from(url);
+    mxc.is_valid().then(|| MediaSource::Plain(mxc))
 }
 
 /// Fill a message row's content and return its media sources for the
@@ -9320,6 +9355,34 @@ mod gallery_tests {
         assert_eq!(keys, vec!["$g", "$g#item1"]);
         assert!(matches!(&sources[1].1.source, MediaSource::Plain(m) if m.as_str() == MXC_B));
         assert_eq!(sources[1].1.filename, "after.png");
+    }
+
+    // ruma's AudioInfo drops `thumbnail_url` / `thumbnail_file`; the cover
+    // another client attached is read from the wire, and a broken one is
+    // ignored rather than an error.
+    #[test]
+    fn audio_cover_is_read_from_the_wire() {
+        use super::audio_thumbnail_from_wire as cover;
+        let plain = json!({ "content": { "msgtype": "m.audio", "info": {
+            "thumbnail_url": "mxc://example.org/cover" } } });
+        assert!(matches!(cover(&plain), Some(MediaSource::Plain(m)) if m.as_str() == "mxc://example.org/cover"));
+        let enc = json!({ "content": { "msgtype": "m.audio", "info": {
+            "thumbnail_file": { "url": "mxc://example.org/encthumb",
+              "key": { "kty": "oct", "key_ops": ["encrypt","decrypt"], "alg": "A256CTR",
+                       "k": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "ext": true },
+              "iv": "AAAAAAAAAAAAAAAAAAAAAA",
+              "hashes": { "sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" }, "v": "v2" } } } });
+        assert!(matches!(cover(&enc), Some(MediaSource::Encrypted(_))));
+        for bad in [
+            json!({ "content": { "info": { "thumbnail_url": "https://evil.example/x.png" } } }),
+            json!({ "content": { "info": { "thumbnail_url": 7 } } }),
+            json!({ "content": { "info": { "thumbnail_file": { "url": "nope" } } } }),
+            json!({ "content": { "info": {} } }),
+            json!({ "content": {} }),
+            json!({}),
+        ] {
+            assert!(cover(&bad).is_none(), "{bad}");
+        }
     }
 
     // Encrypted-room sources carry content keys and stay in Rust; nothing

@@ -210,6 +210,25 @@ QVariantMap VoicePlaybackController::clipInfo(const QString &mediaKey) const
     return m_clipInfo.value(mediaKey);
 }
 
+void VoicePlaybackController::rememberEventCover(const QString &mediaKey,
+                                                 const QString &source)
+{
+    if (mediaKey.isEmpty()
+        || !source.startsWith(QLatin1String("image://lightning-media/")))
+        return;
+    QVariantMap info = m_clipInfo.value(mediaKey);
+    if (!info.value(QStringLiteral("artworkSource")).toString().isEmpty())
+        return;
+    info.insert(QStringLiteral("artworkSource"), source);
+    m_clipInfo.insert(mediaKey, info);
+    m_clipInfoOrder.removeAll(mediaKey);
+    m_clipInfoOrder.append(mediaKey);
+    while (m_clipInfoOrder.size() > kMaxClipInfo)
+        m_clipInfo.remove(m_clipInfoOrder.takeFirst());
+    ++m_clipInfoRevision;
+    Q_EMIT metadataChanged();
+}
+
 qint64 VoicePlaybackController::duration() const
 {
     const qint64 decoded = (m_player && m_loaded) ? m_player->duration() : 0;
