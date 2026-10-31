@@ -95,6 +95,8 @@ constexpr const char *kComponents[] = {
     "IndexAllPrompt",
     "BackgroundSyncPrompt",
     "CallHeaderBar",
+    "CallFormatMenu",
+    "LegacyCallVideo",
     "ActivityCenterPanel",
     "JumpToDateDialog",
     "WidgetOpenSheet",

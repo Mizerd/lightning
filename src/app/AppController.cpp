@@ -62,6 +62,7 @@
 #include "calls/OneToOneDm.h"
 #include "calls/CallSoundPlayer.h"
 #ifdef HAVE_LIGHTNING_WEBRTC
+#include "app/SandboxEnvironment.h"
 #include "calls/CameraPortal.h"
 #include "calls/GstBootstrap.h"
 #include "calls/GstCallMediaBackend.h"
@@ -1534,7 +1535,12 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 if (!armed.fallBack)
                     return;
                 const bool withVideo = armed.video;
-                if (roomId != m_currentRoomId || withVideo
+                // A user who chose MatrixRTC did not ask for the other format.
+                if (roomId != m_currentRoomId
+                    || (m_settings
+                        && m_settings->callFormat()
+                            == QLatin1String("matrixrtc"))
+                    || (withVideo && !m_calls->videoSupported())
                     || preferredCallLane(roomId) != QLatin1String("legacy")
                     || m_groupCall->active()
                     || (m_calls->state() != CallController::State::Idle
@@ -1543,8 +1549,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 }
                 qCInfo(lcApp) << "matrixrtc membership refused; placing the "
                                  "call on the legacy 1:1 lane instead";
-                const bool ok =
-                    m_calls->placeCall(roomId, legacyCallPeer(roomId));
+                const bool ok = m_calls->placeCall(
+                    roomId, legacyCallPeer(roomId), withVideo);
                 qCInfo(lcApp) << "legacy call dispatched ok=" << ok;
                 if (ok)
                     withdrawCallFailure();
@@ -4649,16 +4655,43 @@ QString AppController::preferredCallLane(const QString &roomId) const
 {
     if (roomId.isEmpty())
         return QString();
+    const bool rtc =
+        m_rtc && m_rtc->joinBlock(roomId) == RtcController::JoinBlock::None;
+    // 1:1 DMs only: m.call.invite rings every room member.
+    const bool legacy = m_calls && m_calls->mediaBackendAvailable()
+        && !legacyCallPeer(roomId).isEmpty();
+    // The user's call format, where this room can use it.
+    const QString format =
+        m_settings ? m_settings->callFormat() : QStringLiteral("auto");
+    if (format == QLatin1String("legacy") && legacy)
+        return QStringLiteral("legacy");
     // MatrixRTC first: it is what current Element speaks, and it carries
     // video, screen share and groups.
-    if (m_rtc && m_rtc->joinBlock(roomId) == RtcController::JoinBlock::None)
+    if (rtc)
         return QStringLiteral("matrixrtc");
-    // Legacy fallback, 1:1 DMs only: m.call.invite rings every room member.
-    if (m_calls && m_calls->mediaBackendAvailable()
-        && !legacyCallPeer(roomId).isEmpty()) {
-        return QStringLiteral("legacy");
-    }
-    return QString();
+    return legacy ? QStringLiteral("legacy") : QString();
+}
+
+QVariantMap AppController::callFormats(const QString &roomId) const
+{
+    const bool rtc = !roomId.isEmpty() && m_rtc
+        && m_rtc->joinBlock(roomId) == RtcController::JoinBlock::None;
+    const bool legacy = !roomId.isEmpty() && m_calls
+        && m_calls->mediaBackendAvailable()
+        && !legacyCallPeer(roomId).isEmpty();
+    const QString lane = preferredCallLane(roomId);
+    QVariantMap out;
+    out.insert(QStringLiteral("matrixrtc"), rtc);
+    out.insert(QStringLiteral("legacy"), legacy);
+    out.insert(QStringLiteral("lane"), lane);
+    out.insert(QStringLiteral("autoLane"),
+               rtc ? QStringLiteral("matrixrtc")
+                   : (legacy ? QStringLiteral("legacy") : QString()));
+    out.insert(QStringLiteral("video"),
+               lane == QLatin1String("matrixrtc")
+                   || (lane == QLatin1String("legacy")
+                       && m_calls->videoSupported()));
+    return out;
 }
 
 QString AppController::legacyCallPeer(const QString &roomId) const
@@ -4722,14 +4755,14 @@ bool AppController::startCall(const QString &roomId, bool withVideo)
         return ok;
     }
     if (lane == QLatin1String("legacy")) {
-        if (withVideo) {
-            // The legacy lane is audio-only.
+        if (withVideo && !m_calls->videoSupported()) {
             Q_EMIT callStartRefused(
                 tr("Video calls need a MatrixRTC service, which isn't "
                    "available here yet."));
             return false;
         }
-        const bool ok = m_calls->placeCall(roomId, legacyCallPeer(roomId));
+        const bool ok =
+            m_calls->placeCall(roomId, legacyCallPeer(roomId), withVideo);
         qCInfo(lcApp) << "legacy call dispatched ok=" << ok;
         // An earlier MatrixRTC refusal no longer describes this call.
         if (ok)
@@ -4849,6 +4882,95 @@ void AppController::enableCallMediaEngine()
             }
             return plan;
         });
+        // The camera, composed as the MatrixRTC lane composes it. A diagnostic
+        // pattern replaces it on a machine with no camera; documented in
+        // docs/feature-contracts.md beside the other call diagnostics.
+        engine->setCameraResolver([this](int portalFd) {
+            GstCallMediaBackend::CameraPlan plan;
+            if (qEnvironmentVariableIsSet("LIGHTNING_CALL_TEST_CAMERA")) {
+                plan.front = QStringLiteral(
+                    "videotestsrc is-live=true pattern=ball name=capsrc "
+                    "! video/x-raw,width=640,height=360,"
+                    "framerate=(fraction)30/1");
+                return plan;
+            }
+            const bool direct = portalFd < 0;
+#ifdef Q_OS_LINUX
+            // A sandbox has no /dev/video*: the portal is its only camera.
+            if (direct && sandboxenv::isSandboxed()) {
+                if (CameraPortal::available())
+                    plan.needsPortal = true;
+                else
+                    plan.refusal = QStringLiteral("camera_unavailable");
+                return plan;
+            }
+#endif
+            const QString source = SfuMediaEngine::cameraSource(portalFd);
+            if (direct && m_callDevices) {
+                const auto camera = m_callDevices->cameraSelection();
+                // Never another camera in place of the chosen one.
+                if (camera.id.isEmpty() && camera.preferredMissing) {
+                    plan.refusal = QStringLiteral("camera_unavailable");
+                    return plan;
+                }
+                if (!camera.id.isEmpty()) {
+                    plan.binding = lightning::calls::resolveDeviceBinding(
+                        lightning::calls::CaptureKind::Camera,
+                        source.section(QLatin1Char(' '), 0, 0), camera.id,
+                        camera.description, {});
+                    if (plan.binding.refused) {
+                        plan.refusal = QStringLiteral("camera_unavailable");
+                        return plan;
+                    }
+                }
+            }
+            plan.front =
+                QStringLiteral("%1 name=capsrc ! %2 "
+                               "! queue max-size-buffers=4 leaky=downstream "
+                               "! videoconvert ! videoscale ! %3 "
+                               "! capsfilter caps=\"%4\"")
+                    .arg(source,
+                         direct ? QStringLiteral("@ENTRY@")
+                                : SfuMediaEngine::portalCameraEntry(),
+                         SfuMediaEngine::cameraRateStage(!direct),
+                         SfuMediaEngine::cameraLimitsCaps(!direct));
+            if (direct) {
+                plan.probe =
+                    QStringLiteral("%1 name=capsrc ! fakesink").arg(source);
+                plan.chooseEntry = [](GstElement *probe) {
+                    QString ioMode = QStringLiteral("auto");
+                    return SfuMediaEngine::captureCameraEntry(
+                        probe, SfuMediaEngine::jpegCameraChainAvailable(),
+                        &ioMode);
+                };
+            }
+            return plan;
+        });
+        if (CameraPortal::available()) {
+            auto *portal = new CameraPortal(engine);
+            auto callIdOnGrant = std::make_shared<QString>();
+            connect(engine, &GstCallMediaBackend::cameraAccessNeeded, portal,
+                    [portal, callIdOnGrant](const QString &callId) {
+                        *callIdOnGrant = callId;
+                        portal->requestAccess();
+                    });
+            connect(portal, &CameraPortal::ready, engine,
+                    [engine, callIdOnGrant](int fd) {
+                        engine->providePortalCamera(*callIdOnGrant, fd);
+                    });
+            const auto refused = [engine, callIdOnGrant] {
+                engine->providePortalCamera(*callIdOnGrant, -1);
+            };
+            connect(portal, &CameraPortal::cancelled, engine, refused);
+            connect(portal, &CameraPortal::failed, engine, refused);
+        }
+        connect(m_calls.get(), &CallController::cameraFailed, this,
+                [this](const QString &category) {
+                    qCWarning(lcApp) << "call camera failed category="
+                                     << category;
+                    Q_EMIT errorReported(tr("Your camera couldn't be started. "
+                                            "The call goes on without it."));
+                });
         // A pick in the call's device menu (or a hotplug that moves the
         // active device) reaches a live 1:1 call now, not the next one.
         connect(m_callDevices.get(),

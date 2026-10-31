@@ -215,10 +215,12 @@ Rectangle {
         if (app.calls.state === CallController.Inviting)
             return qsTr("Calling…")
         if (app.calls.state === CallController.Connecting)
-            return qsTr("Voice call — connecting…")
+            return app.calls.videoCall ? qsTr("Video call — connecting…")
+                                       : qsTr("Voice call — connecting…")
         if (app.calls.state === CallController.Active)
-            return qsTr("Voice call")
-        return qsTr("Incoming voice call")
+            return app.calls.videoCall ? qsTr("Video call") : qsTr("Voice call")
+        return app.calls.videoCall ? qsTr("Incoming video call")
+                                   : qsTr("Incoming voice call")
     }
 
     Accessible.role: Accessible.AlertMessage
@@ -299,6 +301,10 @@ Rectangle {
 
                 if (root.answerRefusalText.length > 0)
                     return root.answerRefusalText
+                if (app.calls.videoCall && app.calls.mediaBackendAvailable)
+                    return caller.length > 0
+                        ? qsTr("%1 is calling with video.").arg(caller)
+                        : qsTr("Incoming video call.")
                 if (app.calls.mediaBackendAvailable)
                     return caller.length > 0
                         ? qsTr("%1 is calling.").arg(caller)
@@ -343,7 +349,22 @@ Rectangle {
                 text: qsTr("Accept")
                 // Read the bool return so a refusal is shown.
                 onClicked: {
-                    if (!app.calls.answer())
+                    if (!app.calls.answer(true))
+                        root.answerRefusal = app.calls.lastRefusal()
+                    else
+                        root.answerRefusal = ""
+                }
+            }
+            // A video ring: picking up without the camera is the other way
+            // to say yes, and the caller's picture still arrives.
+            AppButton {
+                objectName: "incomingCallPromptAcceptAudio"
+                visible: root.legacyAcceptOffered && app.calls.videoCall
+                storm: true
+                Layout.fillWidth: true
+                text: qsTr("Audio only")
+                onClicked: {
+                    if (!app.calls.answer(false))
                         root.answerRefusal = app.calls.lastRefusal()
                     else
                         root.answerRefusal = ""

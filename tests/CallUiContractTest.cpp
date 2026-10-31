@@ -464,7 +464,7 @@ private Q_SLOTS:
         QVERIFY(norm.contains(
             QStringLiteral("visible: root.legacyAcceptOffered")));
         QVERIFY(norm.contains(
-            QStringLiteral("if (!app.calls.answer())")));
+            QStringLiteral("if (!app.calls.answer(true))")));
         QVERIFY(norm.contains(QStringLiteral("isn't supported yet")));
         // Nothing SDP-shaped belongs in QML.
         QVERIFY(!norm.contains(QStringLiteral("sdp"),

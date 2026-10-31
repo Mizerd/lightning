@@ -11,6 +11,8 @@
 #include "app/SettingsManager.h"
 #include "auth/AuthManager.h"
 #include "calls/CallController.h"
+#include "calls/CallMediaBackend.h"
+#include "calls/OneToOneDm.h"
 #include "calls/SfuCallController.h"
 #include "matrix/CallSignal.h"
 #include "matrix/MatrixClient.h"
@@ -127,6 +129,62 @@ private Q_SLOTS:
         QVERIFY(!controller.startCall(QStringLiteral("!general:mock.local")));
         QCOMPARE(refused.count(), 1);
         QVERIFY(!refused.at(0).at(0).toString().isEmpty());
+    }
+
+    /// The call format the user chose decides the lane where the room can
+    /// use it, and only there; "auto" stays what it always was. An unknown
+    /// stored value is the default, not whichever format sorts last.
+    void theChosenCallFormatDecidesTheLaneWhereTheRoomCanUseIt()
+    {
+        class Engine : public CallMediaBackend
+        {
+        public:
+            using CallMediaBackend::CallMediaBackend;
+            void createOffer(const QString &) override {}
+            void createAnswer(const QString &, const QString &) override {}
+            void setRemoteAnswer(const QString &, const QString &) override {}
+            void addRemoteCandidate(const QString &, const QString &,
+                                    const QString &, int) override {}
+            void setIceServers(const QStringList &, const QString &,
+                               const QString &) override {}
+            void close(const QString &) override {}
+            bool supportsVideo() const override { return true; }
+        };
+        AppController controller(AppController::MockBackend);
+        QVERIFY(login(controller));
+        Engine engine;
+        controller.calls()->setMediaBackend(&engine);
+        QString dm;
+        const auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock);
+        for (const RoomInfo &room : mock->rooms()) {
+            if (calls::oneToOneDmPeer(room, true).isEmpty())
+                continue;
+            dm = room.id;
+            break;
+        }
+        QVERIFY2(!dm.isEmpty(), "the mock needs an unambiguous 1:1 DM");
+
+        // Automatic, with no MatrixRTC here: legacy, and now with video.
+        QCOMPARE(controller.settings()->callFormat(), QStringLiteral("auto"));
+        QCOMPARE(controller.preferredCallLane(dm), QStringLiteral("legacy"));
+        QVariantMap formats = controller.callFormats(dm);
+        QCOMPARE(formats.value("legacy").toBool(), true);
+        QCOMPARE(formats.value("matrixrtc").toBool(), false);
+        QCOMPARE(formats.value("video").toBool(), true);
+        QCOMPARE(formats.value("autoLane").toString(), QStringLiteral("legacy"));
+
+        // Not a DM: Direct cannot carry it, and nothing changes.
+        controller.settings()->setCallFormat(QStringLiteral("legacy"));
+        QCOMPARE(controller.preferredCallLane(dm), QStringLiteral("legacy"));
+        QCOMPARE(controller.preferredCallLane(
+                     QStringLiteral("!general:mock.local")),
+                 QString());
+
+        // A value from a newer build is the default.
+        controller.settings()->setCallFormat(QStringLiteral("hologram"));
+        QCOMPARE(controller.settings()->callFormat(), QStringLiteral("auto"));
+        controller.calls()->setMediaBackend(nullptr);
     }
 
     // A routed account (docs/network-profiles.md): the call button is

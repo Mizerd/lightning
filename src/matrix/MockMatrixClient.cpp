@@ -1324,6 +1324,7 @@ void MockMatrixClient::seedMockData()
     dm.lastMessagePreview = QStringLiteral("See you tomorrow.");
     dm.lastActivity       = now.addSecs(-3600);
     dm.isDirect           = true;
+    dm.activeMemberCount  = 2;
     dm.directUserId       = QStringLiteral("@bob:mock.local");
     dm.directUserIds      = { dm.directUserId };
     dm.members.insert(QStringLiteral("@bob:mock.local"),

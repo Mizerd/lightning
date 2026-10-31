@@ -455,6 +455,17 @@ Rectangle {
                 font.weight: Font.Medium
                 elide: Text.ElideRight
             }
+            // Which format this call uses; the name CallFormatMenu gives it.
+            Text {
+                objectName: "callStageFormatLabel"
+                text: qsTr("MatrixRTC")
+                color: AppTheme.stormTextMuted
+                font.pixelSize: AppTheme.textMeta
+                HoverHandler { id: stageFormatHover }
+                ToolTip.text: qsTr("MatrixRTC call: media goes through a call server")
+                ToolTip.visible: stageFormatHover.hovered
+                ToolTip.delay: 500
+            }
             // Reconnecting and degraded states are shown, never left as a
             // frozen picture.
             Loader {

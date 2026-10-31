@@ -1551,6 +1551,41 @@ Rectangle {
                         ToolTip.delay: 500
                         onClicked: app.startCall(app.currentRoomId, false)
                     }
+                    // How the call is placed: voice or video, and which call
+                    // type the button uses. Part of the call button's slot.
+                    AbstractButton {
+                        id: callFormatChevron
+                        objectName: "callFormatChevron"
+                        visible: startVoiceCallButton.visible
+                        implicitWidth: 16
+                        implicitHeight: 26
+                        Layout.alignment: Qt.AlignVCenter
+                        Layout.leftMargin: -AppTheme.spacing4
+                        hoverEnabled: true
+                        focusPolicy: Qt.StrongFocus
+                        Accessible.role: Accessible.ButtonMenu
+                        Accessible.name: qsTr("Call options")
+                        ToolTip.text: qsTr("Call options")
+                        ToolTip.visible: hovered && !callFormatMenu.visible
+                        ToolTip.delay: 500
+                        background: Rectangle {
+                            radius: AppTheme.radiusSm
+                            color: callFormatChevron.hovered
+                                   || callFormatChevron.activeFocus
+                                   ? AppTheme.hover : "transparent"
+                        }
+                        contentItem: Icon {
+                            name: "expand_more"
+                            size: 14
+                            color: AppTheme.stormTextMuted
+                        }
+                        onClicked: callFormatMenu.popup(
+                            callFormatChevron, 0, callFormatChevron.height)
+                        CallFormatMenu {
+                            id: callFormatMenu
+                            roomId: app.currentRoomId
+                        }
+                    }
                     // Shown only when the room has pins.
                     IconButton {
                         id: pinnedMessagesButton
@@ -1916,6 +1951,23 @@ Rectangle {
             // Opens the room's side panel rather than a second participant
             // list.
             onParticipantsRequested: root.infoOpen = !root.infoOpen
+        }
+
+        // A 1:1 video call's picture. Bounded like the call panel, so the
+        // timeline keeps fillHeight.
+        Loader {
+            id: legacyCallVideoHost
+            objectName: "legacyCallVideoHost"
+            Layout.fillWidth: true
+            Layout.preferredHeight: active
+                ? Math.min(Math.round(root.height * 0.45),
+                           Math.round(width * 9 / 16))
+                : 0
+            active: app.calls.videoCall
+                    && timelineCallHeaderBar.legacyLive
+                    && app.calls.activeRoomId === app.currentRoomId
+            visible: active
+            sourceComponent: LegacyCallVideo {}
         }
 
         // The call panel sits at the top of the column with the timeline
@@ -8856,6 +8908,7 @@ Rectangle {
         var top = roomColumn.y + roomHeaderBand.height + 1
             + (timelineCallHeaderBar.visible
                ? timelineCallHeaderBar.height : 0)
+            + (legacyCallVideoHost.visible ? legacyCallVideoHost.height : 0)
             + (callStageHost.visible ? callStageHost.height : 0)
             + (voiceDock.visible ? voiceDock.height : 0)
         // The timeline's own bottom edge, so the bars between it and the

@@ -420,6 +420,11 @@ class SettingsManager : public QObject
                    WRITE setThreadPlacement NOTIFY threadPlacementChanged)
     // Inline thread style: the room timeline leaves thread replies out (roots
     // keep their summary card). One switch for every room. Default false.
+    /// How the call button places a call: "auto" (today's choice for the
+    /// room), "matrixrtc", or "legacy". A format a room cannot use falls back
+    /// to "auto" there.
+    Q_PROPERTY(QString callFormat READ callFormat WRITE setCallFormat
+                   NOTIFY callFormatChanged)
     Q_PROPERTY(bool hideThreadReplies READ hideThreadReplies
                    WRITE setHideThreadReplies NOTIFY hideThreadRepliesChanged)
 
@@ -1095,6 +1100,8 @@ public:
     int threadPlacement() const;
     void setThreadPlacement(int placement);
 
+    QString callFormat() const;
+    void setCallFormat(const QString &format);
     bool hideThreadReplies() const;
     void setHideThreadReplies(bool hide);
     bool smoothScrolling() const;
@@ -1552,6 +1559,7 @@ Q_SIGNALS:
     void threadStyleChanged();
     void threadPlacementChanged();
     void layoutPresetChanged();
+    void callFormatChanged();
     void hideThreadRepliesChanged();
     void smoothScrollingChanged();
     void conversationReturnModeChanged();

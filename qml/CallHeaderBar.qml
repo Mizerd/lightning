@@ -88,9 +88,18 @@ Rectangle {
                                                : app.calls.deafened
     readonly property bool audioControlAvailable:
         previewMode || (groupLive ? true : app.calls.muteControlAvailable)
-    /// Camera and screen share exist only on the SFU lane; the legacy lane is
-    /// audio-only, so they are absent there rather than refusing.
+    /// Screen share and the participant tools exist only on the SFU lane, so
+    /// they are absent on the legacy lane rather than refusing. Its camera is
+    /// its own control, below.
     readonly property bool richMedia: previewMode || groupLive
+    readonly property bool legacyCamera:
+        !previewMode && !groupLive && legacyLive && app.calls.videoSupported
+    /// Which format the running call uses: the two names of CallFormatMenu.
+    readonly property string formatText: groupLive ? qsTr("MatrixRTC")
+                                                   : qsTr("Direct")
+    readonly property string formatTooltip: groupLive
+        ? qsTr("MatrixRTC call: media goes through a call server")
+        : qsTr("Direct call (m.call): media goes straight to the other person")
 
     readonly property string stateText: {
         if (root.groupLive) {
@@ -109,7 +118,7 @@ Rectangle {
             return qsTr("Calling…")
         if (app.calls.state === CallController.Connecting)
             return qsTr("Connecting…")
-        return qsTr("Voice call")
+        return app.calls.videoCall ? qsTr("Video call") : qsTr("Voice call")
     }
 
     visible: previewMode
@@ -189,6 +198,18 @@ Rectangle {
                 font.pixelSize: 13
                 font.weight: Font.Medium
             }
+            Text {
+                id: formatLabel
+                objectName: "callBarFormatLabel"
+                visible: !root.narrow
+                text: root.formatText
+                color: AppTheme.stormTextMuted
+                font.pixelSize: AppTheme.textMeta
+                HoverHandler { id: formatHover }
+                ToolTip.text: root.formatTooltip
+                ToolTip.visible: formatHover.hovered
+                ToolTip.delay: 500
+            }
         }
 
         // Audio first, as in Discord, Element Call, Meet and Teams: the
@@ -256,6 +277,38 @@ Rectangle {
                 accessibleName: qsTr("Choose output device")
                 Layout.alignment: Qt.AlignVCenter
                 Layout.leftMargin: 2
+            }
+        }
+
+        // ── Camera on the legacy lane ──
+        // Before a connection only a video call has a camera to change.
+        Loader {
+            active: root.legacyCamera
+            visible: active
+            sourceComponent: RowLayout {
+                spacing: 0
+                CallControlButton {
+                    objectName: "callBarLegacyCameraButton"
+                    iconName: app.calls.cameraOn ? "videocam" : "videocam_off"
+                    role: app.calls.cameraOn ? "active" : "neutral"
+                    diameter: root.controlDiameter
+                    glyphSize: root.controlGlyph
+                    enabled: app.calls.videoCall
+                             || app.calls.state === CallController.Connecting
+                             || app.calls.state === CallController.Active
+                    tooltip: app.calls.cameraOn ? qsTr("Turn off camera")
+                                                : qsTr("Turn on camera")
+                    onClicked: app.calls.toggleCamera()
+                }
+                CallDeviceChevron {
+                    objectName: "callBarLegacyCameraChevron"
+                    visible: !root.tight
+                    Layout.preferredWidth: visible ? implicitWidth : 0
+                    kind: "camera"
+                    accessibleName: qsTr("Choose camera")
+                    Layout.alignment: Qt.AlignVCenter
+                    Layout.leftMargin: 2
+                }
             }
         }
 

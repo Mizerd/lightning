@@ -789,6 +789,11 @@ public:
     /// The single user a legacy 1:1 call in `roomId` would be placed to, or
     /// empty when the room is not a genuine two-party DM (see the .cpp).
     QString legacyCallPeer(const QString &roomId) const;
+    /// What the call menu offers in this room: `matrixrtc` and `legacy` (can
+    /// that format carry a call here), `lane` (what `startCall` would use,
+    /// following the user's call format), `autoLane` (what "Automatic"
+    /// means here) and `video` (can that lane start with a picture).
+    Q_INVOKABLE QVariantMap callFormats(const QString &roomId) const;
     /// Which lane `startCall` would use: "matrixrtc", "legacy" or "" for
     /// none. Diagnostics and tests; not shown in normal UI.
     Q_INVOKABLE QString preferredCallLane(const QString &roomId) const;

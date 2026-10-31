@@ -108,6 +108,7 @@ constexpr auto kGifProvider         = "gif/provider";       // "giphy"/"klipy"
 // changing them never requires a resync.
 constexpr auto kShowRoomActivity    = "timeline/showRoomActivity";
 constexpr auto kHideThreadReplies   = "timeline/hideThreadReplies";
+constexpr auto kCallFormat          = "calls/format";
 constexpr auto kShowMembership      = "timeline/showMembershipEvents";
 constexpr auto kShowProfileChanges  = "timeline/showProfileChangeEvents";
 constexpr auto kCollapseEmbeds      = "timeline/collapseEmbeds";
@@ -4335,6 +4336,24 @@ void SettingsManager::setGifPreferredProvider(const QString &id)
         return;
     m_store->setValue(kGifProvider, id);
     Q_EMIT gifPreferredProviderChanged();
+}
+
+QString SettingsManager::callFormat() const
+{
+    const QString stored = m_store->value(kCallFormat).toString();
+    // A name, not a quantity: anything unknown is the default.
+    return stored == QLatin1String("matrixrtc")
+            || stored == QLatin1String("legacy")
+        ? stored
+        : QStringLiteral("auto");
+}
+
+void SettingsManager::setCallFormat(const QString &format)
+{
+    if (callFormat() == format)
+        return;
+    m_store->setValue(kCallFormat, format);
+    Q_EMIT callFormatChanged();
 }
 
 bool SettingsManager::hideThreadReplies() const
