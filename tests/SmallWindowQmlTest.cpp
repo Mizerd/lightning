@@ -66,8 +66,8 @@ private:
     }
 
     // Every visible control under `it` whose box, in `space`'s coordinates,
-    // leaves [0, space.width] horizontally. NO clip is applied on purpose:
-    // the point is what a clip would be hiding.
+    // leaves [0, space.width] horizontally. Plain clips are NOT applied on
+    // purpose (the point is what a clip would be hiding); a nested scroller is.
     static void controlsOutsideHorizontally(QQuickItem *it, QQuickItem *space,
                                             QStringList &out)
     {
@@ -75,8 +75,17 @@ private:
             return;
         const QByteArray cls = it->metaObject()->className();
         if (isControl(cls) && it->width() > 0 && it->height() > 0) {
-            const QRectF r = space->mapRectFromItem(
+            QRectF r = space->mapRectFromItem(
                 it, QRectF(0, 0, it->width(), it->height()));
+            // A control inside a nested scroller (the emoji category rail) is
+            // reached by scrolling, so only what that scroller shows counts.
+            for (QQuickItem *a = it->parentItem(); a && a != space;
+                 a = a->parentItem())
+                if (a->inherits("QQuickFlickable"))
+                    r = r.intersected(space->mapRectFromItem(
+                        a, QRectF(0, 0, a->width(), a->height())));
+            if (r.isEmpty())
+                return;
             if (r.left() < -1.0 || r.right() > space->width() + 1.0)
                 out << QStringLiteral("%1 %2 [%3..%4 of %5]")
                            .arg(QString::fromLatin1(cls), it->objectName())
@@ -183,6 +192,58 @@ private Q_SLOTS:
                             + failures.join(QStringLiteral("; "))));
         m_controller->showMain();
         QCoreApplication::processEvents();
+    }
+
+    // The composer's pickers are anchored to a card that is only ~300 px wide
+    // at the floor. Their panel may be narrower than their content wants; the
+    // content must adapt, not run past the panel (the GIF picker's tabs and
+    // its third column of results hung off the window edge).
+    void thePickersKeepEveryControlInsideTheirPanelAndTheWindow_data()
+    {
+        QTest::addColumn<QString>("opener");
+        QTest::addColumn<QString>("popupName");
+        QTest::newRow("gif") << "openGifPicker" << "composerGifPicker";
+        QTest::newRow("emoji") << "openEmojiPicker" << "composerEmojiPicker";
+        QTest::newRow("sticker") << "openStickerPicker" << "composerStickerPicker";
+    }
+
+    void thePickersKeepEveryControlInsideTheirPanelAndTheWindow()
+    {
+        QFETCH(QString, opener);
+        QFETCH(QString, popupName);
+        m_controller->showMain();
+        m_window->resize(640, 420);
+        QCoreApplication::processEvents();
+        QTest::qWait(200);
+        QQuickItem *composer = item("messageComposer");
+        QVERIFY2(composer, "composer not found");
+        if (opener == QLatin1String("openEmojiPicker"))
+            QVERIFY(QMetaObject::invokeMethod(composer, "openEmojiPicker",
+                                              Q_ARG(QVariant, QVariant(false))));
+        else
+            QVERIFY(QMetaObject::invokeMethod(composer, opener.toLatin1()));
+        QTest::qWait(400);
+        QObject *popup = m_window->findChild<QObject *>(popupName);
+        QVERIFY2(popup, qPrintable(popupName + QLatin1String(" not found")));
+        QTRY_VERIFY2(popup->property("opened").toBool(), "picker did not open");
+        auto *panel = popup->property("contentItem").value<QQuickItem *>();
+        QVERIFY(panel);
+        QTest::qWait(300);
+        // The panel inside the window.
+        const QRectF pr = panel->mapRectToScene(
+            QRectF(0, 0, panel->width(), panel->height()));
+        QVERIFY2(QRectF(0, 0, m_window->width(), m_window->height())
+                     .adjusted(-1, -1, 1, 1).contains(pr),
+                 qPrintable(popupName + QStringLiteral(" panel is outside the "
+                            "window: %1,%2 %3x%4").arg(pr.x()).arg(pr.y())
+                            .arg(pr.width()).arg(pr.height())));
+        QStringList outside;
+        controlsOutsideHorizontally(panel, panel, outside);
+        QVERIFY2(outside.isEmpty(),
+                 qPrintable(popupName + QLatin1String(": ")
+                            + outside.join(QStringLiteral("; "))));
+        QMetaObject::invokeMethod(popup, "close");
+        QTest::qWait(100);
     }
 };
 

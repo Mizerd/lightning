@@ -61,8 +61,18 @@ Popup {
         if (!overlayItem)
             return minHeight
         var room = overlayItem.height - AppTheme.spacingM * 2
-        if (anchorItem)
-            room -= anchorItem.height + anchorGap
+        if (anchorItem) {
+            // The room above the anchor's top edge, measured where the anchor
+            // really is rather than assumed to sit a fixed margin off the
+            // window's bottom: the composer's insets differ with density and
+            // its own height changes as a draft grows, and an assumption left
+            // the panel's top above the window in a short one. The reads of
+            // height/y are the binding's dependencies; mapToItem has none.
+            void anchorItem.height
+            void anchorItem.y
+            var anchorTop = anchorItem.mapToItem(overlayItem, 0, 0).y
+            room = anchorTop - anchorGap - AppTheme.spacingM
+        }
         return room
     }
 

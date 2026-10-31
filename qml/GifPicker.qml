@@ -106,6 +106,9 @@ AnchoredPopup {
     // popup. The bottom-right corner is pinned to the composer, so it gets no
     // band.
     readonly property real gripGrab: 8
+    // The anchor card is only ~300 px wide in a window a quarter of a screen;
+    // below this the tab rows use their dense, fitted form and the badge goes.
+    readonly property bool narrow: width < 380
     leftInset: gripGrab
     topInset: gripGrab
     // Insets move only the background, so the content needs matching padding.
@@ -347,6 +350,7 @@ AnchoredPopup {
                 objectName: "gifSearchField"
                 visible: picker.providerTab
                 Layout.fillWidth: true
+                Layout.minimumWidth: 0
                 searchIcon: true
                 clearButton: true
                 storm: true
@@ -373,6 +377,7 @@ AnchoredPopup {
             // The picker's inline "GIF" badge.
             Rectangle {
                 objectName: "gifPickerHeaderBadge"
+                visible: !picker.narrow
                 implicitWidth: gifHeaderBadgeLabel.implicitWidth + AppTheme.spacing8
                 implicitHeight: 22
                 radius: AppTheme.radiusMd
@@ -414,6 +419,8 @@ AnchoredPopup {
                 id: providerTabs
                 objectName: "gifProviderTabs"
                 storm: true
+                dense: picker.narrow
+                fitWidth: true
                 Layout.fillWidth: false
                 // cfgRevision re-evaluates enabled/tip after a key refresh.
                 // Unavailable providers are disabled with an explanation.
@@ -451,6 +458,8 @@ AnchoredPopup {
                 id: listTabs
                 objectName: "gifListTabs"
                 storm: true
+                dense: picker.narrow
+                fitWidth: true
                 Layout.fillWidth: false
                 // Neither list needs a key or network, so both are always
                 // enabled.
