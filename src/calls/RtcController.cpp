@@ -1081,6 +1081,13 @@ bool RtcController::sameFocusUrl(const QString &left, const QString &right)
     QUrl b(right);
     if (!a.isValid() || !b.isValid() || a.isEmpty() || b.isEmpty())
         return false;
+    // Match Rust's URL comparison without altering the advertised spelling.
+    a = a.adjusted(QUrl::NormalizePathSegments);
+    b = b.adjusted(QUrl::NormalizePathSegments);
+    if (a.scheme() == QLatin1String("https") && a.port() == 443)
+        a.setPort(-1);
+    if (b.scheme() == QLatin1String("https") && b.port() == 443)
+        b.setPort(-1);
     if (a.path().isEmpty())
         a.setPath(QStringLiteral("/"));
     if (b.path().isEmpty())

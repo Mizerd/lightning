@@ -444,11 +444,10 @@ impl LivekitTransport {
     fn to_json(&self) -> serde_json::Value {
         let mut value = json!({
             "type": "livekit",
-            // Element appends authorization endpoint paths to this wire
-            // string and keys its connection pool by it. Url::to_string()
-            // adds a root slash; publishing that creates //get_token and
-            // a different connection key from the discovered service.
-            "livekit_service_url": self.service_url.trim_end_matches('/'),
+            // Element keys its connection pool by this exact wire string.
+            // Preserve both an explicitly supplied slash and its absence;
+            // URL normalization belongs only in local comparisons.
+            "livekit_service_url": self.service_url,
         });
         if let Some(alias) = &self.alias {
             value["livekit_alias"] = json!(alias);
@@ -4628,12 +4627,12 @@ mod tests {
     }
 
     #[test]
-    fn published_focus_joins_element_authorization_endpoints_without_double_slashes() {
+    fn published_focus_does_not_synthesize_authorization_endpoint_slashes() {
         for (advertised, prefix) in [
             ("https://sfu.example.org", ""),
-            ("https://sfu.example.org/", ""),
+            ("https://sfu.example.org/", "/"),
             ("https://sfu.example.org/matrix/rtc", "/matrix/rtc"),
-            ("https://sfu.example.org/matrix/rtc/", "/matrix/rtc"),
+            ("https://sfu.example.org/matrix/rtc/", "/matrix/rtc/"),
         ] {
             let transport = parse_transport(&json!({
                 "type": "livekit", "livekit_service_url": advertised,
@@ -4644,15 +4643,25 @@ mod tests {
             );
             let base = content["foci_preferred"][0]["livekit_service_url"]
                 .as_str().expect("published service URL");
-            // Element appends the endpoint to the advertised base as a
-            // string. A URL-library-added root slash must not turn it into
-            // //get_token or //sfu/get (both return 404 on real services).
+            assert_eq!(base, advertised);
+            // Only a slash explicitly present in discovery may appear here.
+            // Never synthesize one while parsing a bare origin.
             for endpoint in ["get_token", "sfu/get"] {
                 let request = url::Url::parse(&format!("{base}/{endpoint}"))
                     .expect("Element endpoint");
                 assert_eq!(request.path(), format!("{prefix}/{endpoint}"),
                            "advertised focus {advertised}");
             }
+        }
+    }
+
+    #[test]
+    fn published_focus_preserves_explicit_trailing_slashes() {
+        for advertised in ["https://sfu.example.org/", "https://sfu.example.org/matrix/rtc/"] {
+            let transport = parse_transport(&json!({
+                "type": "livekit", "livekit_service_url": advertised,
+            })).expect("valid focus");
+            assert_eq!(transport.to_json()["livekit_service_url"], advertised);
         }
     }
 
@@ -4681,8 +4690,8 @@ mod tests {
             assert_eq!(refreshed, own);
             assert_eq!(refreshed.to_json(), wire);
         }
-        // Root URL spellings canonicalize to one internal service. Publishing
-        // the corrected base must not duplicate a shared SFU connection.
+        // Distinct wire spellings still identify one internal service.
+        // Comparing them must not duplicate a shared SFU connection.
         let mut a = member_at("@a:x", "A", 10, 9_000);
         a.focus_selection = FocusSelection::MultiSfu;
         a.foci = vec![parse("https://sfu.example.org/")];
@@ -4691,7 +4700,10 @@ mod tests {
         b.foci = vec![parse("https://sfu.example.org")];
         let plan = plan_foci(&[a, b], "@me:x:ME", Some(parse("https://sfu.example.org")));
         assert_eq!(plan.subscribers.len(), 1);
-        assert_eq!(plan.publisher.as_ref(), plan.subscribers.first());
+        assert!(same_focus_url(
+            &plan.publisher.as_ref().unwrap().service_url,
+            &plan.subscribers.first().unwrap().service_url,
+        ));
         assert_eq!(plan.publisher.unwrap().to_json()["livekit_service_url"], "https://sfu.example.org");
     }
 

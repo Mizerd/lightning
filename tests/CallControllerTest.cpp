@@ -1082,6 +1082,10 @@ private Q_SLOTS:
         const QString own = QStringLiteral("https://own.example.org");
         const QString slashed = QStringLiteral("https://own.example.org/");
         QVERIFY(RtcController::sameFocusUrl(own, slashed));
+        QVERIFY(RtcController::sameFocusUrl(
+            own, QStringLiteral("https://own.example.org:443/")));
+        QVERIFY(RtcController::sameFocusUrl(
+            own, QStringLiteral("https://own.example.org/prefix/../")));
         QVERIFY(!RtcController::sameFocusUrl(
             QStringLiteral("https://own.example.org/a"),
             QStringLiteral("https://own.example.org/a/")));
@@ -1152,6 +1156,57 @@ private Q_SLOTS:
         call.leave();
         QVERIFY(call.connectionFocusUrlsForTest().isEmpty());
         QVERIFY(client.sfuDisconnects > 0);
+    }
+
+    void equivalentRemoteFocusSpellingKeepsTheCallConnected()
+    {
+        RecordingCallClient client;
+        RtcController rtc;
+        rtc.setClient(&client);
+        const QString room = QStringLiteral("!multi:example.org");
+        const QString own = QStringLiteral("https://own.example.org");
+        const QString other = QStringLiteral("https://other.example.org");
+        rtc.discover(room);
+        client.answerTransports({own});
+        RtcSessionData session;
+        session.roomId = room;
+        RtcParticipant remote;
+        remote.rtcIdentity = QStringLiteral("@b:other.org:B");
+        remote.focusSelection = QStringLiteral("multi_sfu");
+        remote.focusServiceUrl = other;
+        remote.expiresAtMs = std::numeric_limits<qint64>::max();
+        session.participants = {remote};
+        session.focusServiceUrl = other;
+        rtc.refresh(room);
+        client.answerSession(client.lastSessionOp, session);
+
+        SfuCallController call;
+        call.setClient(&client);
+        call.setRtcController(&rtc);
+        const quint64 op = call.beginMembershipPublishForTest(room, own);
+        client.answerPublish(op, true, QString());
+        Q_EMIT client.sfuConnectionEvent(QVariantMap{
+            {QStringLiteral("type"), QStringLiteral("sfu_state")},
+            {QStringLiteral("generation"), 7},
+            {QStringLiteral("connection_id"), 0},
+        });
+        QCOMPARE(call.sfuGenerationForTest(), quint64(7));
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        QCOMPARE(call.connectionFocusUrlsForTest(), QStringList({own, other}));
+
+        for (const QString &spelling : {other + QStringLiteral("/"),
+                 other + QStringLiteral(":443/"),
+                 other + QStringLiteral("/prefix/../")}) {
+            session.participants[0].focusServiceUrl = spelling;
+            rtc.refresh(room);
+            client.answerSession(client.lastSessionOp, session);
+            QCOMPARE(call.state(), SfuCallController::State::Connected);
+            QCOMPARE(call.connectionFocusUrlsForTest(), QStringList({own, other}));
+        }
+        session.participants[0].focusServiceUrl = QStringLiteral("https://new.example.org");
+        rtc.refresh(room);
+        client.answerSession(client.lastSessionOp, session);
+        QCOMPARE(call.state(), SfuCallController::State::Reconnecting);
     }
 
     void foreignPublisherDenialMovesHomeOnceAndRejectsStaleGeneration()
@@ -8800,6 +8855,27 @@ private Q_SLOTS:
                                  CallParticipantModel::ReactionEmojiRole)
                      .toString(),
                  pickedEmoji);
+    }
+
+    void theInformationEmojiFromThePickerCanBeSent()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        const quint64 op = call.beginMembershipPublishForTest(
+            QStringLiteral("!room:example.org"),
+            QStringLiteral("https://sfu.example.org"));
+        client.answerPublish(op, true, QString());
+        call.setCallStateForTest(SfuCallController::State::Connected);
+
+        // U+2139 is a Unicode letter as well as a catalogue emoji. Rejecting
+        // every letter silently drops this valid choice from the full picker.
+        const QString emoji = QString::fromUtf8("ℹ️");
+        QVERIFY(emoji.at(0).isLetter());
+        call.sendCallReaction(emoji, QString());
+        QCOMPARE(client.reactionSends.size(), 1);
+        QCOMPARE(client.reactionSends.first().emoji, emoji);
+        QCOMPARE(client.reactionSends.first().name, QString());
     }
 
     // A share-audio failure costs the share's sound, not the call:

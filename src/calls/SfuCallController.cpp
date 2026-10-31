@@ -497,7 +497,12 @@ void SfuCallController::setRtcController(RtcController *rtc)
                         if (!containsFocusUrl(desired, url) && desired.size() < 8)
                             desired.append(url);
                     }
-                    if (desired != m_connectionFocusUrls)
+                    // Connection ids depend on plan order, but a member
+                    // changing only its URL spelling needs no new transport.
+                    if (desired.size() != m_connectionFocusUrls.size()
+                        || !std::equal(desired.cbegin(), desired.cend(),
+                                       m_connectionFocusUrls.cbegin(),
+                                       RtcController::sameFocusUrl))
                         beginReconnect(QStringLiteral("focus_plan_changed"));
                 }
             });
@@ -6500,7 +6505,9 @@ void SfuCallController::sendCallReaction(const QString &emoji,
     // Bound the input before grapheme segmentation and before crossing the FFI.
     if (emoji.isEmpty() || emoji.toUtf8().size() > 64
         || emoji.contains(QChar(0xFFFD))
-        || emoji.at(0).isLetter() || emoji.at(0).isSpace()
+        // U+2139 (information) is both a Unicode letter and a picker emoji.
+        || (emoji.at(0).isLetter() && emoji.at(0).unicode() != 0x2139)
+        || emoji.at(0).isSpace()
         || (emoji.at(0).isDigit() && !emoji.endsWith(QChar(0x20E3)))
         || (emoji.at(0).unicode() < 0x80
             && !emoji.endsWith(QChar(0x20E3))))

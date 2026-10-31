@@ -166,8 +166,9 @@ public:
     QString ownFocusUrlFor() const;
     QStringList subscriberFocusUrlsFor(const QString &roomId) const;
     /// Whether two focus URLs name the same SFU. Members may spell one focus
-    /// with or without the bare origin's trailing slash (GitHub #57); like
-    /// the Rust side, only an empty path equals "/".
+    /// with or without the bare origin's trailing slash (GitHub #57).
+    /// Match Rust's default-port and dot-segment normalization; prefix
+    /// trailing slashes remain distinct. Never rewrite the advertised URL.
     static bool sameFocusUrl(const QString &left, const QString &right);
     bool usesLegacyFocusFor(const QString &roomId) const;
 
