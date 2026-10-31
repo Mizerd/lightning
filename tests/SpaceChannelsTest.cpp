@@ -63,6 +63,14 @@ public:
         profileFetches.append(userId);
         return ++nextOp;
     }
+    QString lastOrderSpace;
+    QStringList lastOrderIds;
+    quint64 setSpaceChildOrder(const QString &spaceId, const QStringList &ids) override
+    {
+        lastOrderSpace = spaceId;
+        lastOrderIds = ids;
+        return ++nextOp;
+    }
     QStringList profileFetches;
     quint64 nextOp = 0;
     QList<TimelineEvent> timeline(const QString &) const override
@@ -238,6 +246,59 @@ private:
     };
 
 private Q_SLOTS:
+    void sharedOrderWritesOnlyTheCompleteDirectChildSet()
+    {
+        Fixture f;
+        f.build(workspace());
+        const QString spaceId = QStringLiteral("!work:x");
+        const auto rows = f.spaces.defaultOrderChildren(spaceId);
+        QCOMPARE(rows.size(), 3); // Includes the subspace, never its descendants.
+        QStringList ids;
+        for (const auto &row : rows)
+            ids.prepend(row.toMap().value(QStringLiteral("roomId")).toString());
+        QSignalSpy finished(&f.spaces, &SpaceManager::childOrderFinished);
+        f.spaces.setDefaultChildOrder(spaceId, {ids.first(), ids.first(), ids.last()});
+        QCOMPARE(finished.size(), 1);
+        QVERIFY(!finished.last().at(1).toBool());
+        QVERIFY(f.client.lastOrderIds.isEmpty());
+        f.spaces.setDefaultChildOrder(spaceId, ids);
+        QCOMPARE(f.client.lastOrderSpace, spaceId);
+        QCOMPARE(f.client.lastOrderIds, ids);
+        QCOMPARE(finished.size(), 1); // Wait for the server answer.
+        const auto op = f.client.nextOp;
+        Q_EMIT f.client.spaceChildOrderFinished(op + 1, spaceId, true);
+        QCOMPARE(finished.size(), 1);
+        Q_EMIT f.client.spaceChildOrderFinished(op, spaceId, false);
+        QCOMPARE(finished.size(), 2);
+        QVERIFY(!finished.last().at(1).toBool());
+        f.spaces.setDefaultChildOrder(spaceId, ids);
+        const auto abandoned = f.client.nextOp;
+        Q_EMIT f.client.loggedOut();
+        Q_EMIT f.client.spaceChildOrderFinished(abandoned, spaceId, true);
+        QCOMPARE(finished.size(), 2); // Previous account's completion is discarded.
+    }
+
+    void personalArrangementWinsInsideASpace()
+    {
+        Fixture f;
+        f.build(workspace());
+        f.spaces.setPersonalRoomOrder([](const QString &, const QStringList &ids) {
+            QStringList reversed = ids;
+            std::reverse(reversed.begin(), reversed.end());
+            return reversed;
+        });
+        f.model.setSortMode(conversation::SortBySpaceOrder);
+        f.selectSpace(QStringLiteral("!work:x"));
+        QStringList children;
+        for (int row = 0; row < f.model.rowCount(); ++row) {
+            const auto ix = f.model.index(row);
+            const auto id = f.model.data(ix, SpaceChannelModel::RoomIdRole).toString();
+            if (id == QStringLiteral("!general:x") || id == QStringLiteral("!random:x"))
+                children.append(id);
+        }
+        QCOMPARE(children, (QStringList{QStringLiteral("!random:x"), QStringLiteral("!general:x")}));
+    }
+
     void homeRoomsAreNewestFirstNotAlphabetical();
     void directMessageChatsAreNewestFirst();
     void aSpacesRoomsAreNewestFirstNotInChildOrder();

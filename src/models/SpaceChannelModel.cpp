@@ -13,6 +13,7 @@
 #include <QVariantMap>
 
 #include <algorithm>
+#include <climits>
 #include <utility>
 
 namespace {
@@ -1065,6 +1066,12 @@ int SpaceChannelModel::buildSpace(QVector<Row> &rows,
         }
         // The Space's own order (as in its lobby) under Activity, A-Z by name;
         // the group structure itself is unchanged.
+        if (m_sortMode == conversation::SortBySpaceOrder && m_spaces) {
+            const auto rank = m_spaces->childOrder(spaceId);
+            std::stable_sort(children.begin(), children.end(), [&rank](const Row &a, const Row &b) {
+                return rank.value(a.id, INT_MAX) < rank.value(b.id, INT_MAX);
+            });
+        }
         sortSpaceChannels(children);
         shown += appendGroup(rows, header, children);
     }

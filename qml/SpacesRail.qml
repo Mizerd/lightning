@@ -275,7 +275,7 @@ Rectangle {
         next[spaceId] = revealCount(spaceId) + 5
         railReveal = next
     }
-    // The Space's direct joined child rooms, most recently active first.
+    // The Space's direct joined child rooms in its shared default order.
     // Unjoined children are join offers and live on Space Home. Direct, not
     // transitive (childRoomsDetailed returns the whole subtree, which listed
     // every descendant's rooms under every ancestor). directChildRoomsDetailed
@@ -286,9 +286,6 @@ Rectangle {
         if (!app.spaces || !spaceId || spaceId.charAt(0) !== "!")
             return []
         var rooms = app.spaces.directChildRoomsDetailed(spaceId)
-        rooms.sort(function(a, b) {
-            return (b.lastActivity || 0) - (a.lastActivity || 0)
-        })
         // A-Z and Recent activity are derived orders: the stored arrangement
         // is left alone (Manual restores it) and not consulted.
         var sortMode = app.settings ? app.settings.railSort : 0
@@ -299,10 +296,14 @@ Rectangle {
             })
             return rooms
         }
-        if (sortMode === 2)
+        if (sortMode === 2) {
+            rooms.sort(function(a, b) {
+                return (b.lastActivity || 0) - (a.lastActivity || 0)
+            })
             return rooms
-        // Then the user's own arrangement from the store, if any. Activity
-        // order is the default; unknown rooms keep their place at the end.
+        }
+        // The user's own arrangement overrides the shared Space default;
+        // rooms without a personal position retain their shared order.
         if (!app.railLayout)
             return rooms
         var ids = []

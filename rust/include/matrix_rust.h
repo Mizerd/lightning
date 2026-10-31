@@ -2155,6 +2155,11 @@ char *mx_rust_add_room_to_space(void *client,
 /* 2026-08-19: toggles the MSC1772 `suggested` flag on an EXISTING child
  * (via list and order key preserved; a non-child is refused). Result:
  * space_child_suggested_result { op_id, space_id, room_id, suggested, ok }. */
+/* Writes the requested default order of existing children, preserving content.
+ * Result: space_child_order_result { op_id, lifecycle, space_id, ok }. */
+char *mx_rust_set_space_child_order(void *client, const char *space_id,
+                                  const char *room_ids_json,
+                                  unsigned long long op_id);
 char *mx_rust_set_space_child_suggested(void *client,
                                         const char *space_id,
                                         const char *room_id,

@@ -1739,6 +1739,8 @@ public:
     { Q_UNUSED(spaceId); Q_UNUSED(roomId); return 0; }
     // Toggle the MSC1772 `suggested` flag on an existing child, preserving via
     // and order. A non-child is refused, never promoted to a child.
+    virtual quint64 setSpaceChildOrder(const QString &spaceId, const QStringList &roomIds)
+    { Q_UNUSED(spaceId); Q_UNUSED(roomIds); return 0; }
     virtual quint64 setSpaceChildSuggested(const QString &spaceId,
                                            const QString &roomId,
                                            bool suggested)
@@ -2780,6 +2782,7 @@ Q_SIGNALS:
                             const QString &roomId, bool ok);
     void spaceChildRemoveFinished(quint64 opId, const QString &spaceId,
                                   const QString &roomId, bool ok);
+    void spaceChildOrderFinished(quint64 opId, const QString &spaceId, bool ok);
     void spaceChildSuggestedFinished(quint64 opId, const QString &spaceId,
                                      const QString &roomId, bool suggested,
                                      bool ok);

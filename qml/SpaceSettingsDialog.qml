@@ -35,6 +35,34 @@ AppDialog {
     /// powerLevelForKey, roleLabelForLevel): a method call creates no
     /// dependency, and an unused local read is enough to create one.
     property int rosterTick: 0
+    property var orderDraft: []
+    property bool orderDirty: false
+    property bool orderPending: false
+    property string orderStatus: ""
+    function resetOrderDraft() {
+        orderDraft = app.spaces.defaultOrderChildren(root.spaceId)
+        orderDirty = false
+    }
+    function moveDefaultChild(index, delta) {
+        const target = index + delta
+        if (orderPending || target < 0 || target >= orderDraft.length) return
+        var next = orderDraft.slice()
+        const row = next.splice(index, 1)[0]
+        next.splice(target, 0, row)
+        orderDraft = next
+        orderDirty = true
+    }
+    Connections {
+        target: app.spaces
+        function onChildOrderFinished(spaceId, ok) {
+            if (spaceId !== root.spaceId) return
+            root.orderPending = false
+            root.orderStatus = ok
+                ? qsTr("Default order saved. Your personal room order still takes precedence.")
+                : qsTr("Could not save the complete order. Some rooms may have moved; reload before trying again.")
+            root.orderDirty = false
+        }
+    }
 
     // No title: this dialog draws its own header.
     title: ""
@@ -96,6 +124,9 @@ AppDialog {
         // administrator.
         if (app.roomClosure)
             app.roomClosure.checkServerAdmin()
+        orderPending = app.spaces.childOrderPending(targetSpaceId)
+        orderStatus = ""
+        resetOrderDraft()
         open()
     }
 
@@ -825,6 +856,83 @@ AppDialog {
                                 scopeKind: "space"
                                 scopeId: root.spaceId
                                 showTitle: false
+                            }
+                        }
+
+                        ColumnLayout {
+                            objectName: "spaceDefaultOrderEditor"
+                            Layout.fillWidth: true
+                            visible: !root.roomMode
+                            spacing: AppTheme.spacing8
+                            MenuSectionLabel { text: qsTr("Default room order") }
+                            Label {
+                                Layout.fillWidth: true
+                                wrapMode: Text.WordWrap
+                                text: qsTr("The starting order for everyone in this space. Personal room arrangements and sort choices take precedence.")
+                                color: AppTheme.stormTextMuted
+                                font.pixelSize: AppTheme.textMeta
+                            }
+                            Repeater {
+                                model: root.orderDraft
+                                delegate: RowLayout {
+                                    required property int index
+                                    required property var modelData
+                                    Layout.fillWidth: true
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: modelData.name || modelData.roomId
+                                        textFormat: Text.PlainText
+                                        elide: Text.ElideRight
+                                        color: AppTheme.stormText
+                                    }
+                                    IconButton {
+                                        objectName: "defaultRoomMoveUp"
+                                        storm: true
+                                        iconName: "expand_less"
+                                        Accessible.name: qsTr("Move room up")
+                                        enabled: root.infoIsOurs && app.roomInfo.canManageSpaceChildren
+                                                 && !root.orderPending && index > 0
+                                        onClicked: root.moveDefaultChild(index, -1)
+                                    }
+                                    IconButton {
+                                        objectName: "defaultRoomMoveDown"
+                                        storm: true
+                                        iconName: "expand_more"
+                                        Accessible.name: qsTr("Move room down")
+                                        enabled: root.infoIsOurs && app.roomInfo.canManageSpaceChildren
+                                                 && !root.orderPending && index + 1 < root.orderDraft.length
+                                        onClicked: root.moveDefaultChild(index, 1)
+                                    }
+                                }
+                            }
+                            RowLayout {
+                                AppButton {
+                                    objectName: "saveDefaultRoomOrder"
+                                    text: root.orderPending ? qsTr("Saving…") : qsTr("Save default order")
+                                    storm: true
+                                    enabled: root.infoIsOurs && app.roomInfo.canManageSpaceChildren
+                                             && root.orderDirty && !root.orderPending
+                                    onClicked: {
+                                        root.orderPending = true
+                                        root.orderStatus = ""
+                                        app.spaces.setDefaultChildOrder(root.spaceId,
+                                            root.orderDraft.map(function(row) { return row.roomId }))
+                                    }
+                                }
+                                AppButton {
+                                    text: qsTr("Reload order")
+                                    storm: true
+                                    kind: "ghost"
+                                    enabled: !root.orderPending
+                                    onClicked: { root.resetOrderDraft(); root.orderStatus = "" }
+                                }
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                visible: text.length > 0
+                                text: root.orderStatus
+                                wrapMode: Text.WordWrap
+                                color: AppTheme.stormTextMuted
                             }
                         }
 

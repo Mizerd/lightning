@@ -1616,6 +1616,89 @@ pub(crate) fn add_room_to_space(
     Ok(())
 }
 
+// Preserve the original JSON, including extension fields; normalise only the
+// order key. Validation through Ruma must still reject invalid routing.
+fn ordered_child_content(mut content: serde_json::Value, position: usize) -> Result<serde_json::Value, String> {
+    let mut check = content.clone();
+    check.as_object_mut().ok_or_else(|| "invalid child".to_owned())?.remove("order");
+    let parsed: SpaceChildEventContent = serde_json::from_value(check)
+        .map_err(|_| "invalid child".to_owned())?;
+    if parsed.via.is_empty() { return Err("not a child".into()); }
+    content["order"] = json!(format!("{position:06}"));
+    Ok(content)
+}
+
+#[cfg(test)]
+mod default_order_tests {
+    use super::*;
+    #[test]
+    fn changing_order_preserves_routing_suggestions_and_extensions() {
+        let content = json!({"via": ["example.org"], "suggested": true,
+            "order": 4, "org.example.hint": {"keep": true}});
+        let mut wanted = content.clone();
+        wanted["order"] = json!("000012");
+        assert_eq!(ordered_child_content(content, 12).unwrap(), wanted);
+        for removed in [json!({}), json!({"via": []}), json!({"via": [42]})] {
+            assert!(ordered_child_content(removed, 0).is_err());
+        }
+    }
+}
+
+pub(crate) async fn set_space_child_order_inner(
+    client: &matrix_sdk::Client,
+    space_id: &str,
+    ids: &[String],
+    current: impl Fn() -> bool,
+) -> Result<(), String> {
+    let space = RoomId::parse(space_id).ok()
+        .and_then(|id| client.get_room(&id))
+        .filter(|r| r.state() == RoomState::Joined && r.is_space())
+        .ok_or_else(|| "unknown space".to_owned())?;
+    for (position, id) in ids.iter().enumerate() {
+        // Every send remains pinned to the originating session.
+        if !current() { return Err("cancelled".into()); }
+        let child = RoomId::parse(id).map_err(|_| "invalid child".to_owned())?;
+        let state = space.get_state_event_static_for_key::<SpaceChildEventContent, _>(&child)
+            .await.map_err(|_| "state unavailable".to_owned())?
+            .ok_or_else(|| "not a child".to_owned())?;
+        use matrix_sdk::deserialized_responses::RawSyncOrStrippedState;
+        let RawSyncOrStrippedState::Sync(raw) = state else { return Err("not a child".into()) };
+        let value: serde_json::Value = serde_json::from_str(raw.json().get())
+            .map_err(|_| "invalid child".to_owned())?;
+        let content = ordered_child_content(value.get("content").cloned()
+            .ok_or_else(|| "invalid child".to_owned())?, position)?;
+        if !current() { return Err("cancelled".into()); }
+        space.send_state_event_raw("m.space.child", id, content).await
+            .map_err(|_| "order write failed".to_owned())?;
+    }
+    Ok(())
+}
+
+pub(crate) fn set_space_child_order(
+    bridge: &RustClient,
+    space_id: String,
+    ids: Vec<String>,
+    op_id: u64,
+) -> Result<(), String> {
+    if ids.is_empty() || ids.len() > 1000
+        || ids.iter().collect::<std::collections::BTreeSet<_>>().len() != ids.len()
+        || ids.iter().any(|id| RoomId::parse(id).is_err()) {
+        return Err("invalid child list".to_owned());
+    }
+    let client = require_client(bridge)?;
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    bridge.spawn_room_action(async move {
+        let result = set_space_child_order_inner(&client, &space_id, &ids,
+            || timelines.lifecycle_current(lifecycle)).await;
+        if !timelines.lifecycle_current(lifecycle) { return; }
+        enqueue(&events, json!({"type": "space_child_order_result", "op_id": op_id,
+            "lifecycle": lifecycle, "space_id": space_id, "ok": result.is_ok()}));
+    });
+    Ok(())
+}
+
 /// Toggle the MSC1772 `suggested` flag on an existing m.space.child,
 /// preserving `via` and `order` (a blind rewrite would clobber routing). A
 /// room that is not a child is refused, never made one as a side effect.

@@ -59,7 +59,6 @@ use matrix_sdk::{
     store::RoomLoadSettings,
     Client, LoopCtrl, Room, SessionMeta, SessionTokens, ThreadingSupport,
 };
-use matrix_sdk::deserialized_responses::SyncOrStrippedState;
 use futures_util::StreamExt;
 use matrix_sdk_ui::{
     eyeball_im::VectorDiff,
@@ -11229,6 +11228,23 @@ pub unsafe extern "C" fn mx_rust_add_room_to_space(
     })
 }
 
+/// Write a shared default order of existing children. The server checks power.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_set_space_child_order(
+    ptr: *mut c_void,
+    space_id: *const c_char,
+    room_ids_json: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr) }?;
+        let space_id = unsafe { cstr_arg(space_id) }?;
+        let ids: Vec<String> = serde_json::from_str(&unsafe { cstr_arg(room_ids_json) }?)
+            .map_err(|_| "invalid child list".to_owned())?;
+        rooms::set_space_child_order(bridge, space_id, ids, op_id).map(|_| String::new())
+    })
+}
+
 /// Toggle the MSC1772 `suggested` flag on an existing m.space.child,
 /// preserving via and order; a non-child is refused. Result event:
 /// space_child_suggested_result { op_id, space_id, room_id, suggested, ok }.
@@ -15640,29 +15656,35 @@ async fn direct_children_of(room: &Room) -> Vec<String> {
     };
     let mut entries: Vec<(Option<String>, u64, String)> = Vec::new();
     for raw in events {
-        let Ok(event) = raw.deserialize() else { continue };
-        let (state_key, content, ts) = match event {
-            SyncOrStrippedState::Sync(SyncStateEvent::Original(original)) => {
-                (original.state_key, original.content, u64::from(original.origin_server_ts.get()))
-            }
-            _ => continue,
-        };
-        if content.via.is_empty() {
-            continue;
+        use matrix_sdk::deserialized_responses::RawSyncOrStrippedState;
+        let RawSyncOrStrippedState::Sync(raw) = raw else { continue };
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(raw.json().get()) else { continue };
+        if let Some(entry) = space_child_entry(value) {
+            entries.push(entry);
         }
-        entries.push((
-            content.order.map(|order| order.as_str().to_owned()),
-            ts,
-            state_key.to_string(),
-        ));
     }
     sort_space_children(entries)
+}
+
+fn space_child_entry(mut value: serde_json::Value) -> Option<(Option<String>, u64, String)> {
+    let order = valid_space_order(value.get("content").and_then(|c| c.get("order")));
+    // Normalise only order: malformed routing still fails Ruma's checks.
+    value.get_mut("content")?.as_object_mut()?.remove("order");
+    let SyncStateEvent::Original(event) = serde_json::from_value::<SyncStateEvent<SpaceChildEventContent>>(value).ok()? else { return None };
+    if event.content.via.is_empty() { return None; }
+    Some((order, u64::from(event.origin_server_ts.get()), event.state_key.to_string()))
 }
 
 /// The ordering `direct_children_of` applies, apart so it can be tested:
 /// (order key, `origin_server_ts`, room id). Without the timestamp, keyless
 /// children fell back to ROOM-ID order, so rooms added Alpha, Beta, Delta
 /// listed as Beta, Alpha, Delta.
+fn valid_space_order(value: Option<&serde_json::Value>) -> Option<String> {
+    let key = value?.as_str()?;
+    (key.len() <= 50 && key.bytes().all(|b| (0x20..=0x7e).contains(&b)))
+        .then(|| key.to_owned())
+}
+
 fn sort_space_children(mut entries: Vec<(Option<String>, u64, String)>) -> Vec<String> {
     entries.sort_by(|a, b| {
         let by_order = match (&a.0, &b.0) {
@@ -18352,6 +18374,24 @@ mod tests {
     }
 
     #[test]
+    fn invalid_space_order_is_keyless_not_a_missing_child() {
+        use serde_json::json;
+        let event = |order| json!({"type": "m.space.child", "state_key": "!child:x",
+            "sender": "@admin:x", "event_id": "$child", "origin_server_ts": 10,
+            "content": {"via": ["x"], "order": order}});
+        for order in [json!(42), json!("é"), json!("\n"), json!("x".repeat(51))] {
+            let entry = super::space_child_entry(event(order)).expect("child must remain visible");
+            assert_eq!(entry, (None, 10, "!child:x".into()));
+        }
+        for key in ["", " ", "a~Z"] {
+            assert_eq!(super::space_child_entry(event(json!(key))).unwrap().0, Some(key.to_owned()));
+        }
+        let mut removed = event(json!("a"));
+        removed["content"]["via"] = json!([]);
+        assert!(super::space_child_entry(removed).is_none());
+    }
+
+    #[test]
     fn space_children_without_an_order_key_follow_their_add_time() {
         // Break-it B051: added Alpha, Beta, Delta in that order; room ids
         // sort Beta < Alpha < Delta. Keyless children follow origin_server_ts.
@@ -19531,6 +19571,64 @@ mod latest_event_preview_tests {
         let (_, kind, arg) = preview_wire(&latest_event_preview_line(&others[1]));
         assert_eq!(kind, "poll_question");
         assert_eq!(arg, "image x");
+    }
+}
+
+/// Local-only live regression for shared Space order. Never reads a real account.
+#[cfg(test)]
+mod live_space_order_tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "local homeserver; requires LIGHTNING_TEST_* credentials"]
+    fn shared_order_round_trips_on_local_homeserver() {
+        let homeserver = std::env::var("LIGHTNING_TEST_HOMESERVER").expect("test server");
+        assert_eq!(homeserver, "http://127.0.0.1:18008");
+        let user = std::env::var("LIGHTNING_TEST_USER").expect("test user");
+        let password = std::env::var("LIGHTNING_TEST_PASSWORD").expect("test password");
+        let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(2)
+            .enable_all().build().unwrap();
+        runtime.block_on(async {
+            use matrix_sdk::ruma::{api::client::room::create_room::v3::{Request, CreationContent},
+                room::RoomType, serde::Raw};
+            let client = matrix_sdk::Client::builder().homeserver_url(homeserver)
+                .build().await.expect("client");
+            client.matrix_auth().login_username(user, &password).send().await.expect("login");
+            let mut request = Request::new();
+            let mut creation = CreationContent::new();
+            creation.room_type = Some(RoomType::Space);
+            request.creation_content = Some(Raw::new(&creation).unwrap());
+            request.name = Some("Lightning local default-order test".into());
+            let space = client.create_room(request).await.expect("create space");
+            let first = client.create_room(Request::new()).await.expect("first room");
+            let second = client.create_room(Request::new()).await.expect("second room");
+            let a = first.room_id().to_string();
+            let b = second.room_id().to_string();
+            space.send_state_event_raw("m.space.child", &a,
+                json!({"via": ["localhs.test"], "order": "a", "suggested": true,
+                       "org.example.keep": "preserved"})).await.expect("first child");
+            space.send_state_event_raw("m.space.child", &b,
+                json!({"via": ["localhs.test"], "order": 7})).await.expect("invalid-order child");
+            client.sync_once(matrix_sdk::config::SyncSettings::default()).await.expect("sync children");
+            assert_eq!(direct_children_of(&space).await, vec![a.clone(), b.clone()]);
+            rooms::set_space_child_order_inner(&client, space.room_id().as_str(),
+                &[b.clone(), a.clone()], || true).await.expect("save shared order");
+            client.sync_once(matrix_sdk::config::SyncSettings::default()).await.expect("sync order");
+            assert_eq!(direct_children_of(&space).await, vec![b, a.clone()]);
+            let child = RoomId::parse(a).unwrap();
+            let raw = space.get_state_event_static_for_key::<SpaceChildEventContent, _>(&child)
+                .await.unwrap().unwrap();
+            use matrix_sdk::deserialized_responses::RawSyncOrStrippedState;
+            let RawSyncOrStrippedState::Sync(raw) = raw else { panic!("sync state") };
+            let value: serde_json::Value = serde_json::from_str(raw.json().get()).unwrap();
+            assert_eq!(value["content"]["via"], json!(["localhs.test"]));
+            assert_eq!(value["content"]["suggested"], true);
+            assert_eq!(value["content"]["org.example.keep"], "preserved");
+            assert!(rooms::set_space_child_order_inner(&client, space.room_id().as_str(),
+                &["!not-a-child:localhs.test".into()], || true).await.is_err());
+            for room in [first, second, space] { room.leave().await.expect("leave test room"); }
+            client.matrix_auth().logout().await.expect("logout test device");
+        });
     }
 }
 

@@ -32,6 +32,7 @@ void SpaceManager::setClient(MatrixClient *client)
             m_pendingChildAdds.clear(); // account isolation
             m_pendingChildRemovals.clear();
             m_pendingChildSuggests.clear();
+            m_pendingChildOrders.clear();
             m_lobbyCollapsed.clear();
             dropSpaceRosters();
             rebuild();
@@ -68,6 +69,12 @@ void SpaceManager::setClient(MatrixClient *client)
             m_pendingChildRemovals.erase(it);
             Q_EMIT childRemoveFinished(spaceId, roomId, ok);
         });
+        connect(m_client, &MatrixClient::spaceChildOrderFinished, this,
+                [this](quint64 opId, const QString &spaceId, bool ok) {
+            if (m_pendingChildOrders.take(opId) != spaceId)
+                return;
+            Q_EMIT childOrderFinished(spaceId, ok);
+        });
         connect(m_client, &MatrixClient::spaceChildSuggestedFinished,
                 this, [this](quint64 opId, const QString &spaceId,
                              const QString &roomId, bool suggested, bool ok) {
@@ -81,6 +88,7 @@ void SpaceManager::setClient(MatrixClient *client)
     m_pendingChildAdds.clear();
     m_pendingChildRemovals.clear();
     m_pendingChildSuggests.clear();
+    m_pendingChildOrders.clear();
     // Folded lobby sections name one account's Spaces.
     m_lobbyCollapsed.clear();
     // A roster describes one account; never carry it across a client swap.
@@ -691,9 +699,11 @@ QHash<QString, int> SpaceManager::childOrder(const QString &spaceId) const
     for (const SpaceEntry &entry : m_spaces) {
         if (entry.info.id != spaceId)
             continue;
-        out.reserve(entry.childRoomIds.size());
-        for (int i = 0; i < entry.childRoomIds.size(); ++i)
-            out.insert(entry.childRoomIds.at(i), i);
+        const QStringList ids = m_personalRoomOrder
+            ? m_personalRoomOrder(spaceId, entry.childRoomIds) : entry.childRoomIds;
+        out.reserve(ids.size());
+        for (int i = 0; i < ids.size(); ++i)
+            out.insert(ids.at(i), i);
         break;
     }
     return out;
@@ -1062,6 +1072,46 @@ void SpaceManager::removeRoomFromSpace(const QString &spaceId,
         return;
     }
     m_pendingChildRemovals.insert(opId, { spaceId, roomId });
+}
+
+QVariantList SpaceManager::defaultOrderChildren(const QString &spaceId) const
+{
+    if (!m_client) return {};
+    const auto rooms = m_client->rooms();
+    QHash<QString, QString> names;
+    QStringList ids;
+    for (const auto &room : rooms) {
+        names.insert(room.id, room.name);
+        if (room.id == spaceId && room.isSpace)
+            ids = room.childRoomIds;
+    }
+    QVariantList rows;
+    for (const auto &id : ids)
+        rows.append(QVariantMap{{QStringLiteral("roomId"), id},
+                               {QStringLiteral("name"), names.value(id, id)}});
+    return rows;
+}
+
+void SpaceManager::setDefaultChildOrder(const QString &spaceId, const QStringList &ids)
+{
+    // The complete direct-child set, including unjoined children; never turn
+    // an omitted or nested room into a new child as an ordering side effect.
+    QStringList known;
+    for (const auto &row : defaultOrderChildren(spaceId))
+        known.append(row.toMap().value(QStringLiteral("roomId")).toString());
+    if (!m_client || ids.isEmpty() || ids.size() > 1000
+        || ids.size() != known.size()
+        || QSet<QString>(ids.cbegin(), ids.cend()).size() != ids.size()
+        || QSet<QString>(ids.cbegin(), ids.cend()) != QSet<QString>(known.cbegin(), known.cend())) {
+        Q_EMIT childOrderFinished(spaceId, false);
+        return;
+    }
+    for (const auto &pending : std::as_const(m_pendingChildOrders)) {
+        if (pending == spaceId) { Q_EMIT childOrderFinished(spaceId, false); return; }
+    }
+    const auto op = m_client->setSpaceChildOrder(spaceId, ids);
+    if (!op) { Q_EMIT childOrderFinished(spaceId, false); return; }
+    m_pendingChildOrders.insert(op, spaceId);
 }
 
 void SpaceManager::setSpaceChildSuggested(const QString &spaceId,

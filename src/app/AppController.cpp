@@ -2620,6 +2620,11 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_allRooms->setClient(m_client.get());
     // Rail rows: the user's arrangement over the hierarchy, with the drag
     // preview in the model rather than QML.
+    m_spaces->setPersonalRoomOrder([this](const QString &space, const QStringList &ids) {
+        return m_railLayout->orderedRooms(space, ids);
+    });
+    connect(m_railLayout.get(), &RailLayoutStore::layoutChanged,
+            m_spaces.get(), &SpaceManager::spacesChanged);
     m_railEntries->setSources(m_spaces.get(), m_railLayout.get());
     m_railEntries->setRoomSources(m_client.get(), m_settings.get());
     // Classic rail (depth style 1) flattens the model, not the paint, so the

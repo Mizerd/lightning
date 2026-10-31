@@ -12,6 +12,7 @@
 
 #include <QtTest/QtTest>
 
+#include <QJSValue>
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlEngine>
@@ -297,6 +298,30 @@ private slots:
     // Live report against 0.10.2: the section nav filled the whole dialog
     // and no page (General, Members, Permissions...) was visible. The body
     // must get the width the nav does not use.
+    void defaultRoomOrderEditorFitsAndStagesMoves()
+    {
+        openFor(QString::fromLatin1(kParentId));
+        auto *editor = item("spaceDefaultOrderEditor");
+        auto *body = item("spaceSettingsBodyScroll");
+        QVERIFY(editor && body);
+        QTRY_VERIFY(editor->width() > 100);
+        QVERIFY(editor->width() <= body->width());
+        QVERIFY(editor->height() > 0);
+        const auto draft = [this] {
+            const QVariant value = m_dialog->property("orderDraft");
+            return value.metaType() == QMetaType::fromType<QJSValue>()
+                ? value.value<QJSValue>().toVariant().toList() : value.toList();
+        };
+        const auto before = draft();
+        QVERIFY(before.size() > 1);
+        QVERIFY(QMetaObject::invokeMethod(m_dialog, "moveDefaultChild",
+            Q_ARG(QVariant, 0), Q_ARG(QVariant, 1)));
+        const auto after = draft();
+        QCOMPARE(after.at(1), before.at(0));
+        QVERIFY(m_dialog->property("orderDirty").toBool());
+        closeDialog();
+    }
+
     void theSectionBodyGetsTheWidthBesideTheNav()
     {
         openFor(QString::fromLatin1(kParentId));

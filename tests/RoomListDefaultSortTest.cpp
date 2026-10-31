@@ -286,6 +286,20 @@ private Q_SLOTS:
     }
 
     // Old code: -1 normalises to Activity, so the Space lists r1, r2, r3.
+    void personalRoomArrangementOverridesSharedDefault()
+    {
+        Classic c;
+        c.build();
+        c.spaces.setPersonalRoomOrder([](const QString &, const QStringList &) {
+            return QStringList{ kR2, kR3, kR1 };
+        });
+        c.model.setSortMode(-1);
+        c.spaces.setActiveSpaceId(kWork);
+        QCOMPARE(idsOf(c.model), (QStringList{ kR2, kR3, kR1 }));
+        c.model.setSortMode(conversation::SortByActivity);
+        QCOMPARE(idsOf(c.model), (QStringList{ kR1, kR2, kR3 }));
+    }
+
     void unsetInARealSpaceFollowsTheSpaceOrderOfItsLobby()
     {
         Classic c;

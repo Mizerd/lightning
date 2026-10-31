@@ -816,6 +816,7 @@ const CLASSES: &[(&str, EventClass)] = {
         ("space_child_removed_result", UiOnly),
         ("space_children_result", UiOnly),
         ("space_child_result", UiOnly),
+        ("space_child_order_result", UiOnly),
         ("space_child_suggested_result", UiOnly),
         ("space_list_reset", UiOnly),
         ("sso_failed", UiOnly),

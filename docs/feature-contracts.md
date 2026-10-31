@@ -408,6 +408,18 @@ NOT TESTED**. Automated tests named in commits do not establish live behavior.
     storage only Lightning could read presented as part of the Space. Four dead
     tabs are worse than four missing ones; a contract test bans `app.settings`
     and `app.railLayout` from the file.
+  * **Default room order** in Space settings > General edits the shared
+    `m.space.child.order` fields, gated on `canManageSpaceChildren`. Up/down
+    controls stage the complete direct-child order (including subspaces and
+    unjoined children); Save writes printable ASCII rank keys through the SDK,
+    preserving routing, suggested flags and extension fields. Matrix has no
+    atomic multi-child write: a failure may leave a partially changed order
+    and the editor says so. Sync remains the source of the applied order.
+    Invalid order keys are treated as absent; equal keys fall back to the
+    event timestamp, then room id. The existing device-local room arrangement
+    overrides this default in both conversation layouts when Space order is
+    selected; an explicit Activity/A–Z/Unread choice still wins. The lobby
+    continues to show the shared default.
   * **A hidden `AppMenuSeparator` now takes NO height.** QQuickMenu lays rows
     out in a ListView that honours each item's height, and a separator's height
     comes from its contentItem plus padding whether it is visible or not — so

@@ -110,6 +110,8 @@ public:
     /// m.space.child order, then those of its subspaces. Empty for a pseudo id
     /// or an unknown Space. A sidebar that ranks by this agrees with the lobby.
     QHash<QString, int> childOrder(const QString &spaceId) const;
+    void setPersonalRoomOrder(std::function<QStringList(const QString &, const QStringList &)> resolver)
+    { m_personalRoomOrder = std::move(resolver); Q_EMIT spacesChanged(); }
     // Display name for the room-list workspace header.
     Q_INVOKABLE QString spaceName(const QString &spaceId) const;
 
@@ -247,6 +249,10 @@ public:
                                          const QString &roomId);
     // Toggles `suggested` on an existing child (via list and order kept; a
     // non-child is refused).
+    Q_INVOKABLE bool childOrderPending(const QString &spaceId) const
+    { return m_pendingChildOrders.values().contains(spaceId); }
+    Q_INVOKABLE QVariantList defaultOrderChildren(const QString &spaceId) const;
+    Q_INVOKABLE void setDefaultChildOrder(const QString &spaceId, const QStringList &ids);
     Q_INVOKABLE void setSpaceChildSuggested(const QString &spaceId,
                                             const QString &roomId,
                                             bool suggested);
@@ -261,6 +267,7 @@ Q_SIGNALS:
                           bool ok);
     void childRemoveFinished(const QString &spaceId, const QString &roomId,
                              bool ok);
+    void childOrderFinished(const QString &spaceId, bool ok);
     void childSuggestedFinished(const QString &spaceId, const QString &roomId,
                                 bool suggested, bool ok);
     /// A complete roster for `spaceId` arrived, or was dropped on an account
@@ -307,6 +314,8 @@ private:
     void resolveHierarchy(const QHash<QString, RoomInfo> &byId);
     void recomputeOrphans();
 
+    std::function<QStringList(const QString &, const QStringList &)> m_personalRoomOrder;
+    QHash<quint64, QString> m_pendingChildOrders;
     MatrixClient *m_client = nullptr;
 
     // Folded lobby sections: Home space id -> section ids. Session only.

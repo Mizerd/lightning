@@ -796,6 +796,7 @@ public:
     quint64 exportRoomKeys(const QString &filePath,
                            const QString &passphrase) override;
     quint64 addRoomToSpace(const QString &spaceId, const QString &roomId) override;
+    quint64 setSpaceChildOrder(const QString &spaceId, const QStringList &roomIds) override;
     quint64 setSpaceChildSuggested(const QString &spaceId,
                                    const QString &roomId,
                                    bool suggested) override;
