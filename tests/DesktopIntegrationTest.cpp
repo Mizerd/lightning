@@ -6,7 +6,9 @@
 #include <QFile>
 #include <QImage>
 #include <QRegularExpression>
+#include <QSet>
 #include <QtTest/QtTest>
+#include "app/ApplicationBadge.h"
 
 namespace {
 
@@ -25,6 +27,43 @@ class DesktopIntegrationTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
+    void launcherBadgeUsesAnEscapedObjectPath()
+    {
+        QCOMPARE(lightning::badgeObjectPath(QStringLiteral("matrix-client")),
+                 QStringLiteral("/com/canonical/unity/launcherentry/matrix_2dclient"));
+        QSet<QString> paths;
+        const QRegularExpression valid(QStringLiteral("^(/[A-Za-z0-9_]+)+$"));
+        for (const QString &name : {QString{}, QStringLiteral("matrix_client"),
+                                    QStringLiteral("matrix_2dclient"),
+                                    QStringLiteral("a/b.c"), QString::fromUtf8("ž")}) {
+            const QString path = lightning::badgeObjectPath(name);
+            QVERIFY(valid.match(path).hasMatch());
+            QVERIFY(!paths.contains(path));
+            paths.insert(path);
+        }
+#ifdef HAVE_QT_DBUS
+        const auto signal = lightning::badgeSignal(QStringLiteral("matrix-client"),
+                                                   QStringLiteral("lightning"), 12000);
+        QCOMPARE(signal.path(), lightning::badgeObjectPath(QStringLiteral("matrix-client")));
+        QCOMPARE(signal.interface(), QStringLiteral("com.canonical.Unity.LauncherEntry"));
+        QCOMPARE(signal.member(), QStringLiteral("Update"));
+        QCOMPARE(signal.arguments().at(0).toString(), QStringLiteral("application://lightning.desktop"));
+        const auto properties = signal.arguments().at(1).toMap();
+        QCOMPARE(properties.value(QStringLiteral("count")).toLongLong(), 9999);
+        QVERIFY(properties.value(QStringLiteral("count-visible")).toBool());
+        const auto clear = lightning::badgeSignal(QStringLiteral("matrix-client"),
+                                                  QStringLiteral("lightning"), -1);
+        QVERIFY(!clear.arguments().at(1).toMap().value(QStringLiteral("count-visible")).toBool());
+        QVERIFY(!clear.arguments().at(1).toMap().contains(QStringLiteral("count")));
+        // Validate serialization on the test's private session bus as well.
+        QVERIFY(QDBusConnection::sessionBus().isConnected());
+        QVERIFY(QDBusConnection::sessionBus().send(signal));
+#endif
+        const QString controller = readAll(QStringLiteral(SOURCE_DIR "/src/app/AppController.cpp"));
+        QVERIFY(controller.contains(QStringLiteral("lightning::setApplicationBadge(*guiApp,")));
+        QVERIFY(!controller.contains(QStringLiteral("guiApp->setBadgeNumber(")));
+    }
+
     void desktopFileIsCoherent()
     {
         const QString desktop =

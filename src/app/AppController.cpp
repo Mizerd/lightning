@@ -25,6 +25,7 @@
 #include <algorithm>
 
 #include "app/CustomAppIcon.h"
+#include "app/ApplicationBadge.h"
 #include "app/SessionDiagnostics.h"
 #include "app/SettingsManager.h"
 #include "auth/AccountManager.h"
@@ -7704,7 +7705,7 @@ void AppController::refreshTrayUnread()
         m_lastBadgeNumber = total;
         if (auto *guiApp =
                 qobject_cast<QGuiApplication *>(QCoreApplication::instance()))
-            guiApp->setBadgeNumber(qint64(std::max(0, total)));
+            lightning::setApplicationBadge(*guiApp, qint64(std::max(0, total)));
     }
 }
 

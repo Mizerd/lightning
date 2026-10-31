@@ -6294,7 +6294,15 @@ if(BUILD_TESTING)
         SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     target_link_libraries(desktop-integration-test PRIVATE
         Qt6::Core Qt6::Gui Qt6::Test)
-    add_test(NAME desktop-integration COMMAND desktop-integration-test)
+    target_include_directories(desktop-integration-test PRIVATE src)
+    if(TARGET Qt6::DBus AND NOT WIN32 AND NOT APPLE)
+        target_link_libraries(desktop-integration-test PRIVATE Qt6::DBus)
+        target_compile_definitions(desktop-integration-test PRIVATE HAVE_QT_DBUS=1)
+        add_test(NAME desktop-integration
+            COMMAND dbus-run-session -- $<TARGET_FILE:desktop-integration-test>)
+    else()
+        add_test(NAME desktop-integration COMMAND desktop-integration-test)
+    endif()
 
     # Offscreen visual verification: renders each theme on representative
     # controls (including an open ComboBox popup), saves PNG snapshots and
