@@ -7327,6 +7327,7 @@ void SfuMediaEngine::onRemoteDescriptionSet(GstPromise *promise, void *userData)
             g_signal_emit_by_name(peer.webrtc, "create-answer", nullptr, answer);
         } else if (target == Target::Publisher) {
             peer.offerPending = false;
+            peer.answeredOffer = peer.offeredIdentity;
             if (peer.negotiationDirty)
                 engine->renegotiatePublisher();
         }
@@ -9573,18 +9574,49 @@ void SfuMediaEngine::onOfferCreated(GstPromise *promise, void *userData)
         return;
     }
     gchar *text = gst_sdp_message_as_text(description->sdp);
-    auto *localCtx = promiseCtxNew(engine, webrtc, true);
-    localCtx->generation = generation;
-    localCtx->offer = true;
-    localCtx->sdp = offerForSfu(QString::fromUtf8(text ? text : ""),
-                                shareHardwareEncodeRequested());
+    const QString sdp = QString::fromUtf8(text ? text : "");
     g_free(text);
-    GstPromise *local = gst_promise_new_with_change_func(
-        onLocalDescriptionSet, localCtx, promiseCtxFree);
-    g_signal_emit_by_name(webrtc, "set-local-description", description, local);
-    gst_webrtc_session_description_free(description);
-    gst_object_unref(webrtc);
+    // On the GUI thread, which owns the peer. A transceiver retired before its
+    // first answer never leaves webrtcbin, which then wants negotiation again
+    // after every answer: the same offer, five times a second, for ever.
+    std::shared_ptr<GstWebRTCSessionDescription> held(
+        description, gst_webrtc_session_description_free);
+    std::shared_ptr<GstElement> element(
+        webrtc, [](GstElement *e) { gst_object_unref(e); });
+    marshal(engine, [engine, token, generation, held, element, sdp] {
+        if (!engine->tokenIsLive(token, generation))
+            return;
+        Peer &peer = engine->m_publisher;
+        const QString identity = offerIdentity(sdp);
+        if (identity == peer.answeredOffer) {
+            peer.offerPending = false;
+            if (peer.negotiationDirty)
+                engine->renegotiatePublisher();
+            return;
+        }
+        peer.offeredIdentity = identity;
+        auto *localCtx = promiseCtxNew(engine, element.get(), true);
+        localCtx->generation = generation;
+        localCtx->offer = true;
+        localCtx->sdp = offerForSfu(sdp, shareHardwareEncodeRequested());
+        GstPromise *local = gst_promise_new_with_change_func(
+            onLocalDescriptionSet, localCtx, promiseCtxFree);
+        g_signal_emit_by_name(element.get(), "set-local-description",
+                              held.get(), local);
+    });
 }
+
+QString SfuMediaEngine::offerIdentity(const QString &sdp)
+{
+    QStringList kept = sdp.split(QLatin1Char('\n'));
+    kept.removeIf([](const QString &line) {
+        return line.startsWith(QLatin1String("o="))
+            || line.startsWith(QLatin1String("a=candidate"))
+            || line.startsWith(QLatin1String("a=end-of-candidates"));
+    });
+    return kept.join(QLatin1Char('\n'));
+}
+
 
 void SfuMediaEngine::onAnswerCreated(GstPromise *promise, void *userData)
 {

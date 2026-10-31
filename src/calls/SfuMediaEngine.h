@@ -1225,11 +1225,16 @@ private:
     friend class SfuMediaEngineTest;
     bool publishShareBackup(const QString &cid, GstElement *primary, bool glMemory);
     static QString offerForSfu(const QString &sdp, bool multiCodec);
+    /// An offer without what changes when nothing does.
+    static QString offerIdentity(const QString &sdp);
     static QString receivableVideoCaps(bool h264);
     QHash<QString, QString> m_shareBackups;
     struct Peer {
         GstElement *pipeline = nullptr;
         GstElement *webrtc = nullptr;
+        /// offerIdentity() of the offer in flight, and of the last one answered.
+        QString offeredIdentity;
+        QString answeredOffer;
         bool remoteDescriptionSet = false;
         // Publisher transaction: create offer -> local commit -> remote answer.
         // Track changes during it become one later negotiation.

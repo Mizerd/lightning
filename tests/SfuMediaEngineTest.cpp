@@ -6932,6 +6932,40 @@ private slots:
         engine.stop();
     }
 
+    // Retired before its first answer: webrtcbin never gives the section up,
+    // and every answer used to bring "negotiation needed" straight back.
+    void aPublishRetiredBeforeItsFirstAnswerDoesNotRenegotiateForever()
+    {
+        SfuMediaEngine sender, receiver;
+        sender.setTestSourceMode(true);
+        receiver.setTestSourceMode(true);
+        QString failure;
+        wireLoopback(sender, receiver, this, &failure);
+        int offers = 0;
+        connect(&sender, &SfuMediaEngine::localDescription, this,
+                [&offers](int target, const QString &kind, const QString &) {
+                    if (target == int(SfuMediaEngine::Target::Publisher)
+                        && kind == QLatin1String("offer"))
+                        ++offers;
+                });
+        sender.start();
+        receiver.start();
+        sender.publishAudio(QStringLiteral("mic"));
+        QTRY_VERIFY_WITH_TIMEOUT(offers >= 1, 10000);
+        QTest::qWait(500);
+        const int settled = offers;
+        const QString cid = QStringLiteral("retired-early");
+        sender.publishVideo(cid, true, 0);
+        sender.unpublish(cid);
+        QTest::qWait(3000);
+        qInfo() << "offers after the retire:" << offers - settled;
+        QVERIFY2(offers - settled <= 3,
+                 qPrintable(QString::number(offers - settled)));
+        QVERIFY2(failure.isEmpty(), qPrintable(failure));
+        sender.stop();
+        receiver.stop();
+    }
+
     void anErrorOnTheBackupEndsTheShareOnceAndLatchesSoftware()
     {
         if (!gst_init_check(nullptr, nullptr, nullptr)

@@ -1254,6 +1254,13 @@ its own answer and the engine reports `local_sdp_rejected`, which is fatal to th
 session. No section like that has been seen on LiveKit, because VP8 stays in what
 it offers. An SFU with VP8 disabled would reach it. NOT TESTED.
 
+**A publish retired before its first answer used to storm the SFU.** webrtcbin
+keeps a transceiver that never got a section and asks for negotiation after every
+answer, so the same offer went out five times a second for as long as the call
+lasted: 771 in 90 s, live, when NVENC failed 200 ms into a share, and in plain
+software VP8 too. An offer identical to the last answered one is now dropped
+(`offerIdentity()`).
+
 Cost of the backup, same bench as below, real NVENC, three runs: 0.94-1.01 s
 against 0.63-0.80 s for 5 s of video, about 6% of a core; the VP8 GPU path it
 replaces was 6.56-9.95 s. So it runs for the whole share rather than on the SFU's
