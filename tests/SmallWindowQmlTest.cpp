@@ -725,8 +725,13 @@ private Q_SLOTS:
         const qreal panelW = panel ? panel->width() : 0;
         QQuickItem *roomColumn = item("roomColumn");
         const bool roomHidden = roomColumn && !roomColumn->isVisible();
+        // A file dropped on the panel is not for a composer nobody can see.
+        QQuickItem *drop = item("chatDropArea");
+        QVERIFY(drop);
+        const qreal dropW = drop->width();
         pane->setProperty("infoOpen", false);
         QTest::qWait(150);
+        QVERIFY(!roomHidden || dropW == 0);
         QVERIFY2(shown, qPrintable(QStringLiteral("Room Information is not "
                                                   "shown at %1x%2")
                                        .arg(size.width()).arg(size.height())));

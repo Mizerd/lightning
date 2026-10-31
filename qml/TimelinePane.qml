@@ -9007,8 +9007,10 @@ Rectangle {
                                            : 0)
                : root.searchOpen
                ? (sideSurface.beside ? root.width - sideSurface.width - 1 : 0)
-               : root.infoOpen && sideSurface.infoBeside
-                 ? root.width - sideSurface.infoWidth - 1 : root.width
+               : root.infoOpen
+               ? (sideSurface.infoBeside
+                  ? root.width - sideSurface.infoWidth - 1 : 0)
+               : root.width
         z: 400
         enabled: app.composer.attachmentsSupported
                  && app.currentRoomId.length > 0
