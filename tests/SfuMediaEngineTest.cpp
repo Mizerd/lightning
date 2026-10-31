@@ -4474,7 +4474,7 @@ private slots:
         const QList<Lane> lanes = {
             { SOURCE_DIR "/src/calls/SfuMediaEngine.cpp", 7 },
             { SOURCE_DIR "/src/calls/ShareAudioSources.cpp", 2 },
-            { SOURCE_DIR "/src/calls/GstCallMediaBackend.cpp", 2 },
+            { SOURCE_DIR "/src/calls/GstCallMediaBackend.cpp", 6 },
             // The Settings microphone test's voice playback.
             { SOURCE_DIR "/src/calls/AudioDeviceTester.cpp", 1 },
         };
