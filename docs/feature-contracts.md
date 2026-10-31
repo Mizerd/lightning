@@ -434,8 +434,10 @@ NOT TESTED**. Automated tests named in commits do not establish live behavior.
     The room-list options menu explains the grouping and current sort; unread
     status changes rank only when Unread first is selected.
   * **Activity search** filters loaded rows in memory, intersected with the
-    selected category or thread scope. It searches room/sender names and the
-    displayed preview; it never fetches history by itself, changes badge/seen
+    selected category or thread scope. It searches the room name, sender name and
+    Matrix ID, the displayed preview (the "Encrypted message" placeholder for an
+    encrypted row, never the hidden body), a reaction's key and, for threads,
+    the root preview, which the row shows; it never fetches history by itself, changes badge/seen
     counts or persists the query. Load older remains explicit; closing the
     dialog or changing accounts clears the query. Encrypted placeholders do
     not expose hidden previews through search.

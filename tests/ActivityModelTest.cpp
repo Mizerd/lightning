@@ -163,6 +163,40 @@ private Q_SLOTS:
         QCOMPARE(h.model.rowCount(), 1);
     }
 
+    void anArrivalDuringASearchAppearsWhenTheQueryClears()
+    {
+        Harness h;
+        h.model.seed({QVariantMap{
+            {"eventId", "$one"}, {"roomId", kRoom},
+            {"senderId", "@bob:mock.local"}, {"kind", "mention"},
+            {"preview", "Needle in a haystack"}, {"timestampMs", 200}}});
+        Q_EMIT h.client.activitySeedCursorReceived(QStringLiteral("page-one"));
+        h.model.setProperty("searchQuery", "needle");
+        h.model.markSeen(h.row(0).value(QStringLiteral("entryId")).toString());
+        const int unseenBefore = h.model.unseenCount();
+
+        RoomInfo r;
+        r.id = QStringLiteral("!dm:mock.local");
+        r.name = QStringLiteral("Ninkasi");
+        r.isDirect = true;
+        r.directUserId = QStringLiteral("@ninkasi:mock.local");
+        r.lastMessagePreview = QStringLiteral("hello there");
+        r.raiseActivity(QDateTime::fromMSecsSinceEpoch(5000));
+        r.unreadCount = 1;
+        h.client.roomSet = { h.fresh(r) };
+        Q_EMIT h.client.roomsChanged();
+        // Hidden by the query, yet counted: the badge is not a search result.
+        QCOMPARE(h.model.count(), 1);
+        QCOMPARE(h.model.unseenCount(), unseenBefore + 1);
+
+        h.model.setProperty("searchQuery", "");
+        QCOMPARE(h.model.count(), 2);
+        // Searching neither marked anything seen nor touched paging.
+        QCOMPARE(h.model.unseenCount(), unseenBefore + 1);
+        QVERIFY(h.model.activityHasMore());
+        QVERIFY(h.client.requestedActivityPage.isEmpty());
+    }
+
     void threadActivityGroupsRootsAndKeepsSeenSeparateFromRead()
     {
         Harness h;
