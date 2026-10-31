@@ -100,17 +100,17 @@ class SettingsManager : public QObject
     // effect on restart: matrix-sdk 0.18 has no runtime setter for either half.
     Q_PROPERTY(bool strictDeviceTrust READ strictDeviceTrust
                    WRITE setStrictDeviceTrust NOTIFY strictDeviceTrustChanged)
+    // How many days back the Activity panel's opening list reaches for rows
+    // the server already marks read (0 = no limit). Device-local; default 60.
+    Q_PROPERTY(int activityReadHorizonDays READ activityReadHorizonDays
+                   WRITE setActivityReadHorizonDays
+                   NOTIFY activityReadHorizonDaysChanged)
     // Labs: run several accounts at once (concurrent live accounts). Off by
     // default, and only a stored bool `true` turns it on: a hand edit reading
     // "1" or "yes" stays off. Never exported or synced (not in the settings
     // schema), so a homeserver cannot switch on network activity for every
     // saved account. AppController also requires the Rust bridge, and does
     // nothing when LIGHTNING_LABS_LIVE_ACCOUNTS forces Labs off.
-    // How many days back the Activity panel's opening list reaches for rows
-    // the server already marks read (0 = no limit). Device-local; default 60.
-    Q_PROPERTY(int activityReadHorizonDays READ activityReadHorizonDays
-                   WRITE setActivityReadHorizonDays
-                   NOTIFY activityReadHorizonDaysChanged)
     Q_PROPERTY(bool labsConcurrentAccounts READ labsConcurrentAccounts
                    WRITE setLabsConcurrentAccounts
                    NOTIFY labsConcurrentAccountsChanged)

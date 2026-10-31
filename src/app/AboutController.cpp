@@ -401,7 +401,13 @@ void AboutController::clearAccountData()
 
 void AboutController::requestUserClients(const QString &userId)
 {
-    if (!m_client || userId.isEmpty() || m_userClients.contains(userId))
+    if (!m_client || userId.isEmpty())
+        return;
+    // A failed lookup may be asked again; the rest are answered or on the way.
+    const auto known = m_userClients.constFind(userId);
+    if (known != m_userClients.cend()
+        && known->value(QStringLiteral("state")).toString()
+            != QLatin1String("failed"))
         return;
     const quint64 op = m_client->requestUserClients(userId);
     QVariantMap row{{QStringLiteral("devices"), QVariantList{}}};

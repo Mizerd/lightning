@@ -12,6 +12,11 @@
   alone: no faces and no format label until it is expanded.
 - `UserClientsInfo` asks once per user: a device that joined after the first ask
   reads "no record" until Developer tools is toggled or the account changes.
+- Accepted from review: a Room Information panel already open when a live
+  resize drops the pane under 700 px takes the pane rather than vanishing, and
+  closing it clears the remembered preference; a session past the 64-session cap
+  reads "no record"; the Nix wrapper's `LD_LIBRARY_PATH` reaches programs the app
+  launches, as pipewire's already did.
 - The legacy lane's crossed offers, TURN, and real devices stay as
   `docs/live-validation.md` lists them.
 

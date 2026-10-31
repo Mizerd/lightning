@@ -191,9 +191,9 @@ constexpr auto kAccountLastLiveAt   = "lastLiveAt";
 // (matrix/NetworkRoute.h). Never synced, never exported.
 constexpr auto kAccountNetworkRoute = "networkRoute";
 constexpr auto kLabsConcurrentAccounts = "labs/concurrentAccounts";
+constexpr auto kLabsConcurrentAccountsWarmSlot = "labs/concurrentAccountsWarmSlot";
 // Device-local: read straight from the store, not through appearanceValue().
 constexpr auto kActivityReadHorizonDays = "ui/activityReadHorizonDays";
-constexpr auto kLabsConcurrentAccountsWarmSlot = "labs/concurrentAccountsWarmSlot";
 
 // A Labs switch reads on only from a stored bool true: QSettings hands a bool
 // back as a real bool in-process and as the string "true" after a reload (the

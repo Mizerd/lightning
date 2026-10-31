@@ -6921,9 +6921,9 @@ void SfuCallController::rebuildModels()
         row.identity = identity;
         row.sid = entry.value(QStringLiteral("sid")).toString();
         row.userId = person.value(QStringLiteral("userId")).toString();
+        row.deviceId = person.value(QStringLiteral("deviceId")).toString();
         // Room-resolved profile; empty means unknown and the tile falls back
         // to initials.
-        row.deviceId = person.value(QStringLiteral("deviceId")).toString();
         row.displayName =
             person.value(QStringLiteral("displayName")).toString();
         row.avatarMxc = person.value(QStringLiteral("avatarMxc")).toString();
