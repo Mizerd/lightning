@@ -15820,6 +15820,9 @@ async fn enqueue_spaces(
         // that the state read lacks (the m.space.child may not have synced yet).
         // Uses `direct_by_parent`, not the recursively widened map.
         let mut children = direct_children_of(room).await;
+        // Only these have a real m.space.child event, so only these can carry
+        // an order; a parent-only link cannot be written by the editor.
+        let ordered_children = children.clone();
         if let Some(known) = direct_by_parent.get(&id) {
             for child in known {
                 if child != &id && !children.contains(child) {
@@ -15837,6 +15840,7 @@ async fn enqueue_spaces(
             "avatar_url": room.avatar_url().map(|url| url.to_string()).unwrap_or_default(),
             "parents": parents,
             "children": children,
+            "ordered_children": ordered_children,
             "child_spaces": child_spaces,
             "descendants": descendants,
             "level": level,

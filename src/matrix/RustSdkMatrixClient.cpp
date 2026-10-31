@@ -8338,6 +8338,13 @@ void RustSdkMatrixClient::handleSpacesEvent(const QJsonArray &spaces)
             if (!childId.isEmpty() && childId != id && !room.childRoomIds.contains(childId))
                 room.childRoomIds.append(childId);
         }
+        room.orderedChildIds.clear();
+        room.childOrderKnown = object.contains(QStringLiteral("ordered_children"));
+        for (const auto &child : object.value(QStringLiteral("ordered_children")).toArray()) {
+            const QString childId = child.toString();
+            if (!childId.isEmpty() && childId != id && !room.orderedChildIds.contains(childId))
+                room.orderedChildIds.append(childId);
+        }
         room.parentSpaceIds.clear();
         for (const auto &parent : object.value(QStringLiteral("parents")).toArray()) {
             const QString parentId = parent.toString();

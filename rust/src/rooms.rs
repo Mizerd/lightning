@@ -1632,6 +1632,19 @@ fn ordered_child_content(mut content: serde_json::Value, position: usize) -> Res
 mod default_order_tests {
     use super::*;
     #[test]
+    fn one_unwritable_child_means_an_empty_plan() {
+        let ids: Vec<String> = ["!a:x", "!b:x", "!parentonly:x"].map(String::from).to_vec();
+        let ok = || Some(json!({"via": ["x"]}));
+        // A parent-only child has no m.space.child event at all.
+        assert!(plan_child_orders(&ids, vec![ok(), ok(), None]).is_err());
+        // Or one whose routing is unusable.
+        assert!(plan_child_orders(&ids, vec![ok(), Some(json!({"via": []})), ok()]).is_err());
+        let plan = plan_child_orders(&ids, vec![ok(), ok(), ok()]).unwrap();
+        assert_eq!(plan.len(), 3);
+        assert_eq!(plan[2].1["order"], "000002");
+    }
+
+    #[test]
     fn changing_order_preserves_routing_suggestions_and_extensions() {
         let content = json!({"via": ["example.org"], "suggested": true,
             "order": 4, "org.example.hint": {"keep": true}});
@@ -1654,24 +1667,43 @@ pub(crate) async fn set_space_child_order_inner(
         .and_then(|id| client.get_room(&id))
         .filter(|r| r.state() == RoomState::Joined && r.is_space())
         .ok_or_else(|| "unknown space".to_owned())?;
-    for (position, id) in ids.iter().enumerate() {
-        // Every send remains pinned to the originating session.
+    // Read and validate EVERY child before the first write: an id that cannot
+    // be written (for example a child linked only by its m.space.parent) must
+    // mean zero writes, never a half-rewritten order.
+    let mut contents = Vec::with_capacity(ids.len());
+    for id in ids {
         if !current() { return Err("cancelled".into()); }
         let child = RoomId::parse(id).map_err(|_| "invalid child".to_owned())?;
         let state = space.get_state_event_static_for_key::<SpaceChildEventContent, _>(&child)
-            .await.map_err(|_| "state unavailable".to_owned())?
-            .ok_or_else(|| "not a child".to_owned())?;
-        use matrix_sdk::deserialized_responses::RawSyncOrStrippedState;
-        let RawSyncOrStrippedState::Sync(raw) = state else { return Err("not a child".into()) };
-        let value: serde_json::Value = serde_json::from_str(raw.json().get())
-            .map_err(|_| "invalid child".to_owned())?;
-        let content = ordered_child_content(value.get("content").cloned()
-            .ok_or_else(|| "invalid child".to_owned())?, position)?;
+            .await.map_err(|_| "state unavailable".to_owned())?;
+        contents.push(state.and_then(|state| {
+            use matrix_sdk::deserialized_responses::RawSyncOrStrippedState;
+            let RawSyncOrStrippedState::Sync(raw) = state else { return None };
+            let value: serde_json::Value = serde_json::from_str(raw.json().get()).ok()?;
+            value.get("content").cloned()
+        }));
+    }
+    for (id, content) in plan_child_orders(ids, contents)? {
+        // Every send remains pinned to the originating session.
         if !current() { return Err("cancelled".into()); }
-        space.send_state_event_raw("m.space.child", id, content).await
+        space.send_state_event_raw("m.space.child", &id, content).await
             .map_err(|_| "order write failed".to_owned())?;
     }
     Ok(())
+}
+
+/// The complete write plan, or an error before any write exists. `contents[i]`
+/// is the current m.space.child content of `ids[i]`, None when there is none.
+fn plan_child_orders(
+    ids: &[String],
+    contents: Vec<Option<serde_json::Value>>,
+) -> Result<Vec<(String, serde_json::Value)>, String> {
+    let mut plan = Vec::with_capacity(ids.len());
+    for (position, (id, content)) in ids.iter().zip(contents).enumerate() {
+        let content = content.ok_or_else(|| "not a child".to_owned())?;
+        plan.push((id.clone(), ordered_child_content(content, position)?));
+    }
+    Ok(plan)
 }
 
 pub(crate) fn set_space_child_order(

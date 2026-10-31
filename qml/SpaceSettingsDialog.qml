@@ -59,8 +59,9 @@ AppDialog {
             root.orderPending = false
             root.orderStatus = ok
                 ? qsTr("Default order saved. Your personal room order still takes precedence.")
-                : qsTr("Could not save the complete order. Some rooms may have moved; reload before trying again.")
-            root.orderDirty = false
+                : qsTr("Could not save the complete order. Some rooms may have moved; save again to retry, or reload the order.")
+            // A failed save may be half applied: keep the draft so it can be retried.
+            if (ok) root.orderDirty = false
         }
     }
 

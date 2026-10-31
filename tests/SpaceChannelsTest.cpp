@@ -274,8 +274,58 @@ private Q_SLOTS:
         f.spaces.setDefaultChildOrder(spaceId, ids);
         const auto abandoned = f.client.nextOp;
         Q_EMIT f.client.loggedOut();
+        // The editor waiting on it is told the save did not complete...
+        QCOMPARE(finished.size(), 3);
+        QVERIFY(!finished.last().at(1).toBool());
         Q_EMIT f.client.spaceChildOrderFinished(abandoned, spaceId, true);
-        QCOMPARE(finished.size(), 2); // Previous account's completion is discarded.
+        QCOMPARE(finished.size(), 3); // ...and the late completion is discarded.
+    }
+
+    void anAddAccountSignInAbandonsAPendingOrderSave()
+    {
+        Fixture f;
+        f.build(workspace());
+        const QString spaceId = QStringLiteral("!work:x");
+        QStringList ids;
+        for (const auto &row : f.spaces.defaultOrderChildren(spaceId))
+            ids.append(row.toMap().value(QStringLiteral("roomId")).toString());
+        QSignalSpy finished(&f.spaces, &SpaceManager::childOrderFinished);
+        f.spaces.setDefaultChildOrder(spaceId, ids);
+        QCOMPARE(finished.size(), 0);
+        // An add-account sign-in emits no loggedOut.
+        f.spaces.abandonPendingChildOps();
+        QCOMPARE(finished.size(), 1);
+        QVERIFY(!finished.last().at(1).toBool());
+        // A new save is allowed again.
+        f.spaces.setDefaultChildOrder(spaceId, ids);
+        QVERIFY(f.spaces.childOrderPending(spaceId));
+    }
+
+    void aParentOnlyChildIsNotOfferedOrWritten()
+    {
+        Fixture f;
+        auto rooms = workspace();
+        const QString spaceId = QStringLiteral("!work:x");
+        for (auto &room : rooms) {
+            if (room.id != spaceId) continue;
+            // !eng:x is linked only through its own m.space.parent.
+            room.childOrderKnown = true;
+            room.orderedChildIds = { QStringLiteral("!general:x"), QStringLiteral("!random:x") };
+        }
+        f.build(rooms);
+        QStringList ids;
+        for (const auto &row : f.spaces.defaultOrderChildren(spaceId))
+            ids.append(row.toMap().value(QStringLiteral("roomId")).toString());
+        QCOMPARE(ids, (QStringList{QStringLiteral("!general:x"), QStringLiteral("!random:x")}));
+        QSignalSpy finished(&f.spaces, &SpaceManager::childOrderFinished);
+        // The old complete set would include the parent-only child: refused
+        // before anything reaches the backend.
+        f.spaces.setDefaultChildOrder(spaceId, {QStringLiteral("!general:x"),
+            QStringLiteral("!random:x"), QStringLiteral("!eng:x")});
+        QCOMPARE(finished.size(), 1);
+        QVERIFY(f.client.lastOrderIds.isEmpty());
+        f.spaces.setDefaultChildOrder(spaceId, ids);
+        QCOMPARE(f.client.lastOrderIds, ids);
     }
 
     void favouritesFilterWorksInChannels()

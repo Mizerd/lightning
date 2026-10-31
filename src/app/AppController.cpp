@@ -8148,6 +8148,8 @@ void AppController::clearCrossAccountCaches()
     // new account would show (and later save) the previous one's mentions,
     // seen marker and keywords, and never be seeded.
     m_activity->clear();
+    if (m_spaces)
+        m_spaces->abandonPendingChildOps();
     resetSessionNotificationState();
     m_roomHistory.clear();
     // Encrypted-room drafts are memory-only and account-scoped.

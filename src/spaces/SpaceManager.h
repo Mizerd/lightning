@@ -71,6 +71,10 @@ public:
     explicit SpaceManager(QObject *parent = nullptr);
 
     void setClient(MatrixClient *client);
+    /// Drop every in-flight child add/remove/suggest/order operation of the
+    /// previous account; pending order saves are reported as failed so an
+    /// open editor stops waiting. For sign-in paths that see no loggedOut.
+    void abandonPendingChildOps();
 
     /// Whether DMs have their own rail tile (Channels) or not (Classic).
     /// A tile's badge must count what its view lists: Classic's Home lists

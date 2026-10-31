@@ -413,8 +413,16 @@ NOT TESTED**. Automated tests named in commits do not establish live behavior.
     controls stage the complete direct-child order (including subspaces and
     unjoined children); Save writes printable ASCII rank keys through the SDK,
     preserving routing, suggested flags and extension fields. Matrix has no
-    atomic multi-child write: a failure may leave a partially changed order
-    and the editor says so. Sync remains the source of the applied order.
+    atomic multi-child write: the shared order is NOT atomic. Every child is
+    read and validated before the first write (an unwritable id means zero
+    writes), but a rate limit or network failure mid-way can still leave mixed
+    keys; the editor says so and keeps the draft dirty so Save can be retried.
+    Only children with a real `m.space.child` event are listed; a child linked
+    only by its own `m.space.parent` keeps its fallback position after the
+    ordered ones. Sync remains the source of the applied order. The rail's
+    room list for a Space no longer defaults to `lastActivity`: it follows the
+    shared order, then the user's personal arrangement (A-Z and Recent
+    activity remain explicit choices).
     Invalid order keys are treated as absent; equal keys fall back to the
     event timestamp, then room id. The existing device-local room arrangement
     overrides this default in both conversation layouts when Space order is

@@ -14,6 +14,19 @@ SpaceManager::SpaceManager(QObject *parent)
     connect(&m_rebuildCoalesce, &QTimer::timeout, this, &SpaceManager::rebuild);
 }
 
+void SpaceManager::abandonPendingChildOps()
+{
+    // An answer for the previous account can no longer arrive (the Rust side
+    // drops stale results), so an editor waiting on one would show "Saving"
+    // for ever: tell it the save did not complete.
+    const auto orders = std::exchange(m_pendingChildOrders, {});
+    m_pendingChildAdds.clear();
+    m_pendingChildRemovals.clear();
+    m_pendingChildSuggests.clear();
+    for (const auto &spaceId : orders)
+        Q_EMIT childOrderFinished(spaceId, false);
+}
+
 void SpaceManager::setClient(MatrixClient *client)
 {
     if (m_client == client)
@@ -29,10 +42,7 @@ void SpaceManager::setClient(MatrixClient *client)
                 [this](const QString &) { m_rebuildCoalesce.start(); });
         connect(m_client, &MatrixClient::loggedOut,
                 this, [this] {
-            m_pendingChildAdds.clear(); // account isolation
-            m_pendingChildRemovals.clear();
-            m_pendingChildSuggests.clear();
-            m_pendingChildOrders.clear();
+            abandonPendingChildOps(); // account isolation
             m_lobbyCollapsed.clear();
             dropSpaceRosters();
             rebuild();
@@ -85,10 +95,7 @@ void SpaceManager::setClient(MatrixClient *client)
             Q_EMIT childSuggestedFinished(spaceId, roomId, suggested, ok);
         });
     }
-    m_pendingChildAdds.clear();
-    m_pendingChildRemovals.clear();
-    m_pendingChildSuggests.clear();
-    m_pendingChildOrders.clear();
+    abandonPendingChildOps();
     // Folded lobby sections name one account's Spaces.
     m_lobbyCollapsed.clear();
     // A roster describes one account; never carry it across a client swap.
@@ -1082,8 +1089,15 @@ QVariantList SpaceManager::defaultOrderChildren(const QString &spaceId) const
     QStringList ids;
     for (const auto &room : rooms) {
         names.insert(room.id, room.name);
-        if (room.id == spaceId && room.isSpace)
+        if (room.id == spaceId && room.isSpace) {
+            // Only children with a real m.space.child event can be ordered.
             ids = room.childRoomIds;
+            if (room.childOrderKnown) {
+                ids.clear();
+                for (const auto &child : room.childRoomIds)
+                    if (room.orderedChildIds.contains(child)) ids.append(child);
+            }
+        }
     }
     QVariantList rows;
     for (const auto &id : ids)

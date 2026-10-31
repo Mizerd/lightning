@@ -154,6 +154,11 @@ struct RoomInfo {
     // else should assume it. A room may be in several Spaces; SpaceManager
     // picks one primary parent for display.
     QStringList childRoomIds;
+    // The subset of childRoomIds with a real m.space.child event (the only
+    // ones whose order can be written). Meaningful only when childOrderKnown;
+    // backends that cannot tell leave it false and every child counts.
+    QStringList orderedChildIds;
+    bool childOrderKnown = false;
     QStringList parentSpaceIds;
 
     // Room upgrades. Both are room ids from the SDK's typed successor_room() /
@@ -210,6 +215,8 @@ inline bool operator==(const RoomInfo &a, const RoomInfo &b)
         && a.paginationExhausted == b.paginationExhausted
         && a.members == b.members && a.typingUserIds == b.typingUserIds
         && a.childRoomIds == b.childRoomIds
+        && a.orderedChildIds == b.orderedChildIds
+        && a.childOrderKnown == b.childOrderKnown
         && a.parentSpaceIds == b.parentSpaceIds
         // Without these a newly tombstoned room compares equal and the upgrade
         // banner does not appear until something else changes.

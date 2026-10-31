@@ -322,6 +322,34 @@ private slots:
         closeDialog();
     }
 
+    // A save is not atomic: a failure mid-way leaves mixed keys, so the draft
+    // must stay dirty for a retry, and Save needs the permission regardless.
+    void aFailedDefaultOrderSaveLeavesARetryPath()
+    {
+        openFor(QString::fromLatin1(kParentId));
+        auto *save = item("saveDefaultRoomOrder");
+        QVERIFY(save);
+        QVERIFY(QMetaObject::invokeMethod(m_dialog, "moveDefaultChild",
+            Q_ARG(QVariant, 0), Q_ARG(QVariant, 1)));
+        QVERIFY(m_dialog->property("orderDirty").toBool());
+        // Without canManageSpaceChildren the button is off however dirty.
+        QVERIFY(!m_controller->roomInfo()->canManageSpaceChildren());
+        QVERIFY(!save->property("enabled").toBool());
+
+        m_dialog->setProperty("orderPending", true);
+        Q_EMIT m_controller->spaces()->childOrderFinished(
+            QString::fromLatin1(kParentId), false);
+        QVERIFY(!m_dialog->property("orderPending").toBool());
+        QVERIFY(m_dialog->property("orderDirty").toBool());   // retry possible
+        QVERIFY(!m_dialog->property("orderStatus").toString().isEmpty());
+
+        m_dialog->setProperty("orderPending", true);
+        Q_EMIT m_controller->spaces()->childOrderFinished(
+            QString::fromLatin1(kParentId), true);
+        QVERIFY(!m_dialog->property("orderDirty").toBool());
+        closeDialog();
+    }
+
     void theSectionBodyGetsTheWidthBesideTheNav()
     {
         openFor(QString::fromLatin1(kParentId));
