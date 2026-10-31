@@ -35,6 +35,7 @@ const QStringList kKnownKinds{
     QStringLiteral("reply"),        QStringLiteral("thread"),
     QStringLiteral("reaction"),     QStringLiteral("invite"),
     QStringLiteral("keyword"),      QStringLiteral("highlight"),
+    QStringLiteral("dm"),
 };
 constexpr int kMaxOwnEventIds = 2048;
 constexpr int kMaxRedactedIds = 512;
@@ -196,6 +197,8 @@ void ActivityModel::setClient(MatrixClient *client)
     // the timeline path, which raises lastActivity to the new event without
     // touching the counters, so listening to it would mark a brand-new mention
     // seen the instant it arrived.
+    connect(m_client, &MatrixClient::roomsChanged, this,
+            &ActivityModel::syncDirectUnreads);
     connect(m_client, &MatrixClient::roomsChanged, this,
             &ActivityModel::reconcileRoomsAgainstTheirReadState);
     // The payload that carries the unread counters also carries the room's
@@ -418,6 +421,22 @@ void ActivityModel::setHistoryUnavailable(bool unavailable)
     Q_EMIT historyUnavailableChanged();
 }
 
+void ActivityModel::setReadHorizonDays(int days)
+{
+    days = std::clamp(days, 0, 3650);
+    if (days == m_readHorizonDays)
+        return;
+    m_readHorizonDays = days;
+    if (days > 0) {
+        const qint64 cutoff = now() - qint64(days) * 86400000LL;
+        removeEntries([cutoff](const Entry &e) {
+            return e.readMark && e.kind != QLatin1String("invite")
+                && e.timestampMs > 0 && e.timestampMs < cutoff;
+        });
+    }
+    Q_EMIT readHorizonDaysChanged();
+}
+
 bool ActivityModel::seedFailureIsPermanent(const QString &category)
 {
     // http_failure_reason (rust/src/oauth.rs): "http_<status>_<errcode>", or a
@@ -615,6 +634,64 @@ void ActivityModel::markRoomReadUpTo(const QString &rawRoomId, qint64 timestampM
     // per-notification `read` flag alone was found to be unreliable.
     rebuildVisible();
     Q_EMIT unseenCountChanged();
+}
+
+void ActivityModel::syncDirectUnreads()
+{
+    if (!m_client || !m_client->tracksRoomReadState())
+        return;
+    const QList<RoomInfo> rooms = m_client->rooms();
+    for (const RoomInfo &info : rooms) {
+        if (!info.isDirect || info.membership != RoomInfo::Joined
+            || info.id.isEmpty() || info.directUserId.isEmpty())
+            continue;
+        const QString id = QStringLiteral("dm:") + info.id;
+        // Unread that mentions explain is already listed as those mentions.
+        const bool unread = info.unreadCount > info.highlightCount
+            && !isIgnored(info.directUserId);
+        if (!unread)
+            continue;   // a read room is settled by the read-state pass
+        const qint64 ts = info.lastActivity.isValid()
+            ? info.lastActivity.toMSecsSinceEpoch() : now();
+        const QString preview =
+            collapse(matrix::preview::stripReplyFallback(info.lastMessagePreview));
+        // The row already listed for this room: the same message only has its
+        // words refreshed (and a row already read stays read: the counters
+        // can lag a receipt this client just sent); a newer one replaces it
+        // and is unseen again.
+        bool sameMessage = false;
+        for (int i = 0; i < m_entries.size(); ++i) {
+            Entry &e = m_entries[i];
+            if (e.id != id)
+                continue;
+            sameMessage = ts <= e.timestampMs;
+            if (sameMessage && !e.readMark && e.preview != preview) {
+                e.preview = preview;
+                const int row = m_visible.indexOf(i);
+                if (row >= 0)
+                    Q_EMIT dataChanged(index(row), index(row), { PreviewRole });
+            }
+            break;
+        }
+        if (sameMessage)
+            continue;
+        removeEntries([&id](const Entry &e) { return e.id == id; });
+        Entry e;
+        e.id = id;
+        e.kind = QStringLiteral("dm");
+        e.roomId = info.id;
+        e.roomName = info.name;
+        e.senderId = info.directUserId;
+        e.senderName = m_client->displayNameFor(info.id, info.directUserId);
+        e.preview = preview;
+        e.timestampMs = ts;
+        if (e.roomName.isEmpty() || e.roomName == e.roomId) {
+            e.roomName = e.senderName;
+            if (e.roomName.isEmpty())
+                e.roomName = e.senderId;
+        }
+        addEntry(std::move(e));
+    }
 }
 
 // One pass over rooms holding entries without a confirmed read, even when a
@@ -1478,7 +1555,8 @@ void ActivityModel::seed(const QVariantList &entries, bool firstPage)
         const QVariantMap m = v.toMap();
         if (firstPage && m.value(QStringLiteral("read")).toBool()) {
             const qint64 ts = m.value(QStringLiteral("timestampMs")).toLongLong();
-            if (ts > 0 && ts < now() - kSeedReadHorizonMs)
+            if (m_readHorizonDays > 0 && ts > 0
+                && ts < now() - qint64(m_readHorizonDays) * 86400000LL)
                 continue;
         }
         Entry e;

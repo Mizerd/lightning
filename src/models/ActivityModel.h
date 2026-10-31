@@ -57,6 +57,10 @@ class ActivityModel : public QAbstractListModel
     Q_PROPERTY(bool threadPageLoading READ threadPageLoading NOTIFY threadPageChanged)
     Q_PROPERTY(bool threadPageFailed READ threadPageFailed NOTIFY threadPageChanged)
     Q_PROPERTY(bool activityHasMore READ activityHasMore NOTIFY threadPageChanged)
+    // Days back the opening list reaches for rows the server already marks
+    // read; 0 = no limit. Device-local (the host persists it).
+    Q_PROPERTY(int readHorizonDays READ readHorizonDays WRITE setReadHorizonDays
+                   NOTIFY readHorizonDaysChanged)
 
 public:
     enum Roles {
@@ -84,7 +88,7 @@ public:
     };
 
     static constexpr int kMaxEntries = 400;
-    static constexpr qint64 kSeedReadHorizonMs = 30LL * 24 * 60 * 60 * 1000;
+    static constexpr int kDefaultReadHorizonDays = 60;
     static constexpr int kMaxKeywords = 32;
     static constexpr int kMaxKeywordLength = 64;
     static constexpr int kPreviewChars = 140;
@@ -132,6 +136,11 @@ public:
     QStringList keywords() const { return m_keywords; }
     void setKeywords(const QStringList &keywords);
     bool historyUnavailable() const { return m_historyUnavailable; }
+    int readHorizonDays() const { return m_readHorizonDays; }
+    /// Lowering it drops listed read rows older than the new cutoff at once;
+    /// raising it is the host's cue to ask the server for the opening page
+    /// again (readHorizonDaysChanged carries both).
+    void setReadHorizonDays(int days);
     int threadActivityRevision() const { return m_threadActivityRevision; }
     bool threadPageLoading() const { return m_threadPageLoading; }
     bool threadPageFailed() const { return m_threadPageFailed; }
@@ -188,7 +197,7 @@ public:
     // Entries the server remembers (GET /notifications) for a fresh session,
     // oldest first; ids already present are skipped.
     // `firstPage` is the session's opening seed: rows the server already
-    // marks read and that are older than kSeedReadHorizonMs are not listed
+    // marks read and that are older than readHorizonDays() are not listed
     // (an account with few recent mentions otherwise opens on two-year-old
     // history); "Load older activity" still reaches them.
     void seed(const QVariantList &entries, bool firstPage = false);
@@ -233,6 +242,14 @@ public:
     /// Invite rows are exempt (nothing to read); inviteResolved() or the user
     /// clears them.
     void reconcileRoomsAgainstTheirReadState();
+    /// A direct message with unread messages that no mention explains is
+    /// Activity too (Element's People badge): one row per such room, kind "dm",
+    /// id "dm:<roomId>". It is derived from the room list's unread state, so it
+    /// needs a backend that tracks it, and it follows that state: a newer
+    /// message refreshes the row and makes it unseen again, a read clears it
+    /// (reconcileRoomsAgainstTheirReadState), and seeing it never says the
+    /// conversation was read. Muted rooms and ignored users are skipped.
+    void syncDirectUnreads();
     /// Rooms that held rows and have left the joined/invited set (a leave,
     /// kick or ban) for longer than the grace lose their non-invite rows.
     void pruneRoomsNoLongerJoined();
@@ -264,6 +281,7 @@ Q_SIGNALS:
     void filterChanged();
     void keywordsChanged();
     void historyUnavailableChanged();
+    void readHorizonDaysChanged();
     void threadActivityChanged();
     void threadPageChanged();
     void openRequested(const QString &roomId, const QString &eventId,
@@ -402,4 +420,5 @@ private:
     // server's `read` flag. Retried on roomsChanged; a seed before any room
     // payload leaves every row here.
     QStringList m_seedAwaitingRooms;
+    int m_readHorizonDays = kDefaultReadHorizonDays;
 };

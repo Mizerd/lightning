@@ -134,8 +134,11 @@ Dialog {
                          : qsTr("Unread. %1 in %2, %3: %4, %5"), vals)
     }
 
+    readonly property var horizonChoices: [7, 14, 30, 60, 90, 180, 365, 0]
+
     function kindIcon(kind) {
         switch (kind) {
+        case "dm": return "chat_bubble"
         case "mention": return "alternate_email"
         case "room_mention": return "alternate_email"
         case "reply": return "reply"
@@ -154,6 +157,7 @@ Dialog {
         case "thread": return qsTr("Replied in your thread")
         case "reaction": return fill(qsTr("Reacted %1 to your message"),
                                      [reactionDisplay(reactionKey)])
+        case "dm": return qsTr("New direct message")
         case "invite": return qsTr("Invited you")
         case "keyword": return qsTr("Keyword")
         // The server says it's highlighted, not which rule matched; a
@@ -232,6 +236,47 @@ Dialog {
                 text: qsTr("Mark all seen")
                 enabled: root.activity && root.activity.unseenCount > 0
                 onClicked: root.activity.markAllSeen()
+            }
+            IconButton {
+                id: activityOptionsButton
+                objectName: "activityOptionsButton"
+                Keys.forwardTo: [dialogKeySink]
+                storm: true
+                iconName: "more_horiz"
+                size: "sm"
+                Accessible.name: qsTr("Activity options")
+                onClicked: activityOptionsMenu.open()
+                AppMenu {
+                    id: activityOptionsMenu
+                    objectName: "activityOptionsMenu"
+                    parent: activityOptionsButton
+                    x: activityOptionsButton.width - width
+                    y: activityOptionsButton.height + 4
+                    menuWidth: 280
+
+                    MenuSectionLabel { text: qsTr("Hide read activity older than") }
+                    Repeater {
+                        model: root.horizonChoices
+                        delegate: AppMenuItem {
+                            required property var modelData
+                            objectName: "activityHorizon" + modelData
+                            radio: true
+                            radioSelected: !!root.activity
+                                           && root.activity.readHorizonDays === modelData
+                            text: modelData === 0 ? qsTr("Never hide")
+                                  : modelData % 365 === 0
+                                    ? qsTr("%n year(s)", "", modelData / 365)
+                                    : qsTr("%n day(s)", "", modelData)
+                            onTriggered: {
+                                if (root.activity)
+                                    root.activity.readHorizonDays = modelData
+                            }
+                        }
+                    }
+                    MenuSectionLabel {
+                        text: qsTr("Unread rows are always shown")
+                    }
+                }
             }
             IconButton {
                 Keys.forwardTo: [dialogKeySink]

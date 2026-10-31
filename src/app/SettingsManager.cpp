@@ -191,6 +191,8 @@ constexpr auto kAccountLastLiveAt   = "lastLiveAt";
 // (matrix/NetworkRoute.h). Never synced, never exported.
 constexpr auto kAccountNetworkRoute = "networkRoute";
 constexpr auto kLabsConcurrentAccounts = "labs/concurrentAccounts";
+// Device-local: read straight from the store, not through appearanceValue().
+constexpr auto kActivityReadHorizonDays = "ui/activityReadHorizonDays";
 constexpr auto kLabsConcurrentAccountsWarmSlot = "labs/concurrentAccountsWarmSlot";
 
 // A Labs switch reads on only from a stored bool true: QSettings hands a bool
@@ -2466,6 +2468,25 @@ void SettingsManager::setStrictDeviceTrust(bool v)
         return;
     m_store->setValue(QStringLiteral("privacy/strictDeviceTrust"), v);
     Q_EMIT strictDeviceTrustChanged();
+}
+
+int SettingsManager::activityReadHorizonDays() const
+{
+    const QVariant v = m_store->value(QLatin1String(kActivityReadHorizonDays));
+    bool ok = false;
+    const int days = v.isValid() ? v.toInt(&ok) : 0;
+    if (!ok || days < 0 || days > kMaxActivityReadHorizonDays)
+        return kDefaultActivityReadHorizonDays;
+    return days;
+}
+
+void SettingsManager::setActivityReadHorizonDays(int days)
+{
+    days = std::clamp(days, 0, kMaxActivityReadHorizonDays);
+    if (activityReadHorizonDays() == days)
+        return;
+    m_store->setValue(QLatin1String(kActivityReadHorizonDays), days);
+    Q_EMIT activityReadHorizonDaysChanged();
 }
 
 bool SettingsManager::labsConcurrentAccounts() const

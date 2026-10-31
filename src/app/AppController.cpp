@@ -500,6 +500,22 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                            [this](const QVariantMap &state) {
                                m_settings->setActivityState(state);
                            } });
+    // The Activity opening list's read-row horizon is a device setting; the
+    // panel's menu writes the model and the model writes it back here. A
+    // widened horizon needs the server's opening page again to list what it
+    // had skipped (ids already present are skipped by seed()).
+    m_activity->setReadHorizonDays(m_settings->activityReadHorizonDays());
+    connect(m_settings.get(), &SettingsManager::activityReadHorizonDaysChanged,
+            this, [this] {
+        m_activity->setReadHorizonDays(m_settings->activityReadHorizonDays());
+    });
+    connect(m_activity.get(), &ActivityModel::readHorizonDaysChanged, this,
+            [this] {
+        m_settings->setActivityReadHorizonDays(m_activity->readHorizonDays());
+        if (m_client && m_activitySeeded
+            && m_client->connectionState() == MatrixClient::Syncing)
+            m_client->requestActivitySeed(60);
+    });
     // Voice calls. The media backend is attached later, only when the build
     // has the GStreamer engine and its elements resolve at runtime;
     // LIGHTNING_DISABLE_WEBRTC=1 is the kill switch.

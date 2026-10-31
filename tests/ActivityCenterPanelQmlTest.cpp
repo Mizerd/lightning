@@ -76,6 +76,7 @@ QtObject {
         property bool threadPageLoading: false
         property bool threadPageFailed: false
         property int olderPageCalls: 0
+        property int readHorizonDays: 60
         property var keywords: []
         property string lastOpened: ""
         property int openCalls: 0
@@ -572,6 +573,45 @@ private Q_SLOTS:
     // Break-it rerun, section 10: after a restart on a server without
     // GET /notifications the list said "Nothing here yet" while the room list
     // showed @2/@3/@5. Old code: neither label existed.
+    // The cutoff for old read rows is set from the panel's own menu.
+    void theOptionsMenuSetsTheReadHorizon()
+    {
+        Fixture f;
+        QVERIFY(make(f));
+        QObject *button = f.panel->findChild<QObject *>(
+            QStringLiteral("activityOptionsButton"));
+        QVERIFY(button);
+        QObject *menu = f.panel->findChild<QObject *>(
+            QStringLiteral("activityOptionsMenu"));
+        QVERIFY(menu);
+        // Menu rows are popup content, not QObject children of the panel:
+        // reach them by position. Row 0 is the section label, then the eight
+        // choices in the order 7, 14, 30, 60, 90, 180, 365, never.
+        auto rowAt = [menu](int i) {
+            QQuickItem *item = nullptr;
+            QMetaObject::invokeMethod(menu, "itemAt", Q_RETURN_ARG(QQuickItem *, item),
+                                      Q_ARG(int, i));
+            return item;
+        };
+        QObject *d7 = rowAt(1);
+        QObject *d60 = rowAt(4);
+        QObject *never = rowAt(8);
+        QVERIFY(d60 && d7 && never);
+        QCOMPARE(d7->objectName(), QStringLiteral("activityHorizon7"));
+        QCOMPARE(d60->objectName(), QStringLiteral("activityHorizon60"));
+        QCOMPARE(never->objectName(), QStringLiteral("activityHorizon0"));
+        // The current choice is the one marked.
+        QVERIFY(d60->property("radioSelected").toBool());
+        QVERIFY(!d7->property("radioSelected").toBool());
+        QVERIFY(QMetaObject::invokeMethod(d7, "triggered"));
+        QCOMPARE(f.activity->property("readHorizonDays").toInt(), 7);
+        settle();
+        QVERIFY(d7->property("radioSelected").toBool());
+        QVERIFY(QMetaObject::invokeMethod(never, "triggered"));
+        QCOMPARE(f.activity->property("readHorizonDays").toInt(), 0);
+        QVERIFY2(f.warnings.isEmpty(), qPrintable(f.warnings.join('\n')));
+    }
+
     void aServerWithoutHistoryIsSaidSoNotNothingHereYet()
     {
         Fixture f;

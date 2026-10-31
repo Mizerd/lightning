@@ -263,7 +263,8 @@ private Q_SLOTS:
     {
         Harness h;
         const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
-        const qint64 old = nowMs - ActivityModel::kSeedReadHorizonMs - 86400000LL;
+        const qint64 old = nowMs - ActivityModel::kDefaultReadHorizonDays * 86400000LL
+            - 86400000LL;
         auto row = [&](const QString &id, qint64 ts, bool read) {
             return QVariantMap{
                 { QStringLiteral("eventId"), id },
@@ -280,6 +281,147 @@ private Q_SLOTS:
         QCOMPARE(h.model.count(), 2);
         h.model.seed({ row(QStringLiteral("$pagedOld"), old - 1000, true) }, false);
         QCOMPARE(h.model.count(), 3);
+    }
+    // The cutoff is adjustable; 0 lists everything, and lowering it drops the
+    // read rows already listed beyond the new cutoff but never an unread one.
+    void theReadHorizonIsAdjustable()
+    {
+        Harness h;
+        QCOMPARE(h.model.readHorizonDays(), 60);
+        const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+        auto row = [&](const QString &id, int daysAgo, bool read) {
+            return QVariantMap{
+                { QStringLiteral("eventId"), id },
+                { QStringLiteral("roomId"), kRoom },
+                { QStringLiteral("senderId"), QStringLiteral("@bob:mock.local") },
+                { QStringLiteral("timestampMs"), nowMs - daysAgo * 86400000LL - 1000 },
+                { QStringLiteral("read"), read },
+            };
+        };
+        h.model.setReadHorizonDays(10);
+        h.model.seed({ row(QStringLiteral("$d5"), 5, true),
+                       row(QStringLiteral("$d20"), 20, true),
+                       row(QStringLiteral("$d20u"), 20, false) },
+                     true);
+        QCOMPARE(h.model.count(), 2);   // $d20 read and beyond 10 days: hidden
+        h.model.setReadHorizonDays(0);
+        h.model.seed({ row(QStringLiteral("$d20"), 20, true),
+                       row(QStringLiteral("$d400"), 400, true) }, true);
+        QCOMPARE(h.model.count(), 4);   // no limit
+        QSignalSpy changed(&h.model, &ActivityModel::readHorizonDaysChanged);
+        h.model.setReadHorizonDays(30);
+        QCOMPARE(changed.count(), 1);
+        QCOMPARE(h.model.count(), 3);   // $d400 dropped; $d20u is unread, kept
+        h.model.setReadHorizonDays(30);
+        QCOMPARE(changed.count(), 1);
+        h.model.setReadHorizonDays(-5);
+        QCOMPARE(h.model.readHorizonDays(), 0);
+    }
+    // A direct message with an unread badge is Activity; it follows the room's
+    // unread state and the usual seen/read/mute/ignore rules.
+    void anUnreadDirectMessageIsListedAndFollowsTheRoom()
+    {
+        Harness h;
+        const QString dm = QStringLiteral("!dm:mock.local");
+        RoomInfo r;
+        r.id = dm;
+        r.name = QStringLiteral("Ninkasi");
+        r.isDirect = true;
+        r.directUserId = QStringLiteral("@ninkasi:mock.local");
+        r.lastMessagePreview = QStringLiteral("hello there");
+        r.raiseActivity(QDateTime::fromMSecsSinceEpoch(5000));
+        r.unreadCount = 3;
+        h.client.roomSet = { h.fresh(r) };
+        Q_EMIT h.client.roomsChanged();
+        QCOMPARE(h.model.count(), 1);
+        QCOMPARE(h.model.unseenCount(), 1);
+        QCOMPARE(h.row(0).value(QStringLiteral("kind")).toString(), QStringLiteral("dm"));
+        QCOMPARE(h.row(0).value(QStringLiteral("roomId")).toString(), dm);
+        QCOMPARE(h.row(0).value(QStringLiteral("preview")).toString(),
+                 QStringLiteral("hello there"));
+        // The same payload again is not a second row.
+        Q_EMIT h.client.roomsChanged();
+        QCOMPARE(h.model.count(), 1);
+
+        // Opening the row sees it and asks for the room, with no event.
+        QSignalSpy open(&h.model, &ActivityModel::openRequested);
+        h.model.open(QStringLiteral("dm:") + dm);
+        QCOMPARE(open.count(), 1);
+        QCOMPARE(open.at(0).at(0).toString(), dm);
+        QCOMPARE(open.at(0).at(1).toString(), QString());
+        QCOMPARE(h.model.unseenCount(), 0);
+        // Seen, still unread in the room: not resurrected by the next payload.
+        Q_EMIT h.client.roomsChanged();
+        QCOMPARE(h.model.unseenCount(), 0);
+
+        // A newer message makes it unseen again, with the new words.
+        r.lastMessagePreview = QStringLiteral("second");
+        r.raiseActivity(QDateTime::fromMSecsSinceEpoch(9000));
+        r.unreadCount = 4;
+        h.client.roomSet = { h.fresh(r) };
+        Q_EMIT h.client.roomsChanged();
+        QCOMPARE(h.model.count(), 1);
+        QCOMPARE(h.model.unseenCount(), 1);
+        QCOMPARE(h.row(0).value(QStringLiteral("preview")).toString(),
+                 QStringLiteral("second"));
+
+        // Read (on any device): the row stays as history, seen.
+        r.unreadCount = 0;
+        h.client.roomSet = { h.fresh(r) };
+        Q_EMIT h.client.roomsChanged();
+        QCOMPARE(h.model.count(), 1);
+        QCOMPARE(h.model.unseenCount(), 0);
+        // And a receipt-lagged payload after that does not bring it back.
+        r.unreadCount = 4;
+        h.client.roomSet = { h.fresh(r) };
+        Q_EMIT h.client.roomsChanged();
+        QCOMPARE(h.model.unseenCount(), 0);
+    }
+    void directUnreadsRespectWhatExplainsThemAndWhatSilencesThem()
+    {
+        Harness h;
+        QHash<QString, int> mode;
+        h.model.setNotificationModeSource(
+            [&mode](const QString &id) { return mode.value(id); });
+        h.model.setIgnoredCheck(
+            [](const QString &id) { return id == QStringLiteral("@pest:mock.local"); });
+        auto dm = [](const QString &id, const QString &peer, int unread, int hl) {
+            RoomInfo r;
+            r.id = id;
+            r.name = peer;
+            r.isDirect = true;
+            r.directUserId = peer;
+            r.raiseActivity(QDateTime::fromMSecsSinceEpoch(5000));
+            r.unreadCount = unread;
+            r.highlightCount = hl;
+            return r;
+        };
+        RoomInfo group = dm(QStringLiteral("!g:mock.local"), QStringLiteral("g"), 5, 0);
+        group.isDirect = false;
+        mode.insert(QStringLiteral("!muted:mock.local"), 2);
+        h.client.roomSet = {
+            h.fresh(group),
+            h.fresh(dm(QStringLiteral("!mentions:mock.local"), QStringLiteral("@a:mock.local"), 2, 2)),
+            h.fresh(dm(QStringLiteral("!muted:mock.local"), QStringLiteral("@b:mock.local"), 1, 0)),
+            h.fresh(dm(QStringLiteral("!ign:mock.local"), QStringLiteral("@pest:mock.local"), 1, 0)),
+            h.fresh(dm(QStringLiteral("!ok:mock.local"), QStringLiteral("@c:mock.local"), 1, 0)),
+        };
+        Q_EMIT h.client.roomsChanged();
+        // Not a DM, only mentions, ignored: none. Muted: listed but hidden.
+        QCOMPARE(h.model.count(), 1);
+        QCOMPARE(h.row(0).value(QStringLiteral("roomId")).toString(),
+                 QStringLiteral("!ok:mock.local"));
+        mode.clear();
+        h.model.notificationModesChanged();
+        QCOMPARE(h.model.count(), 2);
+
+        // A backend that does not track read state never lists them.
+        Harness g;
+        g.client.tracksRead = false;
+        g.client.roomSet = { h.fresh(dm(QStringLiteral("!ok:mock.local"),
+                                        QStringLiteral("@c:mock.local"), 1, 0)) };
+        Q_EMIT g.client.roomsChanged();
+        QCOMPARE(g.model.count(), 0);
     }
     // Reading a room (this client's read receipt) marks its entries seen up
     // to that point.

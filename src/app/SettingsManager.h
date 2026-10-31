@@ -106,6 +106,11 @@ class SettingsManager : public QObject
     // schema), so a homeserver cannot switch on network activity for every
     // saved account. AppController also requires the Rust bridge, and does
     // nothing when LIGHTNING_LABS_LIVE_ACCOUNTS forces Labs off.
+    // How many days back the Activity panel's opening list reaches for rows
+    // the server already marks read (0 = no limit). Device-local; default 60.
+    Q_PROPERTY(int activityReadHorizonDays READ activityReadHorizonDays
+                   WRITE setActivityReadHorizonDays
+                   NOTIFY activityReadHorizonDaysChanged)
     Q_PROPERTY(bool labsConcurrentAccounts READ labsConcurrentAccounts
                    WRITE setLabsConcurrentAccounts
                    NOTIFY labsConcurrentAccountsChanged)
@@ -761,6 +766,10 @@ public:
     void setCallShareAudioApps(const QStringList &keys);
     bool strictDeviceTrust() const;
     void setStrictDeviceTrust(bool v);
+    static constexpr int kDefaultActivityReadHorizonDays = 60;
+    static constexpr int kMaxActivityReadHorizonDays = 3650;
+    int activityReadHorizonDays() const;
+    void setActivityReadHorizonDays(int days);
     bool labsConcurrentAccounts() const;
     void setLabsConcurrentAccounts(bool on);
     bool labsConcurrentAccountsWarmSlot() const;
@@ -1500,6 +1509,7 @@ Q_SIGNALS:
     void callPictureInPictureChanged();
     void noiseSuppressionModeChanged();
     void strictDeviceTrustChanged();
+    void activityReadHorizonDaysChanged();
     void labsConcurrentAccountsChanged();
     void labsConcurrentAccountsWarmSlotChanged();
     void keepMediaOnDeviceChanged();
