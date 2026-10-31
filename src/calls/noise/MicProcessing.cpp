@@ -42,6 +42,12 @@ struct SwapContext {
     /// Replace even when the element already reports the wanted value: it
     /// may have negotiated (and so read its configuration) before it was set.
     bool force;
+    /// Whether the replacement may keep echo cancellation: false once no
+    /// playback probe is left, because a webrtcdsp that cannot find one is
+    /// fatal to the microphone.
+    bool echoAllowed = true;
+    /// Turn echo cancellation on and keep the suppressor as it is then.
+    bool engageEcho = false;
 };
 
 void freeSwapContext(gpointer data)
@@ -83,7 +89,17 @@ GstPadProbeReturn swapDsp(GstPad *upstream, GstPadProbeInfo *, gpointer data)
     GstElement *old = gst_bin_get_by_name(context->parent, kDspName);
     if (!old)
         return GST_PAD_PROBE_REMOVE;
-    if (!context->force && dspSuppresses(old) == context->suppress) {
+    if (context->engageEcho) {
+        gboolean on = FALSE;
+        g_object_get(old, "echo-cancel", &on, nullptr);
+        if (on) {
+            gst_object_unref(old);
+            return GST_PAD_PROBE_REMOVE;
+        }
+    }
+    const bool suppress =
+        context->engageEcho ? dspSuppresses(old) : context->suppress;
+    if (!context->force && dspSuppresses(old) == suppress) {
         gst_object_unref(old);
         return GST_PAD_PROBE_REMOVE;
     }
@@ -93,7 +109,7 @@ GstPadProbeReturn swapDsp(GstPad *upstream, GstPadProbeInfo *, gpointer data)
     GstPad *downstream = oldSrc ? gst_pad_get_peer(oldSrc) : nullptr;
     // Only the chain this file builds: anything else is left alone.
     GstElement *fresh = (feeding == upstream && downstream)
-        ? makeDsp(context->suppress)
+        ? makeDsp(suppress)
         : nullptr;
     if (fresh) {
         gst_object_ref_sink(fresh);
@@ -103,6 +119,10 @@ GstPadProbeReturn swapDsp(GstPad *upstream, GstPadProbeInfo *, gpointer data)
         gboolean gain = TRUE;
         g_object_get(old, "echo-cancel", &echo, "gain-control", &gain,
                      nullptr);
+        if (context->engageEcho)
+            echo = TRUE;
+        else if (!context->echoAllowed)
+            echo = FALSE;
         g_object_set(fresh, "echo-cancel", echo, "gain-control", gain,
                      nullptr);
         gst_pad_unlink(upstream, oldSink);
@@ -139,14 +159,16 @@ GstPadProbeReturn swapDsp(GstPad *upstream, GstPadProbeInfo *, gpointer data)
 }
 
 /// Returns false when there was nothing to schedule on.
-bool scheduleDspSwap(GstElement *dsp, bool suppress, bool force)
+bool scheduleDspSwap(GstElement *dsp, bool suppress, bool force,
+                     bool echoAllowed = true, bool engageEcho = false)
 {
     GstPad *sink = gst_element_get_static_pad(dsp, "sink");
     GstPad *upstream = sink ? gst_pad_get_peer(sink) : nullptr;
     GstObject *parent = gst_object_get_parent(GST_OBJECT(dsp));
     bool scheduled = false;
     if (upstream && parent && GST_IS_BIN(parent)) {
-        auto *context = new SwapContext{GST_BIN(parent), suppress, force};
+        auto *context = new SwapContext{GST_BIN(parent), suppress, force,
+                                        echoAllowed, engageEcho};
         parent = nullptr; // owned by the context now
         // IDLE runs at once when nothing is flowing, otherwise right after
         // the buffer in flight; a muted (valve-closed) chain is idle.
@@ -272,7 +294,7 @@ const char *unavailableKey(Unavailable reason)
 }
 
 QString applyMode(GstElement *root, Mode mode, DspSwitch when,
-                  bool *dspDeferred)
+                  bool *dspDeferred, bool echoAllowed)
 {
     if (dspDeferred)
         *dspDeferred = false;
@@ -325,12 +347,13 @@ QString applyMode(GstElement *root, Mode mode, DspSwitch when,
         // webrtcdsp keeps suppressing until the new backend runs.
         did << QStringLiteral("dsp waits for the denoiser");
     } else {
-        did << applyDspMode(root, mode);
+        did << applyDspMode(root, mode, false, echoAllowed);
     }
     return did.join(QLatin1Char(' '));
 }
 
-QString applyDspMode(GstElement *root, Mode mode, bool forceReplace)
+QString applyDspMode(GstElement *root, Mode mode, bool forceReplace,
+                     bool echoAllowed)
 {
     if (!root || !GST_IS_BIN(root))
         return QStringLiteral("no chain");
@@ -345,16 +368,16 @@ QString applyDspMode(GstElement *root, Mode mode, bool forceReplace)
                          nullptr);
             // Unless it negotiated in between: then replace it regardless.
             caps = sink ? gst_pad_get_current_caps(sink) : nullptr;
-            if (caps && scheduleDspSwap(dsp, want, /*force=*/true))
+            if (caps && scheduleDspSwap(dsp, want, /*force=*/true, echoAllowed))
                 did << QStringLiteral("dsp replaced (late)");
             else
                 did << QStringLiteral("dsp configured");
         } else if (forceReplace) {
-            did << (scheduleDspSwap(dsp, want, /*force=*/true)
+            did << (scheduleDspSwap(dsp, want, /*force=*/true, echoAllowed)
                         ? QStringLiteral("dsp replaced (forced)")
                         : QStringLiteral("dsp unlinked, left alone"));
         } else if (dspSuppresses(dsp) != want) {
-            did << (scheduleDspSwap(dsp, want, /*force=*/false)
+            did << (scheduleDspSwap(dsp, want, /*force=*/false, echoAllowed)
                         ? QStringLiteral("dsp replaced")
                         : QStringLiteral("dsp unlinked, left alone"));
         } else {
@@ -367,6 +390,26 @@ QString applyDspMode(GstElement *root, Mode mode, bool forceReplace)
         gst_object_unref(dsp);
     }
     return did.isEmpty() ? QStringLiteral("no dsp") : did.join(QLatin1Char(' '));
+}
+
+QString engageEchoCancel(GstElement *root)
+{
+    if (!root || !GST_IS_BIN(root))
+        return QStringLiteral("no chain");
+    GstElement *dsp = gst_bin_get_by_name(GST_BIN(root), kDspName);
+    if (!dsp)
+        return QStringLiteral("no dsp");
+    gboolean on = FALSE;
+    g_object_get(dsp, "echo-cancel", &on, nullptr);
+    // Replaced even before it negotiates: its start is what needs the probe,
+    // and it may already have run.
+    const QString did = on ? QStringLiteral("echo already on")
+        : scheduleDspSwap(dsp, dspSuppresses(dsp), /*force=*/true,
+                          /*echoAllowed=*/true, /*engageEcho=*/true)
+            ? QStringLiteral("echo engaged")
+            : QStringLiteral("dsp unlinked, left alone");
+    gst_object_unref(dsp);
+    return did;
 }
 
 } // namespace calls::noise

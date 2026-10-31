@@ -1178,6 +1178,7 @@ void SfuMediaEngine::teardown(bool endOfCall)
     m_micNoiseModeAfterStart = false;
     m_micNoiseDspForceAfterStart = false;
     m_micStartTakenOver = false;
+    m_micEchoAfterStart = false;
     m_micSwapReplacesStart = false;
     m_micRtpVerdictOwed = false;
     m_micLiveFront.clear();
@@ -2261,7 +2262,42 @@ QString SfuMediaEngine::echoProbeStage(bool echoCancel, bool probeAvailable)
     // same format. A filter, so playback is untouched.
     return QStringLiteral("! audioconvert "
                           "! audio/x-raw,format=S16LE,rate=48000 "
-                          "! webrtcechoprobe ");
+                          "! webrtcechoprobe name=%1 ")
+        .arg(QLatin1String(kEchoProbeName));
+}
+
+bool SfuMediaEngine::echoProbeLive() const
+{
+    QMutexLocker lock(&m_receiveBinMutex);
+    for (auto it = m_receiveBins.cbegin(); it != m_receiveBins.cend(); ++it) {
+        if (!it->bin)
+            continue;
+        if (GstElement *probe = gst_bin_get_by_name(GST_BIN(it->bin),
+                                                    kEchoProbeName)) {
+            gst_object_unref(probe);
+            return true;
+        }
+    }
+    return false;
+}
+
+void SfuMediaEngine::engageEchoCancellation()
+{
+    if (!m_active || !m_echoCancel.load() || m_micCid.isEmpty())
+        return;
+    GstElement *bin = m_publishedBins.value(m_micCid, nullptr);
+    if (!bin)
+        return;
+    if (microphoneStarting()) {
+        // Replacing an element in a bin another thread is starting.
+        m_micEchoAfterStart = true;
+        return;
+    }
+    if (!echoProbeLive())
+        return;
+    ++m_echoEngageAttempts;
+    qCInfo(lcSfuMedia) << "echo cancellation at first remote audio:"
+                       << calls::noise::engageEchoCancel(bin);
 }
 
 void SfuMediaEngine::setShareQuality(int maxHeight, int fps,
@@ -3828,13 +3864,20 @@ void SfuMediaEngine::runMicrophoneStartDeferrals(const QString &cid,
             // configured in time is left as it is (applyMode() finds it
             // already right).
             const QString did = force
-                ? calls::noise::applyDspMode(bin, mode, /*forceReplace=*/true)
+                ? calls::noise::applyDspMode(bin, mode, /*forceReplace=*/true,
+                                             echoProbeLive())
                 : calls::noise::applyMode(
-                      bin, mode, calls::noise::DspSwitch::WaitForDenoiser);
+                      bin, mode, calls::noise::DspSwitch::WaitForDenoiser,
+                      nullptr, echoProbeLive());
             qCInfo(lcSfuMedia)
                 << "microphone noise suppression applied after the start:"
                 << did;
         }
+    }
+    // A remote track that arrived during the start.
+    if (m_micEchoAfterStart) {
+        m_micEchoAfterStart = false;
+        engageEchoCancellation();
     }
     // The "no RTP" verdict the slow start put off: the same check, the same
     // delay, counted from the start's end.
@@ -3870,8 +3913,21 @@ void SfuMediaEngine::publishAudio(const QString &cid)
     // Settings microphone test builds the same stage.
     const calls::noise::Mode noiseMode = noiseSuppressionMode();
     const bool dspAvailable = calls::noise::webrtcDspAvailable();
+    // Echo cancellation only when a playback probe already exists: webrtcdsp
+    // looks its probe up when it starts and posts a fatal error when there is
+    // none ("No echo probe with name webrtcechoprobe0 found."), which left the
+    // microphone producing no RTP at all. The microphone is published before
+    // the first remote track plays, so it failed at every join.
+    // engageEchoCancellation() turns it on when a remote track arrives.
+    const bool echoCancel = m_echoCancel.load() && echoProbeLive();
+    if (m_echoCancel.load() && !echoCancel) {
+        qCInfo(lcSfuMedia)
+            << "echo cancellation requested but no playback probe exists yet:"
+               "the microphone starts without it and takes it up at the first "
+               "remote audio track";
+    }
     const QString gainStage = voiceProcessingDescription(
-        noiseMode, m_echoCancel.load(), m_autoGain.load());
+        noiseMode, echoCancel, m_autoGain.load());
 
     // Level meter right before the encoder, so it measures what the far end
     // receives. Optional like `webrtcdsp`. 50 ms interval: the in-call meter
@@ -6156,6 +6212,7 @@ void SfuMediaEngine::unpublish(const QString &cid)
         m_micNoiseModeAfterStart = false;
         m_micNoiseDspForceAfterStart = false;
         m_micStartTakenOver = false;
+        m_micEchoAfterStart = false;
         m_micSwapReplacesStart = false;
         m_micRtpVerdictOwed = false;
         m_micLiveFront.clear();
@@ -6730,7 +6787,7 @@ void SfuMediaEngine::setNoiseSuppressionMode(calls::noise::Mode mode)
             it.value(), mode,
             starting ? calls::noise::DspSwitch::Later
                      : calls::noise::DspSwitch::WaitForDenoiser,
-            &dspDeferred);
+            &dspDeferred, echoProbeLive());
         if (starting) {
             m_micNoiseModeAfterStart = true;
             m_micNoiseDspForceAfterStart =
@@ -6777,7 +6834,7 @@ void SfuMediaEngine::retryNoiseSuppression()
                                 starting
                                     ? calls::noise::DspSwitch::Later
                                     : calls::noise::DspSwitch::WaitForDenoiser,
-                                &dspDeferred);
+                                &dspDeferred, echoProbeLive());
         if (starting) {
             m_micNoiseModeAfterStart = true;
             m_micNoiseDspForceAfterStart =
@@ -6818,7 +6875,8 @@ void SfuMediaEngine::handleDenoiseStatus(const QString &requested,
         qCInfo(lcSfuMedia) << "microphone noise suppression: the denoiser "
                               "reported, webrtcdsp follows"
                            << calls::noise::modeKey(follow) << ":"
-                           << calls::noise::applyDspMode(it.value(), follow);
+                           << calls::noise::applyDspMode(it.value(), follow, false,
+                                                         echoProbeLive());
     }
     m_noiseFellBackToWebrtc = !ok && anyDsp;
     if (ok) {
@@ -10127,6 +10185,10 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
     marshal(engine, [engine, generation, mediaKind, streamId, trackMid] {
         if (engine->m_generation.load() != generation)
             return;
+        // The first playback probe of a call: the microphone was published
+        // before it existed, so it started without echo cancellation.
+        if (mediaKind == QLatin1String("audio"))
+            engine->engageEchoCancellation();
         // The UI keys tiles off MatrixRTC membership (who is present); this
         // says who is actually sending, and on which track.
         Q_EMIT engine->remoteTrackAdded(streamId, trackMid, mediaKind);

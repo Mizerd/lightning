@@ -970,6 +970,17 @@ public:
     /// "! audioconvert ! audio/x-raw,format=S16LE,rate=48000 !
     /// webrtcechoprobe ".
     static QString echoProbeStage(bool echoCancel, bool probeAvailable);
+    /// Name every playback probe carries: webrtcdsp finds its probe by this
+    /// name (its default), and auto-numbered names stop matching after the
+    /// first probe the process has ever made.
+    static constexpr const char *kEchoProbeName = "webrtcechoprobe0";
+    /// Whether a receive bin holds a playback probe right now. GUI thread.
+    bool echoProbeLive() const;
+    /// GUI thread: the requested echo cancellation, once a playback probe
+    /// exists. webrtcdsp cancels against ONE probe, so only the first
+    /// participant it finds is cancelled.
+    void engageEchoCancellation();
+    int echoEngageAttemptsForTest() const { return m_echoEngageAttempts; }
     /// Local playback mute for every remote track.
     void setOutputMuted(bool muted);
     /// Local volume for one participant, 0..200, keyed by their LiveKit
@@ -1327,6 +1338,9 @@ private:
     int m_shareBitrateCapKbps = 0;
     int m_cameraMaxHeight = kCameraHeight;
     std::atomic<bool> m_echoCancel{false};
+    /// Remote audio arrived during the microphone's start.
+    bool m_micEchoAfterStart = false;
+    int m_echoEngageAttempts = 0;
     std::atomic<bool> m_autoGain{true};
     /// Bumped on every start/stop so a late callback is discarded.
     std::atomic<quint64> m_generation{0};

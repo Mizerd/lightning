@@ -108,13 +108,22 @@ constexpr bool dspWaitsForDenoiser(Mode mode)
 /// report. Returns a short description of what it did, for the log.
 QString applyMode(GstElement *binOrPipeline, Mode mode,
                   DspSwitch when = DspSwitch::Now,
-                  bool *dspDeferred = nullptr);
+                  bool *dspDeferred = nullptr, bool echoAllowed = true);
 
 /// The webrtcdsp half of applyMode(), for a switch that waited for the
 /// denoiser. GUI thread. `forceReplace` replaces a negotiated webrtcdsp even
 /// when its property already reads right (a property set after it negotiated
-/// never reached its processing: DspSwitch::Later).
+/// never reached its processing: DspSwitch::Later). `echoAllowed` false means
+/// no playback probe exists, so a replacement drops echo cancellation rather
+/// than start a webrtcdsp that would fail for want of one.
 QString applyDspMode(GstElement *binOrPipeline, Mode mode,
-                     bool forceReplace = false);
+                     bool forceReplace = false, bool echoAllowed = true);
+
+/// Replaces a running webrtcdsp with one that cancels echo, keeping its
+/// suppressor and gain switches. GUI thread. The caller guarantees a playback
+/// probe exists: webrtcdsp finds it by name when it starts, and a start
+/// without one is a fatal error that silences the microphone. Its gain control
+/// starts over, as for any replacement.
+QString engageEchoCancel(GstElement *binOrPipeline);
 
 } // namespace calls::noise

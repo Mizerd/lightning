@@ -6370,6 +6370,167 @@ private slots:
         QVERIFY(!engine.autoGainControl());
     }
 
+    void echoCancellationNeverStartsWithoutAPlaybackProbe()
+    {
+        // Reported 2026-10-28 (Windows): with echo cancellation on, the
+        // microphone produced no RTP at all, `pipeline error element= micdsp
+        // reason= No echo probe with name webrtcechoprobe0 found.` webrtcdsp
+        // looks its probe up BY NAME when it negotiates, and the microphone
+        // is published before any remote track has a probe.
+        if (!gst_init_check(nullptr, nullptr, nullptr)
+            || !calls::noise::webrtcDspAvailable()
+            || !SfuMediaEngine::echoProbeElementAvailable())
+            QSKIP("webrtcdsp / webrtcechoprobe not available");
+        SfuMediaEngine engine;
+        engine.setVoiceProcessing(true, true);
+        QVERIFY2(!engine.echoProbeLive(),
+                 "no receive bin yet, so no probe may be reported");
+        // The real publish, first thing in a call: no remote track yet.
+        engine.setTestSourceMode(true);
+        engine.start();
+        const QString cid = QStringLiteral("cid-audio");
+        engine.publishAudio(cid);
+        const QString built = engine.lastAudioDescriptionForTest();
+        QVERIFY2(built.contains(QLatin1String("echo-cancel=false")),
+                 qPrintable(built));
+        QCOMPARE(engine.publishedBinPropertyForTest(
+                     cid, QStringLiteral("micdsp"),
+                     QStringLiteral("echo-cancel")),
+                 QStringLiteral("false"));
+        // Still no probe: nothing to engage, and asking must not break it.
+        engine.engageEchoCancellation();
+        QCOMPARE(engine.echoEngageAttemptsForTest(), 0);
+
+        // The probe is found by the dsp's default name, however many probes
+        // the process has made before: auto-numbering would stop matching.
+        QVERIFY(SfuMediaEngine::echoProbeStage(true, true).contains(
+            QLatin1String(SfuMediaEngine::kEchoProbeName)));
+        GstElement *burn = gst_element_factory_make("webrtcechoprobe", nullptr);
+        QVERIFY(burn);
+        gst_object_unref(burn);
+
+        const auto runDsp = [](const QString &probeStage) {
+            const QString chain = QStringLiteral(
+                "audiotestsrc num-buffers=20 ! audioconvert "
+                "! audio/x-raw,format=S16LE,rate=48000,channels=1 "
+                "! webrtcdsp echo-cancel=true ! fakesink name=dspsink "
+                "audiotestsrc num-buffers=20 ! audioconvert %1! fakesink")
+                .arg(probeStage);
+            GError *error = nullptr;
+            GstElement *pipeline = gst_parse_launch(chain.toUtf8().constData(),
+                                                    &error);
+            if (error)
+                g_error_free(error);
+            if (!pipeline)
+                return QStringLiteral("parse failed");
+            GstBus *bus = gst_element_get_bus(pipeline);
+            gst_element_set_state(pipeline, GST_STATE_PLAYING);
+            GstMessage *msg = gst_bus_timed_pop_filtered(
+                bus, 3 * GST_SECOND,
+                GstMessageType(GST_MESSAGE_ERROR | GST_MESSAGE_EOS));
+            QString result = QStringLiteral("timeout");
+            if (msg) {
+                if (GST_MESSAGE_TYPE(msg) == GST_MESSAGE_EOS) {
+                    result = QStringLiteral("eos");
+                } else {
+                    GError *e = nullptr;
+                    gst_message_parse_error(msg, &e, nullptr);
+                    result = QString::fromUtf8(e ? e->message : "error");
+                    if (e)
+                        g_error_free(e);
+                }
+                gst_message_unref(msg);
+            }
+            gst_element_set_state(pipeline, GST_STATE_NULL);
+            gst_object_unref(bus);
+            gst_object_unref(pipeline);
+            return result;
+        };
+        // The premise: without a probe the dsp is fatal.
+        QVERIFY2(runDsp(QString()).contains(QLatin1String("No echo probe")),
+                 "webrtcdsp no longer fails without a probe; revisit the guard");
+        // With the engine's probe stage it negotiates and runs to the end.
+        const QString withProbe =
+            runDsp(SfuMediaEngine::echoProbeStage(true, true));
+        QVERIFY2(!withProbe.contains(QLatin1String("No echo probe")),
+                 qPrintable(withProbe));
+    }
+
+    void echoCancellationEngagesOnARunningMicrophone()
+    {
+        if (!gst_init_check(nullptr, nullptr, nullptr)
+            || !calls::noise::webrtcDspAvailable()
+            || !SfuMediaEngine::echoProbeElementAvailable())
+            QSKIP("webrtcdsp / webrtcechoprobe not available");
+        // A live microphone built with no probe, as a join builds it; the
+        // playback chain with its probe, as a first remote track adds it.
+        const QString chain = QStringLiteral(
+            "audiotestsrc is-live=true ! audioconvert "
+            "! audio/x-raw,format=S16LE,rate=48000,channels=1 "
+            "! webrtcdsp name=%1 echo-cancel=false noise-suppression=true "
+            "gain-control=false ! audioconvert ! identity name=afterdsp "
+            "! fakesink sync=false ")
+            .arg(QLatin1String(calls::noise::kDspName));
+        GError *error = nullptr;
+        GstElement *pipeline = gst_parse_launch(chain.toUtf8().constData(),
+                                                &error);
+        QVERIFY2(pipeline && !error, error ? error->message : "no pipeline");
+        GstElement *playback = gst_parse_bin_from_description(
+            ("audiotestsrc is-live=true ! audioconvert "
+             + SfuMediaEngine::echoProbeStage(true, true)
+             + QStringLiteral("! fakesink sync=false"))
+                .toUtf8()
+                .constData(),
+            FALSE, &error);
+        QVERIFY2(playback && !error, error ? error->message : "no playback");
+
+        GstBus *bus = gst_element_get_bus(pipeline);
+        gst_element_set_state(pipeline, GST_STATE_PLAYING);
+        QVERIFY(gst_element_get_state(pipeline, nullptr, nullptr,
+                                      3 * GST_SECOND)
+                != GST_STATE_CHANGE_FAILURE);
+        gst_bin_add(GST_BIN(pipeline), playback);
+        gst_element_sync_state_with_parent(playback);
+
+        const auto dspEcho = [&] {
+            GstElement *dsp = gst_bin_get_by_name(GST_BIN(pipeline),
+                                                  calls::noise::kDspName);
+            gboolean on = FALSE;
+            if (dsp) {
+                g_object_get(dsp, "echo-cancel", &on, nullptr);
+                gst_object_unref(dsp);
+            }
+            return on == TRUE;
+        };
+        QVERIFY(!dspEcho());
+        QCOMPARE(calls::noise::engageEchoCancel(pipeline),
+                 QStringLiteral("echo engaged"));
+        QTRY_VERIFY(dspEcho());
+        // Audio still leaves the chain after the swap, with no error.
+        GstElement *after = gst_bin_get_by_name(GST_BIN(pipeline), "afterdsp");
+        QVERIFY(after);
+        std::atomic<int> buffers{0};
+        GstPad *pad = gst_element_get_static_pad(after, "src");
+        gst_pad_add_probe(pad, GST_PAD_PROBE_TYPE_BUFFER,
+                          [](GstPad *, GstPadProbeInfo *, gpointer data) {
+                              static_cast<std::atomic<int> *>(data)->fetch_add(1);
+                              return GST_PAD_PROBE_OK;
+                          },
+                          &buffers, nullptr);
+        QTRY_VERIFY(buffers.load() >= 10);
+        GstMessage *message =
+            gst_bus_pop_filtered(bus, GST_MESSAGE_ERROR);
+        const bool errored = message != nullptr;
+        if (message)
+            gst_message_unref(message);
+        gst_object_unref(pad);
+        gst_object_unref(after);
+        gst_element_set_state(pipeline, GST_STATE_NULL);
+        gst_object_unref(bus);
+        gst_object_unref(pipeline);
+        QVERIFY(!errored);
+    }
+
     void shareAudioIsOfferedOnlyWhenSomethingCanActuallyCaptureIt()
     {
         // Availability comes from the plugins actually present, not the
