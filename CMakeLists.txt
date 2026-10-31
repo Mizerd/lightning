@@ -6488,6 +6488,19 @@ if(BUILD_TESTING)
     set_tests_properties(narrow-shell-layout PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # Small windows (a quarter of a screen): every Settings section and the
+    # composer-anchored pickers stay inside the surface that holds them, on
+    # the real Main window at the application's floor.
+    qt_add_executable(small-window-qml-test
+        tests/SmallWindowQmlTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(small-window-qml-test)
+    target_link_libraries(small-window-qml-test PRIVATE Qt6::Test)
+    add_test(NAME small-window-qml COMMAND small-window-qml-test)
+    set_tests_properties(small-window-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # New Conversation / Create Room / Create Space dialog: per-tab
     # instantiation (no encryption control on the Space tab), search clearing
     # and focus on tab switch, name validation, busy/error states, existing-DM

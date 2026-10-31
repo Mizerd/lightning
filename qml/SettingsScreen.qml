@@ -2121,7 +2121,11 @@ Item {
             Rectangle {
                 objectName: "settingsNavColumn"
                 Layout.fillHeight: true
-                Layout.preferredWidth: 300
+                // 300 from a 1000 px window up; narrower windows give the
+                // content pane the difference, down to the 200 minimum (at the
+                // 640 px floor a fixed 300 left 339 px, and most sections'
+                // controls ran 60 px past the window edge).
+                Layout.preferredWidth: Math.max(200, Math.min(300, root.width * 0.3))
                 Layout.minimumWidth: 200
                 color: AppTheme.settingsNav
                 // Nothing in this column may paint across the divider into the
