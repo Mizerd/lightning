@@ -14,6 +14,9 @@
 
 #include <QTemporaryDir>
 #include <QImage>
+#include <QBuffer>
+#include <QRegularExpression>
+#include "media/MediaImageProvider.h"
 
 
 #include <QQmlApplicationEngine>
@@ -36,6 +39,13 @@
 
 namespace {
 constexpr int kSignalTimeoutMs = 3000;
+class ReplyMediaClient final : public MockMatrixClient
+{
+public:
+    bool supportsMediaBridge() const override { return true; }
+    quint64 fetchMedia(const QString &, int, int) override { return ++lastOp; }
+    quint64 lastOp = 0;
+};
 }
 
 class MediaPlaceholderQmlTest : public QObject
@@ -144,6 +154,8 @@ private:
                         Delegate &out, const QVariantMap &initial = {})
     {
         out.engine = std::make_unique<QQmlApplicationEngine>();
+        out.engine->addImageProvider(QStringLiteral("lightning-media"),
+                                    new MediaImageProvider(controller.mediaBridge()));
         if (!initial.isEmpty())
             out.engine->setInitialProperties(initial);
         connect(out.engine.get(), &QQmlEngine::warnings, this,
@@ -422,6 +434,59 @@ private Q_SLOTS:
         };
         QCOMPARE(selectable(single), QStringLiteral("selectable"));
         QCOMPARE(selectable(gallery), QStringLiteral("not selectable"));
+    }
+
+    void replyThumbnailReleasesAndReloadsWithoutSourceBindingLoops_data()
+    {
+        QTest::addColumn<bool>("decodeError");
+        QTest::newRow("ready") << false;
+        QTest::newRow("decode-error") << true;
+    }
+
+    void replyThumbnailReleasesAndReloadsWithoutSourceBindingLoops()
+    {
+        QFETCH(bool, decodeError);
+        QTest::failOnWarning(QRegularExpression(QStringLiteral("QQuickPixmap:.*")));
+        // A live thumbnail, then the same hide/release ordering used on quit.
+        ReplyMediaClient client;
+        AppController controller(AppController::MockBackend);
+        controller.mediaBridge()->setClient(&client);
+        QVariantMap fixture = baseFixture(controller);
+        fixture.insert(QStringLiteral("body"), QStringLiteral("reply"));
+        fixture.insert(QStringLiteral("replyToEventId"), QStringLiteral("$target"));
+        fixture.insert(QStringLiteral("replyToMediaKey"), QStringLiteral("$target"));
+        fixture.insert(QStringLiteral("replyToSender"), QStringLiteral("Sender"));
+        Delegate d;
+        QVERIFY(createDelegate(controller, fixture, d));
+        auto *image = d.root->findChild<QQuickItem *>(QStringLiteral("replyQuoteThumbnail"));
+        QVERIFY(image);
+        QTRY_VERIFY(client.lastOp > 0);
+        QImage pixels(8, 8, QImage::Format_ARGB32_Premultiplied);
+        pixels.fill(Qt::red);
+        QByteArray bytes;
+        QBuffer buffer(&bytes);
+        QVERIFY(buffer.open(QIODevice::WriteOnly));
+        QVERIFY(pixels.save(&buffer, "PNG"));
+        if (decodeError)
+            bytes = QByteArrayLiteral("invalid raster fixture");
+        Q_EMIT client.mediaReady(client.lastOp, QStringLiteral("$target"), 1,
+                                bytes, QStringLiteral("image/png"), QString{});
+        const int expectedStatus = decodeError ? 3 : 1; // Image.Error / Ready
+        QTRY_COMPARE(image->property("status").toInt(), expectedStatus);
+        const QUrl source = image->property("source").toUrl();
+        QVERIFY(!source.isEmpty());
+        d.root->setVisible(false);
+        QVERIFY(d.root->setProperty("mediaPixmapRetained", false));
+        QTRY_VERIFY(image->property("source").toUrl().isEmpty());
+        QVERIFY(d.root->setProperty("mediaPixmapRetained", true));
+        d.root->setVisible(true);
+        QTRY_COMPARE(image->property("source").toUrl(), source);
+        QTRY_COMPARE(image->property("status").toInt(), expectedStatus);
+        // Retention changes must still work after the first cache fill.
+        QVERIFY(d.root->setProperty("mediaPixmapRetained", false));
+        QTRY_VERIFY(image->property("source").toUrl().isEmpty());
+        for (const QString &warning : d.warnings)
+            QVERIFY2(!warning.contains(QStringLiteral("Binding loop")), qPrintable(warning));
     }
 
     // A reply quoting a wordless target labels it by kind (an image, "2

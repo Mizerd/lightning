@@ -2297,6 +2297,7 @@ Item {
                             // rather than a per-row MultiEffect mask.
                             Image {
                                 id: replyThumb
+                                objectName: "replyQuoteThumbnail"
                                 // Bumped by the cache-fill handler so `source`
                                 // re-resolves without an imperative assignment,
                                 // which would destroy the binding.
@@ -2318,7 +2319,10 @@ Item {
                                 fillMode: Image.PreserveAspectCrop
                                 asynchronous: true
                                 sourceSize.width: 48
-                                source: visible && root.mediaPixmapRetained
+                                // Visibility reads status, which changes synchronously
+                                // inside source loading. Never feed it back into source.
+                                source: root.mediaPixmapRetained
+                                        && app.mediaBridge.supported
                                         && bridgeSource.length > 0
                                         ? bridgeSource + "|shape:round:160" : ""
                                 Connections {
