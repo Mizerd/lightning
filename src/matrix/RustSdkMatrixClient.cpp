@@ -11082,7 +11082,7 @@ quint64 RustSdkMatrixClient::rtcSendCallReaction(
     const QString &emoji, const QString &name)
 {
     if (!m_rustHandle || roomId.isEmpty() || membershipEventId.isEmpty()
-        || emoji.isEmpty() || name.isEmpty()) {
+        || emoji.isEmpty()) {
         return 0;
     }
     const quint64 opId = nextOpId();

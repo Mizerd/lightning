@@ -12,10 +12,13 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QSignalSpy>
+#include <QScopeGuard>
+#include <QTemporaryDir>
 #include <QtTest>
 
 #ifdef ENABLE_RUST_SDK_BACKEND
 #include "matrix/RustSdkMatrixClient.h"
+#include "matrix_rust.h"
 #endif
 
 class RtcBridgePayloadTest : public QObject
@@ -45,6 +48,45 @@ private:
 #endif
 
 private slots:
+    void aNamelessPickerReactionReachesRustValidation_data()
+    {
+        QTest::addColumn<QString>("emoji");
+        QTest::newRow("generic-fox") << QString::fromUtf8("🦊");
+        QTest::newRow("preset-thumbsup") << QString::fromUtf8("👍");
+    }
+
+    void aNamelessPickerReactionReachesRustValidation()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("needs the Rust backend");
+#else
+        QFETCH(QString, emoji);
+        QTemporaryDir store;
+        QVERIFY(store.isValid());
+        SettingsManager settings;
+        RustSdkMatrixClient client(&settings);
+        client.m_rustHandle = mx_rust_create(store.path().toUtf8().constData());
+        QVERIFY(client.m_rustHandle);
+        const auto cleanup = qScopeGuard([&] {
+            mx_rust_destroy(client.m_rustHandle);
+            client.m_rustHandle = nullptr;
+        });
+        const auto before = client.m_opCounter;
+        // With no signed-in SDK client Rust refuses synchronously. The
+        // operation must still reach that validation, rather than being
+        // dropped by the C++ bridge because the picker supplied no name.
+        QCOMPARE(client.rtcSendCallReaction(QStringLiteral("!r:example.org"),
+                                           QStringLiteral("$membership"),
+                                           emoji, QString()), 0ULL);
+        QCOMPARE(client.m_opCounter, before + 1);
+        // Empty emoji remains a bridge-level refusal.
+        client.rtcSendCallReaction(QStringLiteral("!r:example.org"),
+                                   QStringLiteral("$membership"),
+                                   QString(), QString());
+        QCOMPARE(client.m_opCounter, before + 1);
+#endif
+    }
+
     /// rooms.rs reports `own_can_publish_rtc_membership` as null when our own
     /// member is not in the store yet. That must reach the call gate as
     /// UNKNOWN (no key), not as false, which would read as refused.
