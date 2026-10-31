@@ -4,8 +4,10 @@
 #include "calls/RtpVp8Payloader.h"
 #include "calls/SerialSinkSwap.h"
 #include "calls/GstBootstrap.h"
+#include "calls/SfuVideoRouter.h"
 
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QElapsedTimer>
 #include <QLoggingCategory>
 #include <QMetaObject>
@@ -16,13 +18,25 @@
 #include <QSet>
 #include <QTimer>
 #include <QUrl>
+#include <QUuid>
+#include <QVideoFrame>
+#include <QVideoFrameFormat>
+#include <QVideoSink>
 
+#include <gst/app/gstappsink.h>
 #include <gst/gst.h>
 #define GST_USE_UNSTABLE_API
 #include <gst/webrtc/webrtc.h>
 #include <gst/sdp/sdp.h>
 
+#ifdef Q_OS_LINUX
+#include <unistd.h>
+#endif
+
+#include <cstring>
+#include <initializer_list>
 #include <mutex>
+#include <utility>
 
 // Coarse lifecycle/category lines only. Never log SDP, candidates, TURN
 // credentials, or GStreamer error details that could embed them.
@@ -193,6 +207,35 @@ int opusPayloadTypeFromSdp(const QString &sdp)
                                                  : kDefaultOpusPayloadType;
 }
 
+constexpr int kDefaultVp8PayloadType = 96;
+
+// The live video section's dynamic VP8 payload type, or -1 when the offer has
+// no such section or no VP8 in it (the section is then declined). Scoped to
+// the section: an audio section's numbers mean nothing here.
+int vp8PayloadTypeFromSdp(const QString &sdp)
+{
+    const qsizetype section = sdp.indexOf(QLatin1String("m=video "));
+    if (section < 0)
+        return -1;
+    const qsizetype next = sdp.indexOf(QLatin1String("\nm="), section);
+    const QString video =
+        next < 0 ? sdp.mid(section) : sdp.mid(section, next - section);
+    // Port 0 rejects a section, except under a=bundle-only: that is how a
+    // max-bundle offerer (webrtcbin, so Lightning and Nheko) offers one.
+    if (video.startsWith(QLatin1String("m=video 0 "))
+        && !video.contains(QLatin1String("a=bundle-only")))
+        return -1;
+    static const QRegularExpression rtpmap(
+        QStringLiteral("a=rtpmap:(\\d{1,3})\\s+VP8/90000"),
+        QRegularExpression::CaseInsensitiveOption);
+    const QRegularExpressionMatch match = rtpmap.match(video);
+    if (!match.hasMatch())
+        return -1;
+    bool ok = false;
+    const int payload = match.captured(1).toInt(&ok);
+    return ok && payload >= 96 && payload <= 127 ? payload : -1;
+}
+
 // One media section's shape: kind, direction and whether it is rejected.
 QString sectionShape(const GstSDPMedia *media)
 {
@@ -223,12 +266,13 @@ QString offeredKind(const GstSDPMessage *sdp, guint mline)
     return QString::fromUtf8(kind ? kind : "");
 }
 
-// Sets every transceiver whose offered section is not audio to inactive,
-// before the answer is created, so the answer declines it instead of
-// accepting a track this engine cannot play. Keyed on the offer's section:
-// webrtcbin reports our own audio transceiver's kind as unknown at this
-// point. Returns how many were declined.
-int declineUnhandledSections(GstElement *webrtc)
+// Sets every transceiver whose offered section this call does not carry to
+// inactive, before the answer is created, so the answer declines it instead of
+// accepting a track this engine cannot play: everything that is not audio,
+// unless `video` says the session has a video chain for the video section.
+// Keyed on the offer's section: webrtcbin reports our own audio transceiver's
+// kind as unknown at this point. Returns how many were declined.
+int declineUnhandledSections(GstElement *webrtc, bool video)
 {
     GstWebRTCSessionDescription *remote = nullptr;
     g_object_get(webrtc, "remote-description", &remote, nullptr);
@@ -244,7 +288,9 @@ int declineUnhandledSections(GstElement *webrtc)
             break;
         guint mline = G_MAXUINT;
         g_object_get(transceiver, "mlineindex", &mline, nullptr);
-        if (offeredKind(remote->sdp, mline) != QLatin1String("audio")) {
+        const QString kind = offeredKind(remote->sdp, mline);
+        if (kind != QLatin1String("audio")
+            && !(video && kind == QLatin1String("video"))) {
             g_object_set(transceiver, "direction",
                          GST_WEBRTC_RTP_TRANSCEIVER_DIRECTION_INACTIVE,
                          nullptr);
@@ -283,6 +329,190 @@ bool padCarriesOpusAudio(GstPad *pad)
     }
     gst_caps_unref(caps);
     return opus;
+}
+
+// Whether a receive pad carries VP8 video, the only video this engine decodes.
+// Unlike the Opus check an absent field is not good enough: a video chain
+// linked to the wrong track stops the transport, and draining costs nothing.
+bool padCarriesVp8Video(GstPad *pad)
+{
+    GstCaps *caps = gst_pad_get_current_caps(pad);
+    if (!caps)
+        caps = gst_pad_query_caps(pad, nullptr);
+    if (!caps)
+        return false;
+    bool vp8 = false;
+    if (!gst_caps_is_empty(caps) && !gst_caps_is_any(caps)
+        && gst_caps_get_size(caps) > 0) {
+        const GstStructure *structure = gst_caps_get_structure(caps, 0);
+        const gchar *media = gst_structure_get_string(structure, "media");
+        const gchar *encoding =
+            gst_structure_get_string(structure, "encoding-name");
+        vp8 = media && encoding && g_ascii_strcasecmp(media, "video") == 0
+            && g_ascii_strcasecmp(encoding, "VP8") == 0;
+    }
+    gst_caps_unref(caps);
+    return vp8;
+}
+
+// Which picture an appsink feeds; one per sink, freed with its closure.
+struct VideoSinkCtx {
+    GstCallMediaBackend *backend = nullptr; // handed to marshal(); see below
+    std::shared_ptr<SfuVideoRouter> router;
+    QString key;
+    quintptr token = 0;
+    bool remote = false;
+    int padSerial = 0;
+};
+
+void videoSinkCtxFree(void *data, GClosure *)
+{
+    delete static_cast<VideoSinkCtx *>(data);
+}
+
+constexpr auto kRemoteVideoKey = "remote";
+constexpr auto kSelfVideoKey = "self";
+
+// One decoded RGBA frame to the router, as the MatrixRTC lane delivers them:
+// copied, because a QVideoFrame cannot borrow the GstBuffer, and through the
+// router's one-frame mailbox, so a busy GUI thread collects at most one.
+GstFlowReturn onVideoSample(GstElement *sink, void *userData)
+{
+    auto *ctx = static_cast<VideoSinkCtx *>(userData);
+    GstSample *sample = gst_app_sink_pull_sample(GST_APP_SINK(sink));
+    if (!sample)
+        return GST_FLOW_OK;
+    // Only a remote sink may touch the backend: its pipeline stops before the
+    // backend goes. A self-view can outlive it (the front stops on a pool
+    // thread), so it has the router it shares and marshal(), which checks.
+    if (ctx->remote) {
+        ctx->backend->noteRemoteVideoFrame(ctx->token);
+        // One surface and possibly two tracks: a peer's screen share beside
+        // its camera (see remoteFrameWanted()).
+        if (!ctx->backend->remoteFrameWanted(ctx->padSerial)) {
+            gst_sample_unref(sample);
+            return GST_FLOW_OK;
+        }
+    }
+    SfuVideoRouter *router = ctx->router.get();
+    if (!router || !router->watching(ctx->key)) {
+        gst_sample_unref(sample);
+        return GST_FLOW_OK;
+    }
+    GstCaps *caps = gst_sample_get_caps(sample);
+    GstBuffer *buffer = gst_sample_get_buffer(sample);
+    int width = 0;
+    int height = 0;
+    if (caps && gst_caps_get_size(caps) > 0) {
+        const GstStructure *structure = gst_caps_get_structure(caps, 0);
+        gst_structure_get_int(structure, "width", &width);
+        gst_structure_get_int(structure, "height", &height);
+    }
+    // Dimensions come from the peer and size an allocation: bound them.
+    GstMapInfo map;
+    if (!buffer || width <= 0 || height <= 0 || width > 8192 || height > 8192
+        || !gst_buffer_map(buffer, &map, GST_MAP_READ)) {
+        gst_sample_unref(sample);
+        return GST_FLOW_OK;
+    }
+    QVideoFrame frame(QVideoFrameFormat(QSize(width, height),
+                                        QVideoFrameFormat::Format_RGBA8888));
+    if (frame.map(QVideoFrame::WriteOnly)) {
+        const int sourceStride = width * 4;
+        const int targetStride = frame.bytesPerLine(0);
+        const qsizetype available = static_cast<qsizetype>(map.size);
+        uchar *target = frame.bits(0);
+        for (int row = 0; row < height; ++row) {
+            const qsizetype offset = qsizetype(row) * sourceStride;
+            if (offset + sourceStride > available)
+                break;
+            std::memcpy(target + qsizetype(row) * targetStride,
+                        map.data + offset, size_t(sourceStride));
+        }
+        frame.unmap();
+    }
+    gst_buffer_unmap(buffer, &map);
+    gst_sample_unref(sample);
+    if (router->offerFrame(ctx->key, frame)) {
+        GstCallMediaBackend *backend = ctx->backend;
+        const QString key = ctx->key;
+        marshal(backend, [backend, key] {
+            backend->videoRouter()->deliverPending(key);
+        });
+    }
+    return GST_FLOW_OK;
+}
+
+// Whether `element` sits in a bin whose name starts with one of `prefixes`.
+// The camera front, the send chain and the receive chain are not the call: an
+// error in one costs a picture.
+bool insideBinNamed(GstObject *element, std::initializer_list<const char *> prefixes)
+{
+    GstObject *walk = element ? GST_OBJECT(gst_object_ref(element)) : nullptr;
+    bool found = false;
+    while (walk && !found) {
+        gchar *name = gst_object_get_name(walk);
+        for (const char *prefix : prefixes)
+            found = found || (name && g_str_has_prefix(name, prefix));
+        g_free(name);
+        GstObject *parent = gst_object_get_parent(walk);
+        gst_object_unref(walk);
+        walk = parent;
+    }
+    if (walk)
+        gst_object_unref(walk);
+    return found;
+}
+
+/// One camera start on a pool thread; see frontStartAsync().
+struct CameraStart {
+    GstCallMediaBackend *backend = nullptr;
+    quintptr token = 0;
+};
+
+void cameraStartAsync(GstElement *front, gpointer data)
+{
+    auto *ctx = static_cast<CameraStart *>(data);
+    GST_STATE_LOCK(front);
+    bool ok = true;
+    if (GstObject *parent = gst_object_get_parent(GST_OBJECT(front))) {
+        gst_element_set_locked_state(front, FALSE);
+        ok = gst_element_sync_state_with_parent(front);
+        gst_object_unref(parent);
+    }
+    GST_STATE_UNLOCK(front);
+    if (!ok) {
+        GstCallMediaBackend *backend = ctx->backend;
+        const quintptr token = ctx->token;
+        marshal(backend, [backend, token] {
+            QMetaObject::invokeMethod(
+                backend, "handleCameraLost", Qt::DirectConnection,
+                Q_ARG(quintptr, token),
+                Q_ARG(QString, QStringLiteral("camera_failed")));
+        });
+    }
+}
+
+void cameraStartFree(gpointer data)
+{
+    delete static_cast<CameraStart *>(data);
+}
+
+GstPadProbeReturn dropWhenDead(GstPad *, GstPadProbeInfo *, gpointer dead)
+{
+    return static_cast<std::atomic<bool> *>(dead)->load() ? GST_PAD_PROBE_DROP
+                                                          : GST_PAD_PROBE_OK;
+}
+
+GstPadProbeReturn countSharedPacket(GstPad *, GstPadProbeInfo *, gpointer data)
+{
+    (*static_cast<std::shared_ptr<std::atomic<int>> *>(data))->fetch_add(1);
+    return GST_PAD_PROBE_OK;
+}
+
+void sharedCounterFree(gpointer data)
+{
+    delete static_cast<std::shared_ptr<std::atomic<int>> *>(data);
 }
 
 GstPadProbeReturn countPacket(GstPad *, GstPadProbeInfo *, gpointer counter)
@@ -481,13 +711,19 @@ GstBusSyncReply busSyncHandler(GstBus *bus, GstMessage *message,
     if (GST_MESSAGE_TYPE(message) == GST_MESSAGE_ERROR) {
         // Error details can embed device or address strings: category only.
         // Invoked by name under the alive lock; the queued call dies with the
-        // receiver.
+        // receiver. A camera that fails costs the picture, never the call.
+        GstObject *source = GST_MESSAGE_SRC(message);
+        const bool received = insideBinNamed(source, {"camrecv"});
+        const bool camera =
+            received || insideBinNamed(source, {"camfront", "camchain"});
         QMutexLocker lock(&g_aliveMutex);
         if (g_aliveBackends.contains(ctx->backend)) {
             QMetaObject::invokeMethod(
-                ctx->backend, "handleFailure", Qt::QueuedConnection,
-                Q_ARG(quintptr, ctx->pipelineToken),
-                Q_ARG(QString, QStringLiteral("media_pipeline")));
+                ctx->backend, camera ? "handleCameraLost" : "handleFailure",
+                Qt::QueuedConnection, Q_ARG(quintptr, ctx->pipelineToken),
+                Q_ARG(QString, received ? QStringLiteral("video_receive")
+                               : camera ? QStringLiteral("camera_failed")
+                                        : QStringLiteral("media_pipeline")));
         }
     }
     // Drop after inspection: nothing drains this bus, so passing messages
@@ -537,6 +773,29 @@ bool GstCallMediaBackend::runtimeAvailable(QString *whyNot)
         gst_object_unref(factory);
     }
     return true;
+}
+
+bool GstCallMediaBackend::videoRuntimeAvailable()
+{
+    if (!lightning::gst::ensureInitialised(nullptr))
+        return false;
+    static const char *const kRequired[] = {
+        "vp8enc",       "vp8dec",     "rtpvp8pay", "rtpvp8depay",
+        "videoconvert", "appsink",    "tee",
+    };
+    for (const char *name : kRequired) {
+        GstElementFactory *factory = gst_element_factory_find(name);
+        if (!factory)
+            return false;
+        gst_object_unref(factory);
+    }
+    return true;
+}
+
+bool GstCallMediaBackend::supportsVideo() const
+{
+    static const bool available = videoRuntimeAvailable();
+    return available;
 }
 
 QString GstCallMediaBackend::sdpSectionShape(const QString &sdp)
@@ -591,6 +850,7 @@ int GstCallMediaBackend::offerPromiseErrorReplyContextRefsForTest()
 GstCallMediaBackend::GstCallMediaBackend(QObject *parent)
     : CallMediaBackend(parent)
 {
+    m_videoRouter = std::make_shared<SfuVideoRouter>();
     QMutexLocker lock(&g_aliveMutex);
     g_aliveBackends.insert(this);
 }
@@ -608,8 +868,16 @@ GstCallMediaBackend::~GstCallMediaBackend()
     m_retirer.drain(lightning::webrtc::Retirer::kQuitBudgetMs);
 }
 
+void GstCallMediaBackend::prepareCall(const QString &callId, bool video,
+                                      bool cameraOn)
+{
+    m_preparedCallId = callId;
+    m_preparedVideo = video;
+    m_preparedCamera = cameraOn;
+}
+
 bool GstCallMediaBackend::startSession(const QString &callId, bool offerer,
-                                       int opusPayloadType)
+                                       int opusPayloadType, int vp8PayloadType)
 {
     if (m_sessionActive) {
         // One call at a time; an existing session here is a controller bug, so
@@ -716,6 +984,26 @@ bool GstCallMediaBackend::startSession(const QString &callId, bool offerer,
     m_session.webrtc = webrtc;
     m_session.offerer = offerer;
     m_session.micFront = front; // borrowed: the pipeline owns it
+    m_session.streamId = QUuid::createUuid().toString(QUuid::Id128);
+    m_receivedVideoPackets.store(0);
+    m_decodedVideoFrames.store(0);
+    m_sentVideoFrames->store(0);
+    m_videoReceiveDead.store(false);
+    m_remoteVideoReceiving = false;
+    m_lastRemoteFrameMs.store(0);
+    m_remoteVideoPads.store(0);
+    m_lastNewestPadFrameMs.store(0);
+    // Both tracks name one stream, as a browser's do: a peer reading MSC3077
+    // metadata looks the stream up by this id.
+    setPadStreamId(webrtc, "sink_0", m_session.streamId);
+    if (GstPad *audioPad = gst_element_get_static_pad(webrtc, "sink_0")) {
+        statePadCaps(audioPad,
+                     QStringLiteral("application/x-rtp,media=audio,"
+                                    "encoding-name=OPUS,clock-rate=(int)48000,"
+                                    "encoding-params=(string)2,payload=(int)%1")
+                         .arg(payload));
+        gst_object_unref(audioPad);
+    }
     // Borrowed: the pipeline owns the valve and outlives the session struct.
     if (GstElement *valve = gst_bin_get_by_name(GST_BIN(pipeline),
                                                 "micvalve")) {
@@ -760,12 +1048,11 @@ bool GstCallMediaBackend::startSession(const QString &callId, bool offerer,
 
     applyIceConfigLocked();
 
-    if (offerer) {
-        // Only the offerer handles negotiation-needed; the answerer is driven
-        // by createAnswer().
-        g_signal_connect(webrtc, "on-negotiation-needed",
-                         G_CALLBACK(onNegotiationNeeded), this);
-    }
+    // The answerer is driven by createAnswer(); this asks for an offer only
+    // when m_offerWanted says so (the first one, and an upgrade to video).
+    m_offerWanted.store(offerer);
+    g_signal_connect(webrtc, "on-negotiation-needed",
+                     G_CALLBACK(onNegotiationNeeded), this);
     g_signal_connect(webrtc, "on-ice-candidate",
                      G_CALLBACK(onIceCandidateGst), this);
     g_signal_connect(webrtc, "notify::ice-gathering-state",
@@ -781,6 +1068,29 @@ bool GstCallMediaBackend::startSession(const QString &callId, bool offerer,
     gst_bus_set_sync_handler(bus, busSyncHandler, busCtx, busCtxFree);
     gst_object_unref(bus);
 
+    // A video call: the send chain is on webrtcbin before the first
+    // description exists, with or without a camera behind it.
+    const bool prepared = m_preparedCallId == callId;
+    if (vp8PayloadType > 0 && supportsVideo()
+        && !addVideoChainLocked(vp8PayloadType)) {
+        qCWarning(lcCallMedia) << "the video chain did not build; this call "
+                                  "carries audio only";
+    }
+    m_session.cameraWanted = prepared && m_preparedCamera;
+    m_acceptVideo.store(m_session.camInput != nullptr);
+    // Told, or the call says the camera is on while nothing opened it. Queued:
+    // the controller is still inside createOffer()/createAnswer().
+    if (m_session.cameraWanted && !m_session.camInput) {
+        m_session.cameraWanted = false;
+        QMetaObject::invokeMethod(
+            this,
+            [this, callId] {
+                Q_EMIT cameraFailed(callId, QStringLiteral("camera_unavailable"));
+            },
+            Qt::QueuedConnection);
+    }
+    m_preparedCallId.clear();
+
     // The capture is started apart, off this thread (startMicrophoneFrontAsync):
     // its source opening a sound server that does not answer blocked the GUI
     // thread for as long as the server took (issue #12 family). Locked out of
@@ -794,7 +1104,27 @@ bool GstCallMediaBackend::startSession(const QString &callId, bool offerer,
         return false;
     }
     startMicrophoneFrontAsync(front, !plan.microphoneFront.isEmpty());
+    if (m_session.camInput && m_session.cameraWanted)
+        startCameraLocked();
+    // webrtcbin asks for negotiation only once a buffer has told it the caps,
+    // and a capture muted before its first buffer never does: the offer would
+    // not come at all. They are stated above, so nothing needs to arrive.
+    if (offerer)
+        onNegotiationNeeded(webrtc, this);
+    if (!m_negotiationTimer) {
+        m_negotiationTimer = new QTimer(this);
+        m_negotiationTimer->setSingleShot(true);
+        connect(m_negotiationTimer, &QTimer::timeout, this,
+                &GstCallMediaBackend::onNegotiationTimeout);
+        m_offerDelayTimer = new QTimer(this);
+        m_offerDelayTimer->setSingleShot(true);
+        connect(m_offerDelayTimer, &QTimer::timeout, this, [this] {
+            if (m_sessionActive && m_session.offerDelayed)
+                sendOfferLocked();
+        });
+    }
     qCInfo(lcCallMedia) << "media session started offerer=" << offerer
+                        << "video=" << (m_session.camInput != nullptr)
                         << "testTone=" << m_testTone
                         << "chosenMicrophone=" << !plan.microphoneFront.isEmpty()
                         << "chosenSpeaker=" << !plan.speakerSink.isEmpty();
@@ -824,12 +1154,17 @@ void GstCallMediaBackend::destroySessionLocked()
     }
     if (m_statsTimer)
         m_statsTimer->stop();
+    if (m_negotiationTimer) {
+        m_negotiationTimer->stop();
+        m_offerDelayTimer->stop();
+    }
     // The capture leaves first, started or not, and is stopped off this
     // thread: the pipeline's NULL below would otherwise wait on its state
     // lock (a start in flight) or on its own stop (a capture whose sound
     // server stopped answering mid-call), on this thread. Its output drops
     // everything first, so nothing it still pushes meets an unlinked pad.
     detachStartingFront();
+    stopCameraLocked();
     if (GstElement *front = m_session.micFront; front && m_session.pipeline) {
         if (GstPad *out = gst_element_get_static_pad(front, "src")) {
             gst_pad_add_probe(out, GST_PAD_PROBE_TYPE_DATA_DOWNSTREAM,
@@ -847,6 +1182,9 @@ void GstCallMediaBackend::destroySessionLocked()
     // Engine state is per session. The controller owns the deafen intent and
     // re-applies it; a latched value would silence a later call.
     m_outputMuted.store(false);
+    m_acceptVideo.store(false);
+    m_offerWanted.store(false);
+    m_remoteVideoReceiving = false;
     qCInfo(lcCallMedia) << "media session destroyed";
 }
 
@@ -914,7 +1252,9 @@ void GstCallMediaBackend::setIceServers(const QStringList &uris,
 
 void GstCallMediaBackend::createOffer(const QString &callId)
 {
-    if (!startSession(callId, /*offerer=*/true, kDefaultOpusPayloadType))
+    const bool video = m_preparedCallId == callId && m_preparedVideo;
+    if (!startSession(callId, /*offerer=*/true, kDefaultOpusPayloadType,
+                      video ? kDefaultVp8PayloadType : -1))
         Q_EMIT failed(callId, QStringLiteral("media_init"));
     // The offer arrives via on-negotiation-needed -> create-offer.
 }
@@ -922,8 +1262,11 @@ void GstCallMediaBackend::createOffer(const QString &callId)
 void GstCallMediaBackend::createAnswer(const QString &callId,
                                        const QString &remoteOfferSdp)
 {
+    // Taken before set-remote-description: webrtcbin pairs an offered section
+    // with a sink pad it already has, so the chain must exist by then.
     if (!startSession(callId, /*offerer=*/false,
-                      opusPayloadTypeFromSdp(remoteOfferSdp))) {
+                      opusPayloadTypeFromSdp(remoteOfferSdp),
+                      vp8PayloadTypeFromSdp(remoteOfferSdp))) {
         Q_EMIT failed(callId, QStringLiteral("media_init"));
         return;
     }
@@ -977,6 +1320,529 @@ void GstCallMediaBackend::setRemoteAnswer(const QString &callId,
     gst_webrtc_session_description_free(answer);
 }
 
+void GstCallMediaBackend::statePadCaps(GstPad *sink, const QString &caps)
+{
+    GstWebRTCRTPTransceiver *transceiver = nullptr;
+    g_object_get(sink, "transceiver", &transceiver, nullptr);
+    GstCaps *rtp = gst_caps_from_string(caps.toUtf8().constData());
+    if (transceiver && rtp) {
+        g_object_set(transceiver, "codec-preferences", rtp, "direction",
+                     GST_WEBRTC_RTP_TRANSCEIVER_DIRECTION_SENDRECV, nullptr);
+    }
+    if (rtp)
+        gst_caps_unref(rtp);
+    if (transceiver)
+        gst_object_unref(transceiver);
+}
+
+void GstCallMediaBackend::setPadStreamId(GstElement *webrtc, const char *pad,
+                                         const QString &streamId)
+{
+    GstPad *sink = gst_element_get_static_pad(webrtc, pad);
+    if (!sink)
+        return;
+    // Absent on an old webrtcbin: the id then stays what webrtcbin chose, and
+    // metadata must not name a stream the SDP does not.
+    if (g_object_class_find_property(G_OBJECT_GET_CLASS(sink), "msid"))
+        g_object_set(sink, "msid", streamId.toUtf8().constData(), nullptr);
+    else
+        m_session.streamId.clear();
+    gst_object_unref(sink);
+}
+
+bool GstCallMediaBackend::addVideoChainLocked(int payloadType)
+{
+    if (m_session.camInput)
+        return true;
+    if (!m_session.pipeline || !m_session.webrtc)
+        return false;
+    const quint32 ssrc = QRandomGenerator::global()->bounded(1u, 0xFFFFFFFFu);
+    // Same values as the MatrixRTC camera at 720p. The queue in front is the
+    // live-path rule: bounded and leaky, a late frame is worth nothing. The
+    // caps name the ssrc for the reason startSession() gives, and the feedback
+    // a browser needs to ask for a keyframe; without it a lost one freezes the
+    // picture for good.
+    const QString description = QStringLiteral(
+        "queue name=caminput max-size-buffers=0 max-size-bytes=0 "
+        "max-size-time=100000000 leaky=downstream "
+        "! videoconvert ! video/x-raw,format=I420 "
+        "! vp8enc deadline=1 lag-in-frames=0 threads=4 cpu-used=2 "
+        "static-threshold=0 keyframe-max-dist=30 end-usage=cbr "
+        "target-bitrate=1700000 "
+        "! rtpvp8pay name=vidpay pt=%1 ssrc=%2 mtu=%3 picture-id-mode=15-bit "
+        "! capsfilter caps=\"application/x-rtp,media=video,encoding-name=VP8,"
+        "clock-rate=(int)90000,payload=(int)%1,ssrc=(uint)%2,"
+        "rtcp-fb-nack-pli=(boolean)true,rtcp-fb-ccm-fir=(boolean)true,"
+        "rtcp-fb-nack=(boolean)true\"")
+                                    .arg(payloadType)
+                                    .arg(ssrc)
+                                    .arg(lightning::rtp::kRtpPayloadMtu);
+    GError *error = nullptr;
+    GstElement *bin = gst_parse_bin_from_description(
+        description.toUtf8().constData(), TRUE, &error);
+    if (error) {
+        g_error_free(error);
+        if (bin)
+            gst_object_unref(bin);
+        return false;
+    }
+    gst_element_set_name(bin, "camchain");
+    if (!gst_bin_add(GST_BIN(m_session.pipeline), bin))
+        return false; // sunk and dropped by gst_bin_add
+    GstPad *sink = gst_element_request_pad_simple(m_session.webrtc, "sink_%u");
+    GstPad *out = gst_element_get_static_pad(bin, "src");
+    bool linked = sink && out && gst_pad_link(out, sink) == GST_PAD_LINK_OK;
+    if (sink && linked && !m_session.streamId.isEmpty()
+        && g_object_class_find_property(G_OBJECT_GET_CLASS(sink), "msid")) {
+        g_object_set(sink, "msid", m_session.streamId.toUtf8().constData(),
+                     nullptr);
+    }
+    // No buffer may ever pass with the camera off: see statePadCaps().
+    if (sink && linked) {
+        statePadCaps(sink,
+                     QStringLiteral("application/x-rtp,media=video,"
+                                    "encoding-name=VP8,clock-rate=(int)90000,"
+                                    "payload=(int)%1,"
+                                    "rtcp-fb-nack-pli=(boolean)true,"
+                                    "rtcp-fb-ccm-fir=(boolean)true,"
+                                    "rtcp-fb-nack=(boolean)true")
+                         .arg(payloadType));
+    }
+    if (out)
+        gst_object_unref(out);
+    if (sink)
+        gst_object_unref(sink);
+    if (!linked) {
+        gst_element_set_state(bin, GST_STATE_NULL);
+        gst_bin_remove(GST_BIN(m_session.pipeline), bin);
+        return false;
+    }
+    gst_element_sync_state_with_parent(bin);
+    m_session.camInput = bin; // borrowed: the pipeline owns it
+    return true;
+}
+
+GstElement *GstCallMediaBackend::buildCameraFront(CameraPlan plan)
+{
+    QString front = plan.front;
+    if (front.isEmpty() && m_testTone) {
+        front = QStringLiteral("videotestsrc is-live=true pattern=ball "
+                               "name=capsrc "
+                               "! video/x-raw,width=320,height=180,"
+                               "framerate=(fraction)15/1");
+    }
+    if (front.isEmpty())
+        return nullptr;
+    if (plan.chooseEntry && !plan.probe.isEmpty()) {
+        GError *error = nullptr;
+        GstElement *probe = gst_parse_bin_from_description(
+            plan.probe.toUtf8().constData(), FALSE, &error);
+        if (error) {
+            g_error_free(error);
+            if (probe)
+                gst_object_unref(probe);
+            return nullptr;
+        }
+        probe = GST_ELEMENT(gst_object_ref_sink(probe));
+        applyBinding(probe, "capsrc", plan.binding);
+        front.replace(QStringLiteral("@ENTRY@"), plan.chooseEntry(probe));
+        gst_element_set_state(probe, GST_STATE_NULL);
+        gst_object_unref(probe);
+    }
+    // The self-view lives in the front, so it stops with the camera. Both
+    // branches are bounded: a slow picture must not stall the other one, and
+    // `async=false` keeps a capture with no first frame from holding the
+    // running pipeline back (selfViewBranch() in the MatrixRTC lane).
+    front += QStringLiteral(
+        " ! tee name=camt "
+        "camt. ! queue max-size-buffers=2 leaky=downstream ! videoconvert "
+        "! video/x-raw,format=RGBA ! appsink name=selfvidsink "
+        "emit-signals=true sync=false async=false max-buffers=1 drop=true "
+        "camt. ! queue max-size-buffers=2 leaky=downstream "
+        "! identity name=camfrontout");
+    GError *error = nullptr;
+    GstElement *bin = gst_parse_bin_from_description(
+        front.toUtf8().constData(), TRUE, &error);
+    if (error) {
+        qCWarning(lcCallMedia) << "camera description did not parse code="
+                               << error->code;
+        g_error_free(error);
+        if (bin)
+            gst_object_unref(bin);
+        return nullptr;
+    }
+    if (!bin)
+        return nullptr;
+    static std::atomic<int> serial{0};
+    const QByteArray name =
+        QByteArray("camfront") + QByteArray::number(serial.fetch_add(1));
+    gst_element_set_name(bin, name.constData());
+    applyBinding(bin, "capsrc", plan.binding);
+    if (GstElement *self = gst_bin_get_by_name(GST_BIN(bin), "selfvidsink")) {
+        auto *ctx = new VideoSinkCtx{
+            this, m_videoRouter, QString::fromLatin1(kSelfVideoKey), 0, false};
+        g_signal_connect_data(self, "new-sample", G_CALLBACK(onVideoSample),
+                              ctx, videoSinkCtxFree, GConnectFlags(0));
+        gst_object_unref(self);
+    }
+    if (GstElement *out = gst_bin_get_by_name(GST_BIN(bin), "camfrontout")) {
+        if (GstPad *pad = gst_element_get_static_pad(out, "src")) {
+            gst_pad_add_probe(pad, GST_PAD_PROBE_TYPE_BUFFER, countSharedPacket,
+                              new std::shared_ptr<std::atomic<int>>(
+                                  m_sentVideoFrames),
+                              sharedCounterFree);
+            gst_object_unref(pad);
+        }
+        gst_object_unref(out);
+    }
+    return bin;
+}
+
+bool GstCallMediaBackend::startCameraLocked()
+{
+    if (m_session.camFront || !m_session.camInput || !m_session.pipeline)
+        return m_session.camFront != nullptr;
+    const CameraPlan plan = m_resolveCamera
+        ? m_resolveCamera(m_session.cameraPortalFd)
+        : CameraPlan{};
+    if (plan.needsPortal) {
+        // Answered by providePortalCamera(), possibly after a dialog.
+        Q_EMIT cameraAccessNeeded(m_session.callId);
+        return true;
+    }
+    if (!plan.refusal.isEmpty()) {
+        m_session.cameraWanted = false;
+        Q_EMIT cameraFailed(m_session.callId, plan.refusal);
+        return false;
+    }
+    GstElement *front = buildCameraFront(plan);
+    if (!front) {
+        m_session.cameraWanted = false;
+        Q_EMIT cameraFailed(m_session.callId,
+                            QStringLiteral("camera_failed"));
+        return false;
+    }
+    if (!gst_bin_add(GST_BIN(m_session.pipeline), front)
+        || !gst_element_link(front, m_session.camInput)) {
+        if (GST_OBJECT_PARENT(front))
+            gst_bin_remove(GST_BIN(m_session.pipeline), front);
+        m_session.cameraWanted = false;
+        Q_EMIT cameraFailed(m_session.callId,
+                            QStringLiteral("camera_failed"));
+        return false;
+    }
+    m_session.camFront = front; // borrowed: the pipeline owns it
+    // Off this thread, as the microphone: opening a device can block.
+    gst_element_set_locked_state(front, TRUE);
+    gst_element_call_async(
+        front, cameraStartAsync,
+        new CameraStart{this, reinterpret_cast<quintptr>(m_session.pipeline)},
+        cameraStartFree);
+    qCInfo(lcCallMedia) << "camera started";
+    return true;
+}
+
+void GstCallMediaBackend::stopCameraLocked()
+{
+    GstElement *front = std::exchange(m_session.camFront, nullptr);
+    if (!front || !m_session.pipeline) {
+        closePortalFdLocked(); // granted, and nothing was built on it
+        return;
+    }
+    if (GstPad *out = gst_element_get_static_pad(front, "src")) {
+        gst_pad_add_probe(out, GST_PAD_PROBE_TYPE_DATA_DOWNSTREAM,
+                          dropAllProbe, nullptr, nullptr);
+        gst_object_unref(out);
+    }
+    stopRemovedFrontAsync(GST_BIN(m_session.pipeline), front);
+    closePortalFdLocked();
+    qCInfo(lcCallMedia) << "camera stopped";
+}
+
+void GstCallMediaBackend::closePortalFdLocked()
+{
+#ifdef Q_OS_LINUX
+    // The stop above is asynchronous, but pipewiresrc dups or keeps its own:
+    // the MatrixRTC lane holds it for the bin only because that varies by
+    // plugin version, and a late close there is the same close.
+    if (m_session.cameraPortalFd >= 0)
+        ::close(m_session.cameraPortalFd);
+#endif
+    m_session.cameraPortalFd = -1;
+}
+
+void GstCallMediaBackend::providePortalCamera(const QString &callId, int fd)
+{
+    const bool live = m_sessionActive && m_session.callId == callId
+        && m_session.cameraWanted;
+    if (!live) {
+#ifdef Q_OS_LINUX
+        if (fd >= 0)
+            ::close(fd);
+#endif
+        return;
+    }
+    if (fd < 0) {
+        m_session.cameraWanted = false;
+        Q_EMIT cameraFailed(callId, QStringLiteral("camera_unavailable"));
+        return;
+    }
+    closePortalFdLocked();
+    m_session.cameraPortalFd = fd;
+    startCameraLocked();
+}
+
+void GstCallMediaBackend::setCameraEnabled(const QString &callId, bool on)
+{
+    if (!m_sessionActive || m_session.callId != callId)
+        return;
+    m_session.cameraWanted = on;
+    if (!on) {
+        stopCameraLocked();
+        return;
+    }
+    if (m_session.camInput) {
+        startCameraLocked();
+        // An earlier offer for this section was never answered.
+        if (m_session.videoUnconfirmed && !m_session.negotiating)
+            requestOfferLocked();
+        return;
+    }
+    // A voice call gaining a camera: the chain goes on webrtcbin, which then
+    // asks for negotiation. Only once the first exchange is finished: a
+    // section added under an open offer would be silently left out of it.
+    if (!supportsVideo() || !m_session.remoteDescriptionSet
+        || m_session.negotiating) {
+        m_session.cameraWanted = false;
+        Q_EMIT cameraFailed(callId, QStringLiteral("camera_unavailable"));
+        return;
+    }
+    if (!addVideoChainLocked(kDefaultVp8PayloadType)) {
+        m_session.cameraWanted = false;
+        Q_EMIT cameraFailed(callId, QStringLiteral("camera_failed"));
+        return;
+    }
+    m_acceptVideo.store(true);
+    m_session.videoUnconfirmed = true;
+    startCameraLocked();
+    requestOfferLocked();
+}
+
+void GstCallMediaBackend::requestOfferLocked()
+{
+    m_session.negotiating = true;
+    m_session.localOfferSet = false;
+    m_negotiationTimer->start(m_negotiationTimeoutMs);
+    // Two offers that cross cannot be undone: webrtcbin takes a rollback and
+    // then aborts the process answering the next offer (measured, 1.28.6,
+    // `_create_answer_task: (g_strcmp0 (mid, last_mid) == 0)`, and a peer
+    // could trigger that at will). So the callee waits a moment before it
+    // offers, and a caller's offer arriving meanwhile serves both.
+    if (!m_session.offerer) {
+        m_session.offerDelayed = true;
+        m_offerDelayTimer->start(m_calleeOfferDelayMs);
+        return;
+    }
+    sendOfferLocked();
+}
+
+void GstCallMediaBackend::sendOfferLocked()
+{
+    m_session.offerDelayed = false;
+    m_offerWanted.store(true);
+    // webrtcbin may not ask by itself: nothing new reaches it while the camera
+    // is still opening.
+    onNegotiationNeeded(m_session.webrtc, this);
+}
+
+void GstCallMediaBackend::onNegotiationTimeout()
+{
+    if (!m_sessionActive || !m_session.negotiating)
+        return;
+    // A lost send, a silent peer, or crossed offers. The offer stays with
+    // webrtcbin (see requestOfferLocked()), so this end takes no further peer
+    // offer; the call goes on, and turning the camera on again offers anew.
+    qCWarning(lcCallMedia) << "a renegotiation went unanswered";
+    m_session.negotiating = false;
+    m_session.offerDelayed = false;
+    m_offerDelayTimer->stop();
+    if (m_session.cameraWanted) {
+        stopCameraLocked();
+        m_session.cameraWanted = false;
+        Q_EMIT cameraFailed(m_session.callId,
+                            QStringLiteral("camera_unavailable"));
+    }
+}
+
+void GstCallMediaBackend::applyNegotiation(const QString &callId,
+                                           const QString &type,
+                                           const QString &sdp)
+{
+    if (!m_sessionActive || m_session.callId != callId || !m_session.webrtc)
+        return;
+    const bool offer = type == QLatin1String("offer");
+    if (!offer && type != QLatin1String("answer"))
+        return;
+    if (offer && m_session.offerDelayed && vp8PayloadTypeFromSdp(sdp) > 0) {
+        // Our offer has not left: the caller's carries what it asked for.
+        m_offerDelayTimer->stop();
+        m_negotiationTimer->stop();
+        m_session.offerDelayed = false;
+        m_session.negotiating = false;
+        m_session.videoUnconfirmed = false;
+    }
+    if (offer && m_session.offerDelayed) {
+        // A caller's offer without video (a hold): ours waits until it is done.
+        m_offerDelayTimer->start(m_calleeOfferDelayMs);
+        applyRemoteOfferLocked(sdp);
+        return;
+    }
+    if (offer && (m_session.negotiating || m_session.localOfferSet)) {
+        // Crossed, or one we gave up on: webrtcbin cannot take an offer now
+        // (see requestOfferLocked()). The timeout reports it.
+        qCInfo(lcCallMedia) << "an offer into our own open one was ignored";
+        return;
+    }
+    if (!offer && !m_session.negotiating) {
+        qCInfo(lcCallMedia) << "an unasked-for renegotiation answer was ignored";
+        return;
+    }
+    if (offer) {
+        applyRemoteOfferLocked(sdp);
+        return;
+    }
+    GstSDPMessage *message = nullptr;
+    if (gst_sdp_message_new_from_text(sdp.toUtf8().constData(), &message)
+            != GST_SDP_OK
+        || gst_sdp_message_medias_len(message) == 0) {
+        if (message)
+            gst_sdp_message_free(message);
+        qCWarning(lcCallMedia) << "an unusable renegotiation was ignored";
+        return;
+    }
+    qCInfo(lcCallMedia) << "renegotiation answered sections="
+                        << sdpSectionShape(sdp);
+    m_session.negotiating = false;
+    m_session.localOfferSet = false;
+    m_session.videoUnconfirmed = false;
+    m_negotiationTimer->stop();
+    GstWebRTCSessionDescription *description =
+        gst_webrtc_session_description_new(GST_WEBRTC_SDP_TYPE_ANSWER,
+                                           message); // takes ownership
+    GstPromise *promise = gst_promise_new_with_change_func(
+        onRemoteAnswerSet, promiseCtxNew(this, m_session.webrtc, callId),
+        promiseCtxFree);
+    g_signal_emit_by_name(m_session.webrtc, "set-remote-description",
+                          description, promise);
+    gst_webrtc_session_description_free(description);
+}
+
+void GstCallMediaBackend::applyRemoteOfferLocked(const QString &sdp)
+{
+    GstSDPMessage *message = nullptr;
+    if (gst_sdp_message_new_from_text(sdp.toUtf8().constData(), &message)
+            != GST_SDP_OK
+        || gst_sdp_message_medias_len(message) == 0) {
+        if (message)
+            gst_sdp_message_free(message);
+        qCWarning(lcCallMedia) << "an unusable renegotiation was ignored";
+        return;
+    }
+    qCInfo(lcCallMedia) << "renegotiation offered sections="
+                        << sdpSectionShape(sdp);
+    // The peer turned its camera on in a voice call. Our chain has to be on
+    // webrtcbin before the description is, or the section is answered with
+    // nothing to send; no camera opens until the user asks for it.
+    const int payload = vp8PayloadTypeFromSdp(sdp);
+    if (payload > 0 && supportsVideo() && addVideoChainLocked(payload))
+        m_acceptVideo.store(true);
+    GstWebRTCSessionDescription *description =
+        gst_webrtc_session_description_new(GST_WEBRTC_SDP_TYPE_OFFER,
+                                           message); // takes ownership
+    GstPromise *promise = gst_promise_new_with_change_func(
+        onRemoteOfferSet,
+        promiseCtxNew(this, m_session.webrtc, m_session.callId),
+        promiseCtxFree);
+    g_signal_emit_by_name(m_session.webrtc, "set-remote-description",
+                          description, promise);
+    gst_webrtc_session_description_free(description);
+}
+
+void GstCallMediaBackend::failCameraForTest()
+{
+    handleCameraLost(reinterpret_cast<quintptr>(m_session.pipeline),
+                     QStringLiteral("camera_failed"));
+}
+
+void GstCallMediaBackend::failVideoReceiveForTest()
+{
+    handleCameraLost(reinterpret_cast<quintptr>(m_session.pipeline),
+                     QStringLiteral("video_receive"));
+}
+
+void GstCallMediaBackend::attachVideoSink(bool self, QObject *sink)
+{
+    auto *videoSink = qobject_cast<QVideoSink *>(sink);
+    const QString key = QString::fromLatin1(self ? kSelfVideoKey
+                                                 : kRemoteVideoKey);
+    if (videoSink)
+        m_videoRouter->attachSink(key, videoSink);
+}
+
+void GstCallMediaBackend::noteRemoteVideoFrame(quintptr token)
+{
+    m_decodedVideoFrames.fetch_add(1);
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (m_lastRemoteFrameMs.exchange(now) != 0)
+        return;
+    GstCallMediaBackend *backend = this;
+    marshal(backend, [backend, token] {
+        if (!backend->tokenMatchesLiveSession(token)
+            || backend->m_remoteVideoReceiving)
+            return;
+        backend->m_remoteVideoReceiving = true;
+        Q_EMIT backend->remoteVideoChanged(backend->m_session.callId, true);
+    });
+}
+
+bool GstCallMediaBackend::remoteFrameWanted(int padSerial)
+{
+    // The newest track wins, which is a peer's screen share over its camera,
+    // and the older one comes back within a moment of the newest going quiet.
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (padSerial == m_remoteVideoPads.load()) {
+        m_lastNewestPadFrameMs.store(now);
+        return true;
+    }
+    return now - m_lastNewestPadFrameMs.load() > kNewestPadQuietMs;
+}
+
+void GstCallMediaBackend::handleCameraLost(quintptr token,
+                                           const QString &category)
+{
+    if (!tokenMatchesLiveSession(token))
+        return;
+    qCWarning(lcCallMedia) << "the camera failed category=" << category
+                           << "; the call goes on without it";
+    if (category == QLatin1String("video_receive")) {
+        // Nothing more enters that chain, so it cannot stop the shared
+        // transport. Our camera is not involved.
+        m_videoReceiveDead.store(true);
+        if (m_remoteVideoReceiving) {
+            m_remoteVideoReceiving = false;
+            m_lastRemoteFrameMs.store(0);
+            Q_EMIT remoteVideoChanged(m_session.callId, false);
+        }
+        return;
+    }
+    // A send chain error with the camera off: nothing the user asked for.
+    if (!m_session.camFront && !m_session.cameraWanted)
+        return;
+    stopCameraLocked();
+    m_session.cameraWanted = false;
+    Q_EMIT cameraFailed(m_session.callId, category);
+}
+
 void GstCallMediaBackend::addRemoteCandidate(const QString &callId,
                                              const QString &candidate,
                                              const QString &sdpMid,
@@ -1003,6 +1869,11 @@ void GstCallMediaBackend::addRemoteCandidate(const QString &callId,
 void GstCallMediaBackend::setAudioDeviceResolver(AudioDeviceResolver resolver)
 {
     m_resolveDevices = std::move(resolver);
+}
+
+void GstCallMediaBackend::setCameraResolver(CameraResolver resolver)
+{
+    m_resolveCamera = std::move(resolver);
 }
 
 GstCallMediaBackend::AudioDevicePlan GstCallMediaBackend::resolveDevices() const
@@ -1426,26 +2297,47 @@ void GstCallMediaBackend::handleLocalDescription(quintptr token, bool offer,
 {
     if (!tokenMatchesLiveSession(token))
         return;
+    const bool renegotiation = m_session.answerSent || m_session.offerSent;
     if (sdp.isEmpty()) {
+        if (renegotiation) {
+            // The call is up and did not need this: it stays as it was.
+            qCWarning(lcCallMedia) << "a renegotiation produced no description";
+            m_session.negotiating = false;
+            m_negotiationTimer->stop();
+            if (m_session.cameraWanted && offer) {
+                stopCameraLocked();
+                m_session.cameraWanted = false;
+                Q_EMIT cameraFailed(m_session.callId,
+                                    QStringLiteral("camera_failed"));
+            }
+            return;
+        }
         handleFailure(token, QStringLiteral("description_failed"));
         return;
     }
-    if (offer && m_session.offerSent) {
-        // This lane never renegotiates; a second offer would reach the peer
-        // as a new invite for the same call.
-        qCWarning(lcCallMedia) << "a renegotiation offer was created and "
-                                  "not sent";
-        return;
-    }
-    if (offer)
-        m_session.offerSent = true;
     qCInfo(lcCallMedia) << (offer ? "local offer sections="
                                   : "local answer sections=")
                         << sdpSectionShape(sdp);
-    if (offer)
+    // The first description of each kind sets the call up; every later one is
+    // a renegotiation, which reaches the peer as m.call.negotiate and never as
+    // a new invite for the same call. An answerer's first offer is such a one
+    // too: its first description was the answer.
+    if (renegotiation) {
+        if (offer)
+            m_session.localOfferSet = true;
+        Q_EMIT negotiationReady(m_session.callId,
+                                offer ? QStringLiteral("offer")
+                                      : QStringLiteral("answer"),
+                                sdp);
+        return;
+    }
+    if (offer) {
+        m_session.offerSent = true;
         Q_EMIT offerReady(m_session.callId, sdp);
-    else
+    } else {
+        m_session.answerSent = true;
         Q_EMIT answerReady(m_session.callId, sdp);
+    }
 }
 
 void GstCallMediaBackend::handleRemoteDescriptionApplied(quintptr token)
@@ -1545,6 +2437,15 @@ void GstCallMediaBackend::handleStats(quintptr token, quint64 inboundAudio,
         && outboundAudio == m_session.lastOutboundAudioPackets;
     m_session.lastInboundAudioPackets = inboundAudio;
     m_session.lastOutboundAudioPackets = outboundAudio;
+    // A picture that stopped: the peer's camera went away without metadata,
+    // or its packets did. Nothing else would ever say so.
+    if (m_remoteVideoReceiving
+        && QDateTime::currentMSecsSinceEpoch() - m_lastRemoteFrameMs.load()
+            > kRemoteVideoStallMs) {
+        m_remoteVideoReceiving = false;
+        m_lastRemoteFrameMs.store(0);
+        Q_EMIT remoteVideoChanged(m_session.callId, false);
+    }
     // The first half minute every 5 s, then once a minute, and whenever audio
     // stopped arriving or leaving: the line that tells "nothing arrived" from
     // "arrived and was not decoded" from "never sent". Counts only.
@@ -1553,14 +2454,16 @@ void GstCallMediaBackend::handleStats(quintptr token, quint64 inboundAudio,
     const QString counts =
         QStringLiteral("inbound audio packets=%1 bytes=%2 lost=%3 decoded=%4 "
                        "outbound audio packets=%5 inbound other packets=%6 "
-                       "ice=%7")
+                       "ice=%7 video frames decoded=%8 sent=%9")
             .arg(inboundAudio)
             .arg(inboundAudioBytes)
             .arg(inboundLost)
             .arg(m_decodedBuffers.load())
             .arg(outboundAudio)
             .arg(inboundOther)
-            .arg(iceState);
+            .arg(iceState)
+            .arg(m_decodedVideoFrames.load())
+            .arg(m_sentVideoFrames->load());
     if (inStalled || outStalled) {
         qCWarning(lcCallMedia).noquote()
             << "rtp stats:" << (inStalled ? "no audio arriving;" : "")
@@ -1609,6 +2512,8 @@ void GstCallMediaBackend::onNegotiationNeeded(GstElement *webrtc,
     if (!scope.live())
         return;
     auto *backend = static_cast<GstCallMediaBackend *>(userData);
+    if (!backend->m_offerWanted.exchange(false))
+        return;
     // Session identity travels as the emitting element's pointer (kept alive
     // by the promise ctx), so a stale offer cannot be attributed to a newer
     // session without reading backend state on this thread.
@@ -1667,10 +2572,11 @@ void GstCallMediaBackend::onRemoteOfferSet(GstPromise *promise,
         backend->handleRemoteDescriptionApplied(token);
     });
     // Decline what this engine cannot carry before answering; see the header.
-    const int declined = declineUnhandledSections(webrtc);
+    const int declined =
+        declineUnhandledSections(webrtc, backend->m_acceptVideo.load());
     if (declined > 0) {
         qCInfo(lcCallMedia) << "declining" << declined
-                            << "offered section(s) that are not audio";
+                            << "offered section(s) this call does not carry";
     }
     // Answer creation continues on this thread; the element is ref-held, and
     // an answer for a closed session is dropped by the Qt-side token check.
@@ -1775,6 +2681,64 @@ void GstCallMediaBackend::onPadAdded(GstElement *webrtc, void *pad,
     if (!pipeline)
         return;
     const quintptr token = reinterpret_cast<quintptr>(webrtc);
+    if (backend->m_acceptVideo.load() && padCarriesVp8Video(srcPad)) {
+        // Bounded, not leaky: this is RTP into a depayloader, and a dropped
+        // packet corrupts the VP8 bitstream downstream of webrtcbin. Latency
+        // is bounded by the appsink's drop=true instead. The depayloader asks
+        // for a keyframe on a gap, which webrtcbin sends as a PLI.
+        GError *error = nullptr;
+        GstElement *bin = gst_parse_bin_from_description(
+            "queue max-size-buffers=0 max-size-bytes=0 max-size-time=200000000 "
+            "! rtpvp8depay request-keyframe=true wait-for-keyframe=true "
+            "! vp8dec ! videoconvert ! video/x-raw,format=RGBA "
+            "! appsink name=vidsink emit-signals=true sync=false async=false "
+            "max-buffers=1 drop=true",
+            TRUE, &error);
+        bool ok = !error && bin;
+        if (error)
+            g_error_free(error);
+        if (ok) {
+            static std::atomic<int> receiveSerial{0};
+            const QByteArray name = QByteArray("camrecv")
+                + QByteArray::number(receiveSerial.fetch_add(1));
+            gst_element_set_name(bin, name.constData());
+            GstElement *sink = gst_bin_get_by_name(GST_BIN(bin), "vidsink");
+            auto *ctx = new VideoSinkCtx{
+                backend, backend->m_videoRouter,
+                QString::fromLatin1(kRemoteVideoKey), token, true,
+                backend->m_remoteVideoPads.fetch_add(1) + 1};
+            g_signal_connect_data(sink, "new-sample",
+                                  G_CALLBACK(onVideoSample), ctx,
+                                  videoSinkCtxFree, GConnectFlags(0));
+            gst_object_unref(sink);
+            ok = gst_bin_add(GST_BIN(pipeline), bin);
+            if (ok) {
+                gst_element_sync_state_with_parent(bin);
+                GstPad *sinkPad = gst_element_get_static_pad(bin, "sink");
+                gst_pad_add_probe(sinkPad, GST_PAD_PROBE_TYPE_BUFFER,
+                                  countPacket,
+                                  &backend->m_receivedVideoPackets, nullptr);
+                gst_pad_add_probe(sinkPad, GST_PAD_PROBE_TYPE_BUFFER,
+                                  dropWhenDead, &backend->m_videoReceiveDead,
+                                  nullptr);
+                ok = gst_pad_link(srcPad, sinkPad) == GST_PAD_LINK_OK;
+                gst_object_unref(sinkPad);
+                if (!ok) {
+                    gst_element_set_state(bin, GST_STATE_NULL);
+                    gst_bin_remove(GST_BIN(pipeline), bin);
+                }
+            }
+        } else if (bin) {
+            gst_object_unref(bin);
+        }
+        if (ok) {
+            gst_object_unref(pipeline);
+            qCInfo(lcCallMedia) << "a VP8 receive track is linked";
+            return;
+        }
+        // Falls through to the drain: the picture is lost, the call is not.
+        qCWarning(lcCallMedia) << "the VP8 receive chain did not build";
+    }
     if (!padCarriesOpusAudio(srcPad)) {
         // A track the Opus chain cannot decode (a video section the peer
         // sends anyway, as webrtcbin does after an inactive answer). Drained,

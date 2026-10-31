@@ -1,4 +1,4 @@
-// Voice-call state machine for the legacy MSC2746 `m.call.*` lane.
+// Voice and video call state machine for the legacy MSC2746 `m.call.*` lane.
 //
 // Consumes SDP-free CallSignal observations (CallSignal.h) and drives one
 // call session: glare resolution, party-id locking, invite lifetime,
@@ -58,6 +58,18 @@ class CallController : public QObject
     Q_PROPERTY(bool microphoneMuted READ microphoneMuted
                    NOTIFY audioStateChanged)
     Q_PROPERTY(bool deafened READ deafened NOTIFY audioStateChanged)
+    /// This engine can carry a picture on the legacy lane.
+    Q_PROPERTY(bool videoSupported READ videoSupported
+                   NOTIFY mediaBackendAvailableChanged)
+    /// The live legacy call has a video section (asked for, offered to us, or
+    /// added by a renegotiation).
+    Q_PROPERTY(bool videoCall READ videoCall NOTIFY videoStateChanged)
+    Q_PROPERTY(bool cameraOn READ cameraOn NOTIFY videoStateChanged)
+    /// The peer's picture is arriving and they have not said it is off.
+    Q_PROPERTY(bool remoteVideoVisible READ remoteVideoVisible
+                   NOTIFY videoStateChanged)
+    Q_PROPERTY(bool remoteMicrophoneMuted READ remoteMicrophoneMuted
+                   NOTIFY videoStateChanged)
 
 public:
     enum class State { Idle, Inviting, Ringing, Connecting, Active, Ended };
@@ -141,13 +153,39 @@ public:
     bool microphoneMuted() const { return m_microphoneMuted; }
     bool deafened() const { return m_deafened; }
 
+    bool videoSupported() const;
+    bool videoCall() const { return sessionLive() && m_session.video; }
+    bool cameraOn() const { return sessionLive() && m_cameraOn; }
+    bool remoteVideoVisible() const
+    {
+        return sessionLive() && m_session.remoteVideoReceiving
+            && !m_session.remoteVideoMuted;
+    }
+    bool remoteMicrophoneMuted() const
+    {
+        return sessionLive() && m_session.remoteAudioMuted;
+    }
+    /// Camera on or off in the live call. Off closes the device. On in a
+    /// voice call adds video with a renegotiation; a call that cannot yet
+    /// (still ringing the peer without video) refuses by returning false.
+    Q_INVOKABLE bool setCameraOn(bool on);
+    Q_INVOKABLE bool toggleCamera() { return setCameraOn(!m_cameraOn); }
+    /// `sink` is a QVideoSink from a VideoOutput; `self` picks our own picture
+    /// over the peer's.
+    Q_INVOKABLE void attachVideoSink(bool self, QObject *sink);
+
     /// `invitee` is the one user this call is for (MSC2746): only they ring,
     /// and every later signal on the session must come from them, since
     /// call_id is readable by every room member. Empty means the first
     /// answerer is locked in as the peer.
     Q_INVOKABLE bool placeCall(const QString &roomId,
-                               const QString &invitee = QString());
-    Q_INVOKABLE bool answer();
+                               const QString &invitee = QString(),
+                               bool video = false);
+    /// `camera`: open the camera when the ring is a video call. Off unless a
+    /// surface offering that choice says so (a notification's Answer does
+    /// not). A voice ring ignores it, and an answer without the camera still
+    /// receives the peer's picture.
+    Q_INVOKABLE bool answer(bool camera = false);
     /// Why the last placeCall()/answer() refused, as a closed-set token. The
     /// card maps it to wording and never shows the token itself.
     Q_INVOKABLE QString lastRefusal() const { return m_lastRefusal; }
@@ -219,7 +257,10 @@ public:
 
 Q_SIGNALS:
     void audioStateChanged();
+    void videoStateChanged();
     void stateChanged();
+    // The camera would not open; the call goes on. Closed-set category.
+    void cameraFailed(const QString &category);
     void callerDisplayNameChanged();
     void mediaBackendAvailableChanged();
     // remainingMs is the invite's real remaining validity.
@@ -255,6 +296,13 @@ private:
         QString invitee;
         Direction direction = Direction::None;
         bool rtc = false;
+        bool video = false;
+        bool cameraOnAnswer = false;
+        // What the peer has said about its stream (MSC3077), and whether its
+        // picture is arriving.
+        bool remoteAudioMuted = false;
+        bool remoteVideoMuted = false;
+        bool remoteVideoReceiving = false;
         qint64 lifetimeMs = 0;
         bool selectAnswerSent = false;
         // Outbound: the media backend is producing the offer; the invite
@@ -298,6 +346,12 @@ private:
     void handleSelectAnswer(const CallSignal &signal);
     void handleRtcNotification(const CallSignal &signal);
     void handleRtcDecline(const CallSignal &signal);
+    void handleNegotiate(const CallSignal &signal);
+    void handleStreamMetadata(const CallSignal &signal);
+    void noteRemoteMetadata(const CallSignal &signal);
+    // Our MSC3077 stream metadata, or empty when the engine names no stream.
+    QString streamMetadataJson() const;
+    void publishStreamMetadata();
     // Whether a MatrixRTC announcement rings this account rather than only
     // announcing a call. See handleRtcNotification().
     bool rtcNotificationRingsUs(const CallSignal &signal) const;
@@ -308,6 +362,10 @@ private:
     void onMediaAnswerReady(const QString &callId, const QString &sdp);
     void onMediaConnected(const QString &callId);
     void onMediaFailed(const QString &callId, const QString &category);
+    void onMediaNegotiationReady(const QString &callId, const QString &type,
+                                 const QString &sdp);
+    void onRemoteVideoChanged(const QString &callId, bool receiving);
+    void onCameraFailed(const QString &callId, const QString &category);
     void onMediaLocalCandidate(const QString &callId,
                                const QString &candidate,
                                const QString &sdpMid, int sdpMLineIndex);
@@ -362,6 +420,8 @@ private:
     // Local audio intent, owned here because the engine resets per session;
     // re-applied when the next call connects.
     bool m_microphoneMuted = false;
+    // Per call, unlike the microphone: a camera is never on by surprise.
+    bool m_cameraOn = false;
     bool m_deafened = false;
     // The mic state to return to when undeafening.
     bool m_micMutedBeforeDeafen = false;

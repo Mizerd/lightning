@@ -1,6 +1,8 @@
 #include "CallController.h"
 
 #include <QDateTime>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QLoggingCategory>
 #include <QUuid>
 
@@ -30,6 +32,8 @@ constexpr int kMaxBusyRejectsPerSession = 8;
 constexpr int kMaxPendingOps = 64;
 // Bound on offer/answer production, so a hung engine cannot wedge the session.
 constexpr qint64 kMediaProductionTimeoutMs = 15000;
+// MSC2746's advice for a negotiate's lifetime, and what matrix-js-sdk sends.
+constexpr quint64 kNegotiateLifetimeMs = 60000;
 // How long "this homeserver has no TURN" is believed before asking again.
 constexpr qint64 kNoTurnRecheckMs = 10 * 60 * 1000;
 
@@ -201,6 +205,74 @@ void CallController::applyAudioStateToBackend()
         return;
     m_mediaBackend->setMicrophoneMuted(m_session.callId, m_microphoneMuted);
     m_mediaBackend->setOutputMuted(m_session.callId, m_deafened);
+    publishStreamMetadata();
+}
+
+bool CallController::videoSupported() const
+{
+    return m_mediaBackend && m_mediaBackend->supportsVideo();
+}
+
+bool CallController::setCameraOn(bool on)
+{
+    if (!m_mediaBackend || !sessionLive() || m_session.rtc
+        || !m_mediaBackend->supportsVideo())
+        return false;
+    if (on == m_cameraOn)
+        return true;
+    // Before a connection the only thing to change is a video call's own
+    // section; a voice call can gain one only once it is up.
+    const bool up = m_state == State::Connecting || m_state == State::Active;
+    if (!up && !(m_state == State::Inviting && m_session.video))
+        return false;
+    m_cameraOn = on;
+    // Before the engine has a session: what startPendingMedia() will ask for.
+    m_session.cameraOnAnswer = on;
+    Q_EMIT videoStateChanged();
+    m_mediaBackend->setCameraEnabled(m_session.callId, on);
+    // A refusal arrives synchronously through onCameraFailed().
+    if (m_cameraOn && !m_session.video) {
+        m_session.video = true;
+        Q_EMIT videoStateChanged();
+    }
+    publishStreamMetadata();
+    return m_cameraOn == on;
+}
+
+void CallController::attachVideoSink(bool self, QObject *sink)
+{
+    if (m_mediaBackend)
+        m_mediaBackend->attachVideoSink(self, sink);
+}
+
+QString CallController::streamMetadataJson() const
+{
+    const QString stream =
+        m_mediaBackend ? m_mediaBackend->localStreamId() : QString();
+    if (stream.isEmpty())
+        return {};
+    QJsonObject entry;
+    entry.insert(QStringLiteral("purpose"), QStringLiteral("m.usermedia"));
+    entry.insert(QStringLiteral("audio_muted"), m_microphoneMuted);
+    entry.insert(QStringLiteral("video_muted"), !m_cameraOn);
+    QJsonObject map;
+    map.insert(stream, entry);
+    return QString::fromUtf8(QJsonDocument(map).toJson(QJsonDocument::Compact));
+}
+
+void CallController::publishStreamMetadata()
+{
+    // Sent once the peer has our description; before that the invite or
+    // answer carries the same state.
+    if (!m_client || m_session.rtc
+        || (m_state != State::Connecting && m_state != State::Active))
+        return;
+    const QString metadata = streamMetadataJson();
+    if (metadata.isEmpty())
+        return;
+    trackOp(m_client->callStreamMetadata(m_session.roomId, m_session.callId,
+                                         m_session.ourPartyId, metadata),
+            m_session.callId);
 }
 
 bool CallController::mediaBackendAvailable() const
@@ -231,6 +303,12 @@ void CallController::setMediaBackend(CallMediaBackend *backend)
                 &CallController::onMediaLocalCandidate);
         connect(m_mediaBackend, &CallMediaBackend::gatheringComplete, this,
                 &CallController::onMediaGatheringComplete);
+        connect(m_mediaBackend, &CallMediaBackend::negotiationReady, this,
+                &CallController::onMediaNegotiationReady);
+        connect(m_mediaBackend, &CallMediaBackend::remoteVideoChanged, this,
+                &CallController::onRemoteVideoChanged);
+        connect(m_mediaBackend, &CallMediaBackend::cameraFailed, this,
+                &CallController::onCameraFailed);
     }
     if (m_client)
         m_client->setCallMediaCapable(m_mediaBackend != nullptr);
@@ -333,6 +411,10 @@ void CallController::startPendingMedia()
         m_mediaBackend->setIceServers({}, {}, {}); // bounded direct fallback
     const QString callId = m_session.callId;
     armLifetimeTimer(kMediaProductionTimeoutMs);
+    m_mediaBackend->prepareCall(callId, m_session.video,
+                                m_session.video && m_session.cameraOnAnswer);
+    m_cameraOn = m_session.video && m_session.cameraOnAnswer;
+    Q_EMIT videoStateChanged();
     if (m_session.direction == Direction::Outbound) {
         m_mediaBackend->createOffer(callId);
     } else {
@@ -547,7 +629,8 @@ bool CallController::sessionLive() const
     return false;
 }
 
-bool CallController::placeCall(const QString &roomId, const QString &invitee)
+bool CallController::placeCall(const QString &roomId, const QString &invitee,
+                               bool video)
 {
     m_lastRefusal.clear();
     if (m_client && m_client->networkRouteActive()) {
@@ -574,12 +657,19 @@ bool CallController::placeCall(const QString &roomId, const QString &invitee)
         m_lastRefusal = QStringLiteral("call_in_progress");
         return false;
     }
+    if (video && !m_mediaBackend->supportsVideo()) {
+        m_lastRefusal = QStringLiteral("no_video_engine");
+        return false;
+    }
     Session session;
     session.roomId = roomId;
     session.callId = freshPartyId() + freshPartyId();
     session.ourPartyId = freshPartyId();
     session.direction = Direction::Outbound;
     session.lifetimeMs = 60000;
+    session.video = video;
+    session.cameraOnAnswer = video;
+    m_cameraOn = video;
     session.offerPending = true;
     session.mediaWaitingForTurn = true;
     session.invitee = invitee;
@@ -599,7 +689,7 @@ bool CallController::placeCall(const QString &roomId, const QString &invitee)
     return true;
 }
 
-bool CallController::answer()
+bool CallController::answer(bool camera)
 {
     m_lastRefusal.clear();
     if (m_state != State::Ringing) {
@@ -641,6 +731,7 @@ bool CallController::answer()
         m_lastRefusal = QStringLiteral("no_remote_offer");
         return false;
     }
+    m_session.cameraOnAnswer = camera && m_session.video;
     m_session.answerPending = true;
     m_session.mediaWaitingForTurn = true;
     m_session.pendingRemoteOffer = remoteOffer;
@@ -878,6 +969,8 @@ void CallController::onCallSignal(const CallSignal &signal)
     case CallSignal::Kind::SelectAnswer:    handleSelectAnswer(signal); break;
     case CallSignal::Kind::RtcNotification: handleRtcNotification(signal); break;
     case CallSignal::Kind::RtcDecline:      handleRtcDecline(signal); break;
+    case CallSignal::Kind::Negotiate:       handleNegotiate(signal); break;
+    case CallSignal::Kind::StreamMetadata:  handleStreamMetadata(signal); break;
     }
 }
 
@@ -981,8 +1074,14 @@ void CallController::handleInvite(const CallSignal &signal)
         // sending anything.
         return;
     }
+    bool glareAnswer = false;
+    bool glareVideo = false;
     if (sessionLive()) {
-        if (m_state == State::Inviting && m_session.roomId == signal.roomId) {
+        // Glare is the person we are calling calling us. Anyone else in the
+        // room is busy-rejected below (matrix-js-sdk tests the invitee too).
+        if (m_state == State::Inviting && m_session.roomId == signal.roomId
+            && (m_session.invitee.isEmpty()
+                || signal.sender == m_session.invitee)) {
             // Glare: both sides invited each other. Smaller call id wins.
             if (glareWinner(m_session.callId, signal.callId)
                 == signal.callId) {
@@ -995,6 +1094,10 @@ void CallController::handleInvite(const CallSignal &signal)
                                 QStringLiteral("replaced")),
                             m_session.callId);
                 }
+                // Only a call we know to be with this person is picked up
+                // unasked.
+                glareAnswer = !m_session.invitee.isEmpty();
+                glareVideo = m_session.video;
                 endSession(EndReason::GlareReplaced);
                 // fall through to adopt the surviving invite below
             } else {
@@ -1033,10 +1136,15 @@ void CallController::handleInvite(const CallSignal &signal)
     session.lifetimeMs = signal.lifetimeMs;
     session.announcedLive = !m_backlogSuppressed;
     session.ringDeadlineMs = QDateTime::currentMSecsSinceEpoch() + remaining;
+    // An engine that cannot carry video answers as voice, and says so.
+    session.video = signal.hasVideo && videoSupported();
+    session.remoteAudioMuted = signal.remoteAudioMuted;
+    session.remoteVideoMuted = signal.remoteVideoMuted;
     m_session = session;
     m_busyRejectsThisSession = 0;
     m_endReason = EndReason::None;
     setState(State::Ringing);
+    Q_EMIT videoStateChanged();
     armLifetimeTimer(remaining);
     // A room nobody has opened has no roster, so the card would name the
     // caller by localpart (live 2026-10-20: "sw059a is calling" beside "Ada
@@ -1047,6 +1155,14 @@ void CallController::handleInvite(const CallSignal &signal)
         && m_client->roomInfo(signal.roomId)
                .members.value(signal.sender).displayName.isEmpty())
         m_client->requestRoomMembers(signal.roomId);
+    // Glare: this user was already calling this person, so there is nobody to
+    // ask. As matrix-js-sdk does, the surviving call is answered at once, with
+    // the camera the user had asked for.
+    if (glareAnswer) {
+        qCInfo(lcCalls) << "glare: answering the surviving call";
+        if (answer(glareVideo))
+            return;
+    }
     Q_EMIT incomingCallStarted(signal.roomId, signal.callId, signal.sender,
                                remaining);
 }
@@ -1071,6 +1187,13 @@ void CallController::handleAnswer(const CallSignal &signal)
         // selected on the wire exactly once.
         m_session.remotePartyId = signal.partyId;
         m_session.remoteUserId = signal.sender;
+        noteRemoteMetadata(signal);
+        // The peer took a voice call: nobody would see this camera.
+        if (m_session.video && signal.hasDescription && !signal.hasVideo) {
+            setCameraOn(false);
+            m_session.video = false;
+            Q_EMIT videoStateChanged();
+        }
         if (m_client && !m_session.selectAnswerSent) {
             m_session.selectAnswerSent = true;
             trackOp(m_client->callSelectAnswer(
@@ -1092,6 +1215,46 @@ void CallController::handleAnswer(const CallSignal &signal)
         return;
     }
     // A later answer from a different party is ignored; the lock stands.
+}
+
+void CallController::noteRemoteMetadata(const CallSignal &signal)
+{
+    if (!signal.hasStreamMetadata)
+        return;
+    m_session.remoteAudioMuted = signal.remoteAudioMuted;
+    m_session.remoteVideoMuted = signal.remoteVideoMuted;
+    Q_EMIT videoStateChanged();
+}
+
+void CallController::handleNegotiate(const CallSignal &signal)
+{
+    if (!matchesSession(signal) || signal.own || !fromExpectedPeer(signal))
+        return;
+    if ((m_state != State::Connecting && m_state != State::Active)
+        || signal.partyId != m_session.remotePartyId)
+        return;
+    noteRemoteMetadata(signal);
+    if (signal.sessionType == QLatin1String("offer") && signal.hasVideo
+        && videoSupported() && !m_session.video) {
+        m_session.video = true;
+        Q_EMIT videoStateChanged();
+    }
+    if (!m_mediaBackend || !m_client)
+        return;
+    const QString sdp = m_client->takeCallSessionDescription(signal.eventId);
+    if (!sdp.trimmed().isEmpty())
+        m_mediaBackend->applyNegotiation(m_session.callId, signal.sessionType,
+                                         sdp);
+}
+
+void CallController::handleStreamMetadata(const CallSignal &signal)
+{
+    if (!matchesSession(signal) || signal.own || !fromExpectedPeer(signal))
+        return;
+    if (!m_session.remotePartyId.isEmpty()
+        && signal.partyId != m_session.remotePartyId)
+        return;
+    noteRemoteMetadata(signal);
 }
 
 void CallController::handleHangup(const CallSignal &signal)
@@ -1252,7 +1415,8 @@ void CallController::onMediaOfferReady(const QString &callId,
     const quint64 opId = m_client->callInvite(
         m_session.roomId, m_session.callId, m_session.ourPartyId,
         QStringLiteral("offer"), sdp,
-        static_cast<quint64>(m_session.lifetimeMs), m_session.invitee);
+        static_cast<quint64>(m_session.lifetimeMs), m_session.invitee,
+        streamMetadataJson());
     if (opId == 0) {
         endSession(EndReason::SendFailed);
         return;
@@ -1275,7 +1439,7 @@ void CallController::onMediaAnswerReady(const QString &callId,
     }
     const quint64 opId = m_client->callAnswer(
         m_session.roomId, m_session.callId, m_session.ourPartyId,
-        QStringLiteral("answer"), sdp);
+        QStringLiteral("answer"), sdp, streamMetadataJson());
     if (opId == 0) {
         endSession(EndReason::SendFailed);
         return;
@@ -1294,6 +1458,41 @@ void CallController::onMediaConnected(const QString &callId)
     // The engine's mute state starts clean per session, so push the user's
     // intent down, or a muted user is live on connect.
     applyAudioStateToBackend();
+}
+
+void CallController::onMediaNegotiationReady(const QString &callId,
+                                             const QString &type,
+                                             const QString &sdp)
+{
+    if (!sessionLive() || callId != m_session.callId || !m_client
+        || m_session.rtc || sdp.trimmed().isEmpty())
+        return;
+    trackOp(m_client->callNegotiate(m_session.roomId, m_session.callId,
+                                    m_session.ourPartyId, type, sdp,
+                                    kNegotiateLifetimeMs, streamMetadataJson()),
+            m_session.callId);
+}
+
+void CallController::onRemoteVideoChanged(const QString &callId, bool receiving)
+{
+    if (!sessionLive() || callId != m_session.callId
+        || m_session.remoteVideoReceiving == receiving)
+        return;
+    m_session.remoteVideoReceiving = receiving;
+    Q_EMIT videoStateChanged();
+}
+
+void CallController::onCameraFailed(const QString &callId,
+                                    const QString &category)
+{
+    if (!sessionLive() || callId != m_session.callId)
+        return;
+    const bool changed = m_cameraOn;
+    m_cameraOn = false;
+    if (changed)
+        Q_EMIT videoStateChanged();
+    Q_EMIT cameraFailed(category);
+    publishStreamMetadata();
 }
 
 void CallController::onMediaFailed(const QString &callId,
@@ -1375,7 +1574,9 @@ void CallController::endSession(EndReason reason)
     if (m_mediaBackend)
         m_mediaBackend->close(callId);
     m_endReason = reason;
+    m_cameraOn = false;
     setState(State::Ended);
+    Q_EMIT videoStateChanged();
     if (wasInbound)
         Q_EMIT incomingCallEnded(roomId, callId, static_cast<int>(reason),
                                  missed);

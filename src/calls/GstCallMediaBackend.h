@@ -1,11 +1,17 @@
-// The 1:1 voice-call media engine: GStreamer webrtcbin (ICE via libnice,
-// DTLS-SRTP, Opus), audio only.
+// The 1:1 call media engine: GStreamer webrtcbin (ICE via libnice, DTLS-SRTP,
+// Opus, VP8).
 //
-// Audio only means a video offer (Element's and Nheko's video calls) is
-// answered with its video section inactive, and any receive pad that is not
-// Opus audio is drained into a fakesink. Linking it into the Opus chain
-// failed caps negotiation, and the not-negotiated return stopped the shared
-// bundled transport: no audio either way.
+// Video is VP8, and a build or an offer without it falls back to audio: the
+// section is answered inactive and any receive pad this engine cannot decode
+// is drained into a fakesink. Linking one into the Opus chain failed caps
+// negotiation, and the not-negotiated return stopped the shared bundled
+// transport: no audio either way.
+//
+// The send chain ends at webrtcbin from the start of a video call; the camera
+// is a separate front (buildCameraFront()) linked to it only while it is on,
+// so turning the camera off closes the device without renegotiating. The
+// front also carries the self-view. A voice call that gains a camera adds the
+// chain and renegotiates (m.call.negotiate).
 //
 // Devices: the microphone and speaker are resolved per call through the same
 // path as the MatrixRTC lane (setAudioDeviceResolver()), and a pick made
@@ -42,8 +48,10 @@
 #include <QStringList>
 
 class QTimer;
+class SfuVideoRouter;
 
 typedef struct _GstElement GstElement;
+typedef struct _GstPad GstPad;
 typedef struct _GstPromise GstPromise;
 
 namespace lightning::calls {
@@ -74,6 +82,25 @@ public:
     // headless CI can run a real loopback handshake. Set before the first
     // call.
     void setTestToneMode(bool on) { m_testTone = on; }
+    /// Whether this GStreamer can carry 1:1 video: VP8 both ways. Audio calls
+    /// do not depend on it, so it is not part of runtimeAvailable().
+    static bool videoRuntimeAvailable();
+    /// Test-only, test-tone mode: RTP that reached the VP8 receive chain, and
+    /// the frames it decoded, in the current session.
+    int receivedVideoPacketsForTest() const
+    { return m_receivedVideoPackets.load(); }
+    int decodedVideoFramesForTest() const { return m_decodedVideoFrames.load(); }
+    /// Test-only: the camera front is in the pipeline.
+    bool cameraFrontLiveForTest() const { return m_session.camFront != nullptr; }
+    /// Test-only: frames the camera front produced for the encoder.
+    int sentVideoFramesForTest() const { return m_sentVideoFrames->load(); }
+    /// Test-only: the bound on an unanswered renegotiation.
+    void setNegotiationTimeoutForTest(int ms) { m_negotiationTimeoutMs = ms; }
+    /// Test-only: an unknown peer's receive chain fails, as a corrupt stream
+    /// would make it.
+    void failVideoReceiveForTest();
+    /// Test-only: the camera fails, as an unplugged device would make it.
+    void failCameraForTest();
     unsigned int microphoneRtpMtuForTest() const;
     /// Test-only, test-tone mode: RTP packets that reached the Opus receive
     /// chain in the current session.
@@ -134,6 +161,29 @@ public:
     /// fakesink, so a test can switch between fake devices.
     using AudioDeviceResolver = std::function<AudioDevicePlan()>;
     void setAudioDeviceResolver(AudioDeviceResolver resolver);
+    /// The camera a call opens, composed the way the MatrixRTC lane composes
+    /// its capture. `front` is "<source named capsrc> ! ... ! video/x-raw...",
+    /// no trailing separator; `refusal` non-empty opens nothing (a chosen
+    /// camera that is gone is never replaced by the default).
+    struct CameraPlan {
+        QString front;
+        lightning::calls::DeviceBinding binding;
+        QString refusal;
+        /// A sandbox: nothing can open until the Camera portal grants a
+        /// PipeWire remote. The engine emits cameraAccessNeeded().
+        bool needsPortal = false;
+        /// When set, "@ENTRY@" in `front` is replaced by what this answers for
+        /// the bound `probe` bin, which holds the source in READY: the camera's
+        /// advertised formats pick the entry (MJPG or raw).
+        QString probe;
+        std::function<QString(GstElement *)> chooseEntry;
+    };
+    /// `portalFd`: the granted remote, or -1. Runs on this object's thread.
+    using CameraResolver = std::function<CameraPlan(int portalFd)>;
+    void setCameraResolver(CameraResolver resolver);
+    /// The Camera portal's answer to cameraAccessNeeded(). Takes ownership of
+    /// `fd`; -1 means no camera (cancelled or failed).
+    void providePortalCamera(const QString &callId, int fd);
     /// The chosen microphone or speaker changed. A live call moves to the new
     /// devices now (the microphone is swapped in front of the mute valve, so
     /// mute, encoder, payloader and the negotiated track are untouched; each
@@ -166,7 +216,22 @@ public:
     void setOutputMuted(const QString &callId, bool muted) override;
     // A real valve/volume pair exists, so mute is genuinely supported.
     bool supportsMuteControl() const override { return true; }
+    bool supportsVideo() const override;
+    void prepareCall(const QString &callId, bool video, bool cameraOn) override;
+    void setCameraEnabled(const QString &callId, bool on) override;
+    void applyNegotiation(const QString &callId, const QString &type,
+                          const QString &sdp) override;
+    QString localStreamId() const override { return m_session.streamId; }
+    void attachVideoSink(bool self, QObject *sink) override;
     void close(const QString &callId) override;
+Q_SIGNALS:
+    /// The camera needs the xdg Camera portal; answer with
+    /// providePortalCamera().
+    void cameraAccessNeeded(const QString &callId);
+
+public:
+    /// The two pictures; the appsink callbacks read it.
+    SfuVideoRouter *videoRouter() const { return m_videoRouter.get(); }
 
 private:
     struct Session {
@@ -175,6 +240,7 @@ private:
         GstElement *webrtc = nullptr;
         bool offerer = false;
         bool offerSent = false;
+        bool answerSent = false;
         bool remoteDescriptionSet = false;
         QList<QPair<int, QString>> pendingRemoteCandidates;
         // Send-side valve: drop=true stops buffers before the encoder, so no
@@ -197,6 +263,23 @@ private:
         /// Which capture: a serial per front started (m_frontSerial), never
         /// its address, which a later front can reuse.
         quint64 frontSerial = 0;
+        // Video. `camInput` is the send chain's first element, borrowed from
+        // the pipeline, or null while the call has no video section.
+        GstElement *camInput = nullptr;
+        GstElement *camFront = nullptr;
+        bool cameraWanted = false;
+        // The portal's PipeWire remote, held while the camera is on.
+        int cameraPortalFd = -1;
+        // The msid both our tracks carry, the key of our stream metadata.
+        QString streamId;
+        // An offer of ours is on its way or out and unanswered.
+        bool negotiating = false;
+        // That offer's description exists (webrtcbin has it as local).
+        bool localOfferSet = false;
+        // The callee's offer is waiting out its delay.
+        bool offerDelayed = false;
+        // The video section was offered and the peer has not answered it.
+        bool videoUnconfirmed = false;
         // Periodic RTP statistics; see requestStats().
         int statsReports = 0;
         quint64 lastInboundAudioPackets = 0;
@@ -204,7 +287,26 @@ private:
     };
 
     bool startSession(const QString &callId, bool offerer,
-                      int opusPayloadType);
+                      int opusPayloadType, int vp8PayloadType);
+    // The VP8 send chain, on a running or starting pipeline. False when it
+    // would not build; the call carries on as audio.
+    bool addVideoChainLocked(int payloadType);
+    GstElement *buildCameraFront(CameraPlan plan);
+    // Opens the camera now, or says why not.
+    bool startCameraLocked();
+    void stopCameraLocked();
+    void closePortalFdLocked();
+    void requestOfferLocked();
+    void sendOfferLocked();
+    void applyRemoteOfferLocked(const QString &sdp);
+    void onNegotiationTimeout();
+    // Tells webrtcbin a sink pad's caps. It otherwise learns them from the
+    // first buffer: without one a section is left out of a description (port
+    // 0), and a call muted, or with its camera off, has no first buffer.
+    static void statePadCaps(GstPad *sink, const QString &caps);
+    // Names the stream both tracks belong to on one of webrtcbin's sink pads.
+    void setPadStreamId(GstElement *webrtc, const char *pad,
+                        const QString &streamId);
     AudioDevicePlan resolveDevices() const;
     // Builds the capture bin for `plan` (ghost src pad, `micsrc` bound), or
     // null. Not added to anything.
@@ -225,6 +327,10 @@ public:
     /// callback.
     void noteMicrophoneFrontStarted(quint64 serial, quint64 frontSerial,
                                     bool ok, bool chosenDevice, qint64 tookMs);
+    /// A remote picture reached the appsink. Any thread; public only for that
+    /// callback.
+    void noteRemoteVideoFrame(quintptr token);
+    bool remoteFrameWanted(int padSerial);
     /// Test-only: the capture's start is still in flight.
     bool microphoneFrontStartingForTest() const
     {
@@ -269,6 +375,7 @@ private:
                                    const QString &candidate);
     Q_SLOT void handleGatheringComplete(quintptr token);
     Q_SLOT void handleConnectionState(quintptr token, int state);
+    Q_SLOT void handleCameraLost(quintptr token, const QString &category);
     Q_SLOT void handleFailure(quintptr token, const QString &category);
     bool tokenMatchesLiveSession(quintptr token) const;
 
@@ -305,6 +412,38 @@ private:
     // Decoded receive buffers, for the stats line: shows whether RTP that
     // arrived also reached the decoder (written on a streaming thread).
     std::atomic<quint64> m_decodedBuffers{0};
+    std::atomic<int> m_receivedVideoPackets{0};
+    std::atomic<int> m_decodedVideoFrames{0};
+    // Shared with what can outlive this object by a moment: a stopped camera
+    // front finishes on a pool thread, and its self-view keeps delivering.
+    std::shared_ptr<std::atomic<int>> m_sentVideoFrames =
+        std::make_shared<std::atomic<int>>(0);
+    // Set when the receive chain failed: its packets go nowhere from then on,
+    // so its error return cannot stop the transport the audio shares.
+    std::atomic<bool> m_videoReceiveDead{false};
+    QTimer *m_negotiationTimer = nullptr;
+    QTimer *m_offerDelayTimer = nullptr;
+    int m_calleeOfferDelayMs = 1500;
+    int m_negotiationTimeoutMs = 60000; // a negotiate's lifetime
+    // Set for the session's first offer and for each deliberate upgrade:
+    // webrtcbin also asks for negotiation after our own answer, and those
+    // must not become offers. Read on a GStreamer thread.
+    std::atomic<bool> m_offerWanted{false};
+    // The session has a video chain, so a video section and a VP8 track are
+    // ours to take. Read on GStreamer threads.
+    std::atomic<bool> m_acceptVideo{false};
+    std::atomic<qint64> m_lastRemoteFrameMs{0};
+    std::atomic<int> m_remoteVideoPads{0};
+    std::atomic<qint64> m_lastNewestPadFrameMs{0};
+    static constexpr qint64 kNewestPadQuietMs = 1500;
+    bool m_remoteVideoReceiving = false;
+    static constexpr qint64 kRemoteVideoStallMs = 4000;
+    std::shared_ptr<SfuVideoRouter> m_videoRouter;
+    CameraResolver m_resolveCamera;
+    // prepareCall() until the session exists.
+    bool m_preparedVideo = false;
+    bool m_preparedCamera = false;
+    QString m_preparedCallId;
     bool m_testTone = false;
     QString m_testFront;
     quint64 m_sessionSerial = 0;

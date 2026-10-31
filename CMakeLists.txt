@@ -1326,6 +1326,8 @@ set(APP_QML_FILES
     qml/MusicActivitySettings.qml
     qml/CallPipWindow.qml
     qml/CallHeaderBar.qml
+    qml/CallFormatMenu.qml
+    qml/LegacyCallVideo.qml
     qml/CallTileBadge.qml
     qml/CallParticipantTile.qml
     qml/CallSpeakerBubbles.qml
@@ -4865,12 +4867,14 @@ if(BUILD_TESTING)
             src/calls/GstBootstrap.cpp
             src/calls/GstCallMediaBackend.h
             src/calls/GstCallMediaBackend.cpp
+            src/calls/SfuVideoRouter.h
+            src/calls/SfuVideoRouter.cpp
             src/calls/WebrtcRetirer.h
             src/calls/WebrtcRetirer.cpp
         )
         target_include_directories(call-media-loopback-test PRIVATE src)
         target_link_libraries(call-media-loopback-test PRIVATE
-            Qt6::Core Qt6::Test PkgConfig::GSTWEBRTC)
+            Qt6::Core Qt6::Multimedia Qt6::Test PkgConfig::GSTWEBRTC)
         add_test(NAME call-media-loopback COMMAND call-media-loopback-test)
 
         # The bundled-plugin rule, needing no runtime. Kept out of
@@ -4952,6 +4956,16 @@ if(BUILD_TESTING)
             add_test(NAME call-live-diagnostic
                 COMMAND call-live-diagnostic-test)
             set_tests_properties(call-live-diagnostic PROPERTIES TIMEOUT 240)
+        endif()
+
+        # Opt-in: one end of a live legacy call, driven by a scenario script.
+        option(LIGHTNING_BUILD_LEGACY_CALL_PEER "Build the legacy call live peer" OFF)
+        if(LIGHTNING_BUILD_LEGACY_CALL_PEER AND ENABLE_RUST_SDK_BACKEND)
+            qt_add_executable(legacy-call-live-peer tests/LegacyCallLivePeer.cpp)
+            lightning_configure_qml_test(legacy-call-live-peer)
+            target_include_directories(legacy-call-live-peer PRIVATE src)
+            target_compile_definitions(legacy-call-live-peer PRIVATE
+                HAVE_LIGHTNING_WEBRTC)
         endif()
 
         # Opt-in headless measurement on a supplied private audio graph.

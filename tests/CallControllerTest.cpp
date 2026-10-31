@@ -74,11 +74,13 @@ public:
     quint64 callInvite(const QString &roomId, const QString &callId,
                        const QString &partyId, const QString &offerType,
                        const QString &offerSdp, quint64 lifetimeMs,
-                       const QString &invitee) override
+                       const QString &invitee,
+                       const QString &streamMetadataJson) override
     {
         Q_UNUSED(offerType); Q_UNUSED(offerSdp); Q_UNUSED(lifetimeMs);
         Q_UNUSED(invitee);
         sent.append({QStringLiteral("invite"), roomId, callId, partyId, {}});
+        lastStreamMetadata = streamMetadataJson;
         return ++opCounter;
     }
     quint64 callReject(const QString &roomId, const QString &callId,
@@ -113,7 +115,8 @@ public:
 
     quint64 callAnswer(const QString &roomId, const QString &callId,
                        const QString &partyId, const QString &answerType,
-                       const QString &answerSdp) override
+                       const QString &answerSdp,
+                       const QString &streamMetadataJson) override
     {
         Q_UNUSED(answerType);
         // Record that an answer was dispatched without retaining the SDP,
@@ -121,8 +124,30 @@ public:
         sent.append({QStringLiteral("answer"), roomId, callId, partyId,
                      answerSdp.isEmpty() ? QString()
                                          : QStringLiteral("<sdp>")});
+        lastStreamMetadata = streamMetadataJson;
         return ++opCounter;
     }
+    quint64 callNegotiate(const QString &roomId, const QString &callId,
+                          const QString &partyId, const QString &type,
+                          const QString &sdp, quint64 lifetimeMs,
+                          const QString &streamMetadataJson) override
+    {
+        Q_UNUSED(sdp); Q_UNUSED(lifetimeMs);
+        sent.append({QStringLiteral("negotiate"), roomId, callId, partyId,
+                     type});
+        lastStreamMetadata = streamMetadataJson;
+        return ++opCounter;
+    }
+    quint64 callStreamMetadata(const QString &roomId, const QString &callId,
+                               const QString &partyId,
+                               const QString &streamMetadataJson) override
+    {
+        sent.append({QStringLiteral("stream_metadata"), roomId, callId, partyId,
+                     {}});
+        lastStreamMetadata = streamMetadataJson;
+        return ++opCounter;
+    }
+    QString lastStreamMetadata;
     void setCallMediaCapable(bool capable) override
     {
         mediaCapable = capable;
@@ -396,6 +421,43 @@ public:
         iceServerApplications.append(uris);
     }
     void close(const QString &callId) override { closed.append(callId); }
+    bool supportsVideo() const override { return videoEngine; }
+    QString localStreamId() const override { return streamId; }
+    void prepareCall(const QString &callId, bool video, bool cameraOn) override
+    {
+        prepared.append(QStringLiteral("%1 video=%2 camera=%3")
+                            .arg(callId)
+                            .arg(video)
+                            .arg(cameraOn));
+    }
+    void setCameraEnabled(const QString &callId, bool on) override
+    {
+        cameraRequests.append(on);
+        Q_UNUSED(callId);
+    }
+    void applyNegotiation(const QString &callId, const QString &type,
+                          const QString &sdp) override
+    {
+        Q_UNUSED(callId);
+        negotiations.append(type + QLatin1Char(' ') + sdp);
+    }
+    void deliverCameraFailure(const QString &callId)
+    {
+        Q_EMIT cameraFailed(callId, QStringLiteral("camera_failed"));
+    }
+    void deliverNegotiation(const QString &callId, const QString &type)
+    {
+        Q_EMIT negotiationReady(callId, type, QStringLiteral("v=0 renegotiated"));
+    }
+    void deliverRemoteVideo(const QString &callId, bool receiving)
+    {
+        Q_EMIT remoteVideoChanged(callId, receiving);
+    }
+    bool videoEngine = false;
+    QString streamId;
+    QStringList prepared;
+    QList<bool> cameraRequests;
+    QStringList negotiations;
 
     void deliverOffer(const QString &callId, const QString &sdp)
     {
@@ -2669,6 +2731,35 @@ private Q_SLOTS:
             }
             QVERIFY(rejectedTheirs);
         }
+    }
+
+    /// The user was already calling this person: the surviving call needs no
+    /// second click, and it keeps the camera they asked for.
+    void aGlareLoserAnswersTheSurvivingCallAtOnce()
+    {
+        RecordingCallClient client;
+        client.mediaCapable = true;
+        FakeMediaBackend media;
+        media.videoEngine = true;
+        CallController calls;
+        calls.setClient(&client);
+        calls.setMediaBackend(&media);
+        QSignalSpy rang(&calls, &CallController::incomingCallStarted);
+        QVERIFY(calls.placeCall(QStringLiteral("!r:x"),
+                                QStringLiteral("@peer:x"), true));
+        media.deliverOffer(calls.activeCallId(), QStringLiteral("v=0 ours"));
+        CallSignal theirs = freshInvite(QString());
+        theirs.callId = QStringLiteral("0000-smaller");
+        theirs.eventId = QStringLiteral("$theirs");
+        theirs.hasVideo = true;
+        client.storedDescriptions.insert(theirs.eventId,
+                                         QStringLiteral("v=0 theirs"));
+        client.emitSignal(theirs);
+        QCOMPARE(calls.activeCallId(), theirs.callId);
+        QCOMPARE(media.answerRequests, QStringList{theirs.callId});
+        QVERIFY(media.prepared.last().endsWith(
+            QLatin1String("video=1 camera=1")));
+        QCOMPARE(rang.size(), 0);
     }
 
     void secondInviteWhileRingingIsRejectedSessionUntouched()
@@ -6507,6 +6598,247 @@ private Q_SLOTS:
     // signal (`callShareVolumeChanged`), without a participant change first
     // and without duplicate connections. Asserted on the engine record, not
     // shareVolume(), which reads the store.
+    // ── Legacy video ────────────────────────────────────────────────────
+
+    void aVideoInviteIsAskedOfTheEngineWithItsCamera()
+    {
+        RecordingCallClient client;
+        client.simulatedUserId = QStringLiteral("@me:x");
+        client.mediaCapable = true;
+        FakeMediaBackend media;
+        media.videoEngine = true;
+        media.streamId = QStringLiteral("stream-1");
+        CallController controller;
+        controller.setClient(&client);
+        controller.setMediaBackend(&media);
+        QVERIFY(controller.placeCall(QStringLiteral("!r:x"),
+                                     QStringLiteral("@peer:x"), true));
+        QVERIFY(controller.videoCall());
+        QCOMPARE(media.prepared.size(), 1);
+        QVERIFY(media.prepared.first().endsWith(
+            QLatin1String("video=1 camera=1")));
+        QVERIFY(controller.cameraOn());
+        media.deliverOffer(controller.activeCallId(), QStringLiteral("v=0 o"));
+        QVERIFY(client.lastStreamMetadata.contains(
+            QLatin1String("\"stream-1\"")));
+        QVERIFY(client.lastStreamMetadata.contains(
+            QLatin1String("\"video_muted\":false")));
+    }
+
+    void anEngineWithoutVideoRefusesAVideoCallAndAnswersAVideoRingAsVoice()
+    {
+        RecordingCallClient client;
+        client.simulatedUserId = QStringLiteral("@me:x");
+        client.mediaCapable = true;
+        FakeMediaBackend media;
+        CallController controller;
+        controller.setClient(&client);
+        controller.setMediaBackend(&media);
+        QVERIFY(!controller.placeCall(QStringLiteral("!r:x"),
+                                      QStringLiteral("@peer:x"), true));
+        QCOMPARE(controller.lastRefusal(), QStringLiteral("no_video_engine"));
+
+        CallSignal invite = freshInvite(QStringLiteral("call-1"));
+        invite.hasVideo = true;
+        controller.setBacklogSuppressed(false);
+        client.emitSignal(invite);
+        QCOMPARE(controller.state(), CallController::State::Ringing);
+        QVERIFY(!controller.videoCall());
+    }
+
+    void onlyThePeerMayRenegotiateAndTheAnswerGoesBackAsANegotiate()
+    {
+        RecordingCallClient client;
+        client.simulatedUserId = QStringLiteral("@me:x");
+        client.mediaCapable = true;
+        FakeMediaBackend media;
+        media.videoEngine = true;
+        media.streamId = QStringLiteral("stream-1");
+        CallController controller;
+        controller.setClient(&client);
+        controller.setMediaBackend(&media);
+        CallSignal invite = freshInvite(QStringLiteral("call-1"));
+        controller.setBacklogSuppressed(false);
+        client.storedDescriptions.insert(invite.eventId, QStringLiteral("v=0 offer"));
+        client.emitSignal(invite);
+        QVERIFY(controller.answer());
+        media.deliverAnswer(QStringLiteral("call-1"), QStringLiteral("v=0 a"));
+        media.deliverConnected(QStringLiteral("call-1"));
+        QCOMPARE(controller.state(), CallController::State::Active);
+
+        CallSignal negotiate;
+        negotiate.kind = CallSignal::Kind::Negotiate;
+        negotiate.roomId = invite.roomId;
+        negotiate.callId = invite.callId;
+        negotiate.partyId = invite.partyId;
+        negotiate.eventId = QStringLiteral("$negotiate");
+        negotiate.sender = QStringLiteral("@stranger:x");
+        negotiate.sessionType = QStringLiteral("offer");
+        negotiate.hasVideo = true;
+        client.storedDescriptions.insert(negotiate.eventId, QStringLiteral("v=0 upgrade"));
+        client.emitSignal(negotiate);
+        QVERIFY(media.negotiations.isEmpty());
+        QVERIFY(!controller.videoCall());
+
+        negotiate.sender = invite.sender;
+        client.emitSignal(negotiate);
+        QCOMPARE(media.negotiations,
+                 QStringList{QStringLiteral("offer v=0 upgrade")});
+        QVERIFY(controller.videoCall());
+        QVERIFY(!controller.cameraOn());
+
+        media.deliverNegotiation(QStringLiteral("call-1"),
+                                 QStringLiteral("answer"));
+        QCOMPARE(client.sent.last().kind, QStringLiteral("negotiate"));
+        QCOMPARE(client.sent.last().extra, QStringLiteral("answer"));
+    }
+
+    /// A notification's Answer, and anything else that states no choice: a
+    /// video ring is picked up with the camera off.
+    void anAnswerThatStatesNoChoiceLeavesTheCameraOff()
+    {
+        RecordingCallClient client;
+        client.mediaCapable = true;
+        FakeMediaBackend media;
+        media.videoEngine = true;
+        CallController controller;
+        controller.setClient(&client);
+        controller.setMediaBackend(&media);
+        CallSignal invite = freshInvite(QStringLiteral("call-1"));
+        invite.hasVideo = true;
+        controller.setBacklogSuppressed(false);
+        client.storedDescriptions.insert(invite.eventId,
+                                         QStringLiteral("v=0 offer"));
+        client.emitSignal(invite);
+        QVERIFY(controller.answer());
+        QVERIFY(media.prepared.last().endsWith(
+            QLatin1String("video=1 camera=0")));
+        QVERIFY(!controller.cameraOn());
+    }
+
+    /// Someone else in the room cannot end our call, let alone get answered
+    /// with our camera, by picking a smaller call id.
+    void aThirdPersonsInviteIsNotGlare()
+    {
+        RecordingCallClient client;
+        client.mediaCapable = true;
+        FakeMediaBackend media;
+        CallController controller;
+        controller.setClient(&client);
+        controller.setMediaBackend(&media);
+        QVERIFY(controller.placeCall(QStringLiteral("!r:x"),
+                                     QStringLiteral("@peer:x")));
+        const QString ours = controller.activeCallId();
+        CallSignal theirs = freshInvite(QString());
+        theirs.callId = QStringLiteral("0000-smaller");
+        theirs.sender = QStringLiteral("@third:x");
+        client.emitSignal(theirs);
+        QCOMPARE(controller.activeCallId(), ours);
+        QVERIFY(media.answerRequests.isEmpty());
+    }
+
+    void turningTheCameraOffBeforeMediaExistsSticks()
+    {
+        RecordingCallClient client;
+        client.deferTurn = true;
+        FakeMediaBackend media;
+        media.videoEngine = true;
+        CallController controller;
+        controller.setClient(&client);
+        controller.setMediaBackend(&media);
+        controller.setTurnWaitTimeoutForTest(50);
+        QVERIFY(controller.placeCall(QStringLiteral("!r:x"),
+                                     QStringLiteral("@peer:x"), true));
+        QVERIFY(controller.cameraOn());
+        QVERIFY(controller.setCameraOn(false));
+        QTRY_COMPARE(media.prepared.size(), 1);
+        QVERIFY(media.prepared.first().endsWith(
+            QLatin1String("video=1 camera=0")));
+        QVERIFY(!controller.cameraOn());
+    }
+
+    void aPeerThatDeclinesVideoTurnsOurCameraOff()
+    {
+        RecordingCallClient client;
+        client.mediaCapable = true;
+        FakeMediaBackend media;
+        media.videoEngine = true;
+        CallController controller;
+        controller.setClient(&client);
+        controller.setMediaBackend(&media);
+        QVERIFY(controller.placeCall(QStringLiteral("!r:x"),
+                                     QStringLiteral("@peer:x"), true));
+        media.deliverOffer(controller.activeCallId(), QStringLiteral("v=0 o"));
+        CallSignal answer;
+        answer.kind = CallSignal::Kind::Answer;
+        answer.roomId = QStringLiteral("!r:x");
+        answer.callId = controller.activeCallId();
+        answer.partyId = QStringLiteral("peer-party");
+        answer.eventId = QStringLiteral("$answer");
+        answer.sender = QStringLiteral("@peer:x");
+        answer.hasDescription = true;
+        client.emitSignal(answer);
+        QVERIFY(!controller.cameraOn());
+        QVERIFY(!controller.videoCall());
+        QCOMPARE(media.cameraRequests, QList<bool>{false});
+    }
+
+    void aPeerMuteHidesItsPictureAndAMuteOfOursIsPublished()
+    {
+        RecordingCallClient client;
+        client.simulatedUserId = QStringLiteral("@me:x");
+        client.mediaCapable = true;
+        FakeMediaBackend media;
+        media.videoEngine = true;
+        media.streamId = QStringLiteral("stream-1");
+        CallController controller;
+        controller.setClient(&client);
+        controller.setMediaBackend(&media);
+        CallSignal invite = freshInvite(QStringLiteral("call-1"));
+        invite.hasVideo = true;
+        controller.setBacklogSuppressed(false);
+        client.storedDescriptions.insert(invite.eventId, QStringLiteral("v=0 offer"));
+        client.emitSignal(invite);
+        QVERIFY(controller.answer(false));
+        QVERIFY(media.prepared.last().endsWith(
+            QLatin1String("video=1 camera=0")));
+        QVERIFY(!controller.cameraOn());
+        media.deliverAnswer(QStringLiteral("call-1"), QStringLiteral("v=0 a"));
+        media.deliverConnected(QStringLiteral("call-1"));
+        media.deliverRemoteVideo(QStringLiteral("call-1"), true);
+        QVERIFY(controller.remoteVideoVisible());
+
+        CallSignal muted;
+        muted.kind = CallSignal::Kind::StreamMetadata;
+        muted.roomId = invite.roomId;
+        muted.callId = invite.callId;
+        muted.partyId = invite.partyId;
+        muted.eventId = QStringLiteral("$muted");
+        muted.sender = invite.sender;
+        muted.hasStreamMetadata = true;
+        muted.remoteVideoMuted = true;
+        muted.remoteAudioMuted = true;
+        client.emitSignal(muted);
+        QVERIFY(!controller.remoteVideoVisible());
+        QVERIFY(controller.remoteMicrophoneMuted());
+
+        const int before = client.sent.size();
+        controller.setMicrophoneMuted(true);
+        QCOMPARE(client.sent.size(), before + 1);
+        QCOMPARE(client.sent.last().kind, QStringLiteral("stream_metadata"));
+        QVERIFY(client.lastStreamMetadata.contains(
+            QLatin1String("\"audio_muted\":true")));
+
+        QVERIFY(controller.setCameraOn(true));
+        QCOMPARE(media.cameraRequests, QList<bool>{true});
+        media.deliverCameraFailure(QStringLiteral("call-1"));
+        QVERIFY(!controller.cameraOn());
+        QVERIFY(client.lastStreamMetadata.contains(
+            QLatin1String("\"video_muted\":true")));
+        QCOMPARE(controller.state(), CallController::State::Active);
+        controller.setMicrophoneMuted(false);
+    }
+
     void aShareLevelChangedInSettingsReachesTheCallOnItsOwnSignal()
     {
         const QString room = QStringLiteral("!shsig:example.org");

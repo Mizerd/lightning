@@ -612,6 +612,74 @@ bool registerSlowStopMic11()
 }
 } // namespace
 
+/// Two engines wired as CallController wires them, renegotiation
+/// included. Everything the video cases need.
+struct WiredPair {
+    GstCallMediaBackend caller;
+    GstCallMediaBackend callee;
+    QString callId;
+    QString failure;
+    QString offerShape;
+    QString answerShape;
+    QString renegotiationShape;
+    bool connected = false;
+    int negotiations = 0;
+    bool dropNegotiations = false;
+    QObject guard;
+
+    explicit WiredPair(const QString &id) : callId(id)
+    {
+        caller.setTestToneMode(true);
+        callee.setTestToneMode(true);
+        QObject::connect(&caller, &CallMediaBackend::offerReady, &guard,
+                         [this](const QString &, const QString &sdp) {
+                             offerShape =
+                                 GstCallMediaBackend::sdpSectionShape(sdp);
+                             callee.createAnswer(callId, sdp);
+                         });
+        QObject::connect(&callee, &CallMediaBackend::answerReady, &guard,
+                         [this](const QString &, const QString &sdp) {
+                             answerShape =
+                                 GstCallMediaBackend::sdpSectionShape(sdp);
+                             caller.setRemoteAnswer(callId, sdp);
+                         });
+        const auto cross = [this](GstCallMediaBackend *from,
+                                  GstCallMediaBackend *to) {
+            QObject::connect(
+                from, &CallMediaBackend::localCandidate, &guard,
+                [to](const QString &id, const QString &candidate,
+                     const QString &mid, int mline) {
+                    to->addRemoteCandidate(id, candidate, mid, mline);
+                });
+            QObject::connect(
+                from, &CallMediaBackend::negotiationReady, &guard,
+                [this, to](const QString &, const QString &type,
+                           const QString &sdp) {
+                    if (dropNegotiations)
+                        return;
+                    ++negotiations;
+                    renegotiationShape =
+                        GstCallMediaBackend::sdpSectionShape(sdp);
+                    to->applyNegotiation(callId, type, sdp);
+                });
+            QObject::connect(from, &CallMediaBackend::failed, &guard,
+                             [this](const QString &, const QString &why) {
+                                 failure = why;
+                             });
+        };
+        cross(&caller, &callee);
+        cross(&callee, &caller);
+        QObject::connect(&caller, &CallMediaBackend::connected, &guard,
+                         [this](const QString &) { connected = true; });
+    }
+    ~WiredPair()
+    {
+        caller.close(callId);
+        callee.close(callId);
+    }
+};
+
+
 class CallMediaLoopbackTest : public QObject
 {
     Q_OBJECT
@@ -917,6 +985,326 @@ private Q_SLOTS:
     /// The answer must accept the audio and decline the video: before the
     /// fix it answered `video recvonly`, promising to play a track this
     /// engine has no branch for.
+    /// The claim the matrix.org feature row makes: a picture and sound, both
+    /// ways, in one call, over the same bundled transport.
+    void aVideoCallCarriesPictureAndSoundBothWays()
+    {
+        if (!GstCallMediaBackend::videoRuntimeAvailable())
+            QSKIP("VP8 elements unavailable here");
+        WiredPair pair(QStringLiteral("video-both-ways"));
+        pair.caller.prepareCall(pair.callId, true, true);
+        pair.callee.prepareCall(pair.callId, true, true);
+        pair.caller.createOffer(pair.callId);
+        QTRY_VERIFY2_WITH_TIMEOUT(pair.connected || !pair.failure.isEmpty(),
+                                  "no connection", 45000);
+        QVERIFY2(pair.failure.isEmpty(), qPrintable(pair.failure));
+        // Port 0 and a=bundle-only: webrtcbin's max-bundle offer.
+        QCOMPARE(pair.offerShape,
+                 QStringLiteral("audio:sendrecv video:sendrecv:port0"));
+        QCOMPARE(pair.answerShape,
+                 QStringLiteral("audio:sendrecv video:sendrecv"));
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            pair.caller.decodedVideoFramesForTest() > 20
+                && pair.callee.decodedVideoFramesForTest() > 20,
+            qPrintable(QStringLiteral("frames caller=%1 callee=%2 sent=%3/%4")
+                           .arg(pair.caller.decodedVideoFramesForTest())
+                           .arg(pair.callee.decodedVideoFramesForTest())
+                           .arg(pair.caller.sentVideoFramesForTest())
+                           .arg(pair.callee.sentVideoFramesForTest())),
+            30000);
+        QTRY_VERIFY_WITH_TIMEOUT(pair.caller.receivedAudioPacketsForTest() > 100
+                                     && pair.callee.receivedAudioPacketsForTest()
+                                         > 100,
+                                 15000);
+        QCOMPARE(pair.negotiations, 0);
+        QVERIFY(pair.failure.isEmpty());
+    }
+
+    /// Answering a video call without the camera: the section stays, the
+    /// caller's picture arrives, and turning the camera on later needs no
+    /// renegotiation. Off closes the capture and the picture stops.
+    void theCameraTogglesWithoutRenegotiating()
+    {
+        if (!GstCallMediaBackend::videoRuntimeAvailable())
+            QSKIP("VP8 elements unavailable here");
+        WiredPair pair(QStringLiteral("camera-toggle"));
+        pair.caller.prepareCall(pair.callId, true, true);
+        pair.callee.prepareCall(pair.callId, true, false);
+        pair.caller.createOffer(pair.callId);
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            pair.callee.decodedVideoFramesForTest() > 10
+                || !pair.failure.isEmpty(),
+            qPrintable(QStringLiteral("frames=%1 answer=%2")
+                           .arg(pair.callee.decodedVideoFramesForTest())
+                           .arg(pair.answerShape)),
+            45000);
+        QVERIFY2(pair.failure.isEmpty(), qPrintable(pair.failure));
+        QCOMPARE(pair.answerShape,
+                 QStringLiteral("audio:sendrecv video:sendrecv"));
+        QVERIFY(!pair.callee.cameraFrontLiveForTest());
+        QCOMPARE(pair.caller.decodedVideoFramesForTest(), 0);
+
+        pair.callee.setCameraEnabled(pair.callId, true);
+        QTRY_VERIFY_WITH_TIMEOUT(pair.caller.decodedVideoFramesForTest() > 10,
+                                 20000);
+        pair.callee.setCameraEnabled(pair.callId, false);
+        QVERIFY(!pair.callee.cameraFrontLiveForTest());
+        QTest::qWait(600);
+        const int settled = pair.caller.decodedVideoFramesForTest();
+        QTest::qWait(1000);
+        QCOMPARE(pair.caller.decodedVideoFramesForTest(), settled);
+        pair.callee.setCameraEnabled(pair.callId, true);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            pair.caller.decodedVideoFramesForTest() > settled + 10, 20000);
+        QCOMPARE(pair.negotiations, 0);
+        QVERIFY(pair.failure.isEmpty());
+    }
+
+    /// A voice call gains a picture through m.call.negotiate, from either
+    /// end, and the audio survives it.
+    void aVoiceCallUpgradesToVideoFromEitherEnd_data()
+    {
+        QTest::addColumn<bool>("callerUpgrades");
+        QTest::newRow("caller") << true;
+        QTest::newRow("callee") << false;
+    }
+    void aVoiceCallUpgradesToVideoFromEitherEnd()
+    {
+        if (!GstCallMediaBackend::videoRuntimeAvailable())
+            QSKIP("VP8 elements unavailable here");
+        QFETCH(bool, callerUpgrades);
+        WiredPair pair(QStringLiteral("upgrade"));
+        pair.caller.createOffer(pair.callId);
+        QTRY_VERIFY2_WITH_TIMEOUT(pair.connected || !pair.failure.isEmpty(),
+                                  "no connection", 45000);
+        QVERIFY2(pair.failure.isEmpty(), qPrintable(pair.failure));
+        QCOMPARE(pair.offerShape, QStringLiteral("audio:sendrecv"));
+        QTRY_VERIFY_WITH_TIMEOUT(pair.callee.receivedAudioPacketsForTest() > 50,
+                                 15000);
+
+        GstCallMediaBackend &up = callerUpgrades ? pair.caller : pair.callee;
+        GstCallMediaBackend &far = callerUpgrades ? pair.callee : pair.caller;
+        up.setCameraEnabled(pair.callId, true);
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            pair.negotiations >= 2 || !pair.failure.isEmpty(),
+            qPrintable(QStringLiteral("negotiations=%1")
+                           .arg(pair.negotiations)),
+            15000);
+        QVERIFY2(pair.failure.isEmpty(), qPrintable(pair.failure));
+        QCOMPARE(pair.negotiations, 2);
+        QVERIFY2(pair.renegotiationShape.contains(QLatin1String("video:")),
+                 qPrintable(pair.renegotiationShape));
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            far.decodedVideoFramesForTest() > 15,
+            qPrintable(QStringLiteral("frames=%1 sent=%2 packets=%3")
+                           .arg(far.decodedVideoFramesForTest())
+                           .arg(up.sentVideoFramesForTest())
+                           .arg(far.receivedVideoPacketsForTest())),
+            30000);
+        const int before = pair.callee.receivedAudioPacketsForTest();
+        QTRY_VERIFY_WITH_TIMEOUT(
+            pair.callee.receivedAudioPacketsForTest() > before + 25, 10000);
+
+        // The other side's camera now needs no second negotiation.
+        far.setCameraEnabled(pair.callId, true);
+        QTRY_VERIFY_WITH_TIMEOUT(up.decodedVideoFramesForTest() > 15, 30000);
+        QCOMPARE(pair.negotiations, 2);
+        QVERIFY(pair.failure.isEmpty());
+    }
+
+    /// Two people turn their cameras on at once. The callee waits a moment
+    /// before offering, so the caller's offer serves both and each sees the
+    /// other. Offers that really cross cannot be repaired: webrtcbin aborts
+    /// the process answering after a rollback (requestOfferLocked()).
+    void offersThatCrossSettleOnTheCallersAndBothCamerasStillWork()
+    {
+        if (!GstCallMediaBackend::videoRuntimeAvailable())
+            QSKIP("VP8 elements unavailable here");
+        WiredPair pair(QStringLiteral("crossed"));
+        pair.caller.createOffer(pair.callId);
+        QTRY_VERIFY2_WITH_TIMEOUT(pair.connected || !pair.failure.isEmpty(),
+                                  "no connection", 45000);
+        QTRY_VERIFY_WITH_TIMEOUT(pair.callee.receivedAudioPacketsForTest() > 20,
+                                 15000);
+        pair.caller.setCameraEnabled(pair.callId, true);
+        pair.callee.setCameraEnabled(pair.callId, true);
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            (pair.caller.decodedVideoFramesForTest() > 15
+             && pair.callee.decodedVideoFramesForTest() > 15)
+                || !pair.failure.isEmpty(),
+            qPrintable(QStringLiteral("frames caller=%1 callee=%2 negotiations=%3")
+                           .arg(pair.caller.decodedVideoFramesForTest())
+                           .arg(pair.callee.decodedVideoFramesForTest())
+                           .arg(pair.negotiations)),
+            30000);
+        QVERIFY2(pair.failure.isEmpty(), qPrintable(pair.failure));
+    }
+
+    /// An offer nobody answers (a lost send, a silent peer) ends in a camera
+    /// failure, not a stuck camera, the call goes on, and the camera can try
+    /// again.
+    void anUnansweredOfferFailsTheCameraAndCanBeRetried()
+    {
+        if (!GstCallMediaBackend::videoRuntimeAvailable())
+            QSKIP("VP8 elements unavailable here");
+        WiredPair pair(QStringLiteral("unanswered"));
+        pair.caller.setNegotiationTimeoutForTest(500);
+        pair.caller.createOffer(pair.callId);
+        QTRY_VERIFY2_WITH_TIMEOUT(pair.connected || !pair.failure.isEmpty(),
+                                  "no connection", 45000);
+        QString cameraFailure;
+        connect(&pair.caller, &CallMediaBackend::cameraFailed, this,
+                [&](const QString &, const QString &why) {
+                    cameraFailure = why;
+                });
+        pair.dropNegotiations = true;
+        pair.caller.setCameraEnabled(pair.callId, true);
+        QTRY_VERIFY_WITH_TIMEOUT(!cameraFailure.isEmpty(), 5000);
+        QVERIFY(!pair.caller.cameraFrontLiveForTest());
+        pair.dropNegotiations = false;
+        pair.caller.setCameraEnabled(pair.callId, true);
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            pair.callee.decodedVideoFramesForTest() > 10,
+            qPrintable(QStringLiteral("negotiations=%1 failure=%2")
+                           .arg(pair.negotiations)
+                           .arg(pair.failure)),
+            20000);
+        QVERIFY(pair.failure.isEmpty());
+    }
+
+    /// A picture that cannot be decoded costs the picture. Its chain's errors
+    /// are not the call's, and audio keeps flowing past it.
+    void aFailedVideoReceiveLeavesTheAudioRunning()
+    {
+        if (!GstCallMediaBackend::videoRuntimeAvailable())
+            QSKIP("VP8 elements unavailable here");
+        WiredPair pair(QStringLiteral("receive-failure"));
+        pair.caller.prepareCall(pair.callId, true, true);
+        pair.callee.prepareCall(pair.callId, true, false);
+        pair.caller.createOffer(pair.callId);
+        QTRY_VERIFY_WITH_TIMEOUT(pair.callee.decodedVideoFramesForTest() > 5
+                                     || !pair.failure.isEmpty(),
+                                 45000);
+        pair.callee.failVideoReceiveForTest();
+        QTest::qWait(300);
+        const int frames = pair.callee.decodedVideoFramesForTest();
+        const int audio = pair.callee.receivedAudioPacketsForTest();
+        QTest::qWait(1000);
+        QCOMPARE(pair.callee.decodedVideoFramesForTest(), frames);
+        QVERIFY(pair.callee.receivedAudioPacketsForTest() > audio + 20);
+        QVERIFY(pair.failure.isEmpty());
+    }
+
+    /// Our camera failing says nothing about the peer's picture.
+    void aFailedCameraLeavesThePeersPictureArriving()
+    {
+        if (!GstCallMediaBackend::videoRuntimeAvailable())
+            QSKIP("VP8 elements unavailable here");
+        WiredPair pair(QStringLiteral("camera-only"));
+        pair.caller.prepareCall(pair.callId, true, true);
+        pair.callee.prepareCall(pair.callId, true, true);
+        pair.caller.createOffer(pair.callId);
+        QTRY_VERIFY_WITH_TIMEOUT(pair.callee.decodedVideoFramesForTest() > 5
+                                     || !pair.failure.isEmpty(),
+                                 45000);
+        pair.callee.failCameraForTest();
+        QVERIFY(!pair.callee.cameraFrontLiveForTest());
+        QTest::qWait(300);
+        const int frames = pair.callee.decodedVideoFramesForTest();
+        QTRY_VERIFY_WITH_TIMEOUT(
+            pair.callee.decodedVideoFramesForTest() > frames + 5, 5000);
+    }
+
+    /// A camera that dies mid-call costs the picture and never the call.
+    void aFailedCameraLeavesTheCallRunning()
+    {
+        if (!GstCallMediaBackend::videoRuntimeAvailable())
+            QSKIP("VP8 elements unavailable here");
+        WiredPair pair(QStringLiteral("camera-failure"));
+        pair.caller.setCameraResolver([](int) {
+            GstCallMediaBackend::CameraPlan plan;
+            // Fails at runtime, in the front, after the call is up.
+            plan.front = QStringLiteral(
+                "videotestsrc is-live=true num-buffers=5 name=camsrc "
+                "! video/x-raw,width=64,height=36,framerate=(fraction)30/1 "
+                "! fakesrc-does-not-exist");
+            return plan;
+        });
+        QString cameraFailure;
+        connect(&pair.caller, &CallMediaBackend::cameraFailed, this,
+                [&](const QString &, const QString &why) {
+                    cameraFailure = why;
+                });
+        pair.caller.prepareCall(pair.callId, true, true);
+        pair.callee.prepareCall(pair.callId, true, false);
+        pair.caller.createOffer(pair.callId);
+        QTRY_VERIFY2_WITH_TIMEOUT(pair.connected || !pair.failure.isEmpty(),
+                                  "no connection", 45000);
+        QCOMPARE(cameraFailure, QStringLiteral("camera_failed"));
+        QTRY_VERIFY_WITH_TIMEOUT(pair.callee.receivedAudioPacketsForTest() > 50,
+                                 15000);
+        QVERIFY2(pair.failure.isEmpty(), qPrintable(pair.failure));
+    }
+
+    /// Placing a call with the microphone already muted (the intent survives
+    /// between calls): the valve shuts before the first buffer, so webrtcbin
+    /// never saw caps on its pad, no offer came, and the call died after 15 s
+    /// as a media failure with nothing sent. Found in the GUI, 2026-10-31.
+    void aCallPlacedWhileMutedStillMakesItsOffer()
+    {
+        GstCallMediaBackend engine;
+        engine.setTestToneMode(true);
+        // A capture that has not delivered anything, as a shut valve leaves it.
+        engine.setMicrophoneFrontForTest(QStringLiteral(
+            "audiotestsrc is-live=true name=micsrc ! valve drop=true "
+            "! audioconvert ! audioresample"));
+        QString offer;
+        connect(&engine, &CallMediaBackend::offerReady, this,
+                [&](const QString &, const QString &sdp) { offer = sdp; });
+        engine.createOffer(QStringLiteral("muted-offer"));
+        QTRY_VERIFY2_WITH_TIMEOUT(!offer.isEmpty(), "no offer", 6000);
+        QCOMPARE(GstCallMediaBackend::sdpSectionShape(offer),
+                 QStringLiteral("audio:sendrecv"));
+        QVERIFY(offer.contains(QStringLiteral("OPUS/48000/2"),
+                               Qt::CaseInsensitive));
+        QVERIFY(offer.contains(QRegularExpression(
+            QStringLiteral("a=ssrc:[1-9][0-9]* cname:"))));
+        engine.close(QStringLiteral("muted-offer"));
+    }
+
+    /// Element's video offer, against an engine that has video: both sections
+    /// accepted. The chain must exist before the description is applied, or
+    /// the section is answered with nothing to send.
+    void aVp8OfferIsAnsweredWithItsVideo()
+    {
+        if (!GstCallMediaBackend::videoRuntimeAvailable())
+            QSKIP("VP8 elements unavailable here");
+        GstCallMediaBackend engine;
+        engine.setTestToneMode(true);
+        QString answer;
+        QString failure;
+        connect(&engine, &CallMediaBackend::answerReady, this,
+                [&](const QString &, const QString &sdp) { answer = sdp; });
+        connect(&engine, &CallMediaBackend::failed, this,
+                [&](const QString &, const QString &why) { failure = why; });
+        engine.prepareCall(QStringLiteral("vp8-offer"), true, false);
+        engine.createAnswer(QStringLiteral("vp8-offer"),
+                            crlf(kElementVideoOffer));
+        QTRY_VERIFY2_WITH_TIMEOUT(!answer.isEmpty() || !failure.isEmpty(),
+                                  "no answer", 15000);
+        QVERIFY2(failure.isEmpty(), qPrintable(failure));
+        QCOMPARE(GstCallMediaBackend::sdpSectionShape(answer),
+                 QStringLiteral("audio:sendrecv video:sendrecv"));
+        // The offerer's payload type, and our one stream named in metadata.
+        const QString stream = engine.localStreamId();
+        QVERIFY(!stream.isEmpty());
+        QVERIFY2(answer.count(QStringLiteral(" msid:") + stream) == 2,
+                 qPrintable(answer));
+        QVERIFY(answer.contains(QStringLiteral("VP8/90000"),
+                                Qt::CaseInsensitive));
+        engine.close(QStringLiteral("vp8-offer"));
+    }
+
     void aVideoOfferIsAnsweredWithTheVideoDeclined()
     {
         GstCallMediaBackend engine;
@@ -927,7 +1315,11 @@ private Q_SLOTS:
                 [&](const QString &, const QString &sdp) { answer = sdp; });
         connect(&engine, &CallMediaBackend::failed, this,
                 [&](const QString &, const QString &why) { failure = why; });
-        const QString offer = crlf(kElementVideoOffer);
+        // A video codec this engine has no chain for: an offer that names
+        // no VP8 at all.
+        const QString offer = crlf(kElementVideoOffer)
+                                  .replace(QStringLiteral("VP8/90000"),
+                                           QStringLiteral("H265/90000"));
         QCOMPARE(GstCallMediaBackend::sdpSectionShape(offer),
                  QStringLiteral("audio:sendrecv video:sendrecv"));
 
