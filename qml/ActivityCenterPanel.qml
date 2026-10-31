@@ -299,15 +299,20 @@ Dialog {
             dense: true
             fitWidth: true
             Layout.fillWidth: true
-            model: [
-                { value: "all", label: qsTr("All") },
-                { value: "mentions", label: qsTr("Mentions") },
-                { value: "replies", label: qsTr("Replies") },
-                { value: "threads", label: qsTr("Threads") },
-                { value: "reactions", label: qsTr("Reactions") },
-                { value: "invites", label: qsTr("Invites") },
-                { value: "keywords", label: qsTr("Keywords") }
-            ]
+            model: {
+                var tabs = [
+                    { value: "all", label: qsTr("All") },
+                    { value: "mentions", label: qsTr("Mentions") },
+                    { value: "replies", label: qsTr("Replies") },
+                    { value: "threads", label: qsTr("Threads") }
+                ]
+                // Hidden while the account's reaction rule is Off.
+                if (!root.activity || root.activity.reactionsVisible !== false)
+                    tabs.push({ value: "reactions", label: qsTr("Reactions") })
+                tabs.push({ value: "invites", label: qsTr("Invites") },
+                          { value: "keywords", label: qsTr("Keywords") })
+                return tabs
+            }
             current: root.activity ? root.activity.filter : "all"
             onActivated: (value) => {
                 if (!root.activity) return

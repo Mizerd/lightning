@@ -42,6 +42,10 @@ class ActivityModel : public QAbstractListModel
     // "all" | "mentions" | "replies" | "threads" | "reactions" | "invites"
     // | "keywords"
     Q_PROPERTY(QString filter READ filter WRITE setFilter NOTIFY filterChanged)
+    // False while the account's reaction push rule is Off: the Reactions tab
+    // is hidden and a "reactions" filter falls back to "all".
+    Q_PROPERTY(bool reactionsVisible READ reactionsVisible
+                   NOTIFY reactionsVisibleChanged)
     Q_PROPERTY(QString searchQuery READ searchQuery WRITE setSearchQuery NOTIFY searchQueryChanged)
     // Case-insensitive whole-word highlights (bounded; see kMaxKeywords).
     Q_PROPERTY(QStringList keywords READ keywords WRITE setKeywords
@@ -125,6 +129,7 @@ public:
     // The account's reaction push rule controls visibility in All, Reactions
     // and the badge. Keep rows in memory so turning it back on restores them.
     void setReactionsVisible(bool visible);
+    bool reactionsVisible() const { return m_reactionsVisible; }
 
     int rowCount(const QModelIndex &parent = QModelIndex()) const override;
     QVariant data(const QModelIndex &index, int role) const override;
@@ -282,6 +287,7 @@ Q_SIGNALS:
     void countChanged();
     void unseenCountChanged();
     void filterChanged();
+    void reactionsVisibleChanged();
     void searchQueryChanged();
     void keywordsChanged();
     void historyUnavailableChanged();

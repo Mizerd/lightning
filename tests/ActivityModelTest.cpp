@@ -1001,7 +1001,13 @@ private Q_SLOTS:
         h.model.setReactionsVisible(false);
         QCOMPARE(h.model.count(), 0);
         QCOMPARE(h.model.unseenCount(), 0);
+        QVERIFY(!h.model.reactionsVisible());
+        h.model.setReactionsVisible(true);
         h.model.setFilter(QStringLiteral("reactions"));
+        QCOMPARE(h.model.count(), 1);
+        // Turning the rule Off while on the tab leaves the tab: it is gone.
+        h.model.setReactionsVisible(false);
+        QCOMPARE(h.model.filter(), QStringLiteral("all"));
         QCOMPARE(h.model.count(), 0);
         h.model.setReactionsVisible(true);
         QCOMPARE(h.model.count(), 1);

@@ -557,7 +557,11 @@ void ActivityModel::setReactionsVisible(bool visible)
     if (m_reactionsVisible == visible)
         return;
     m_reactionsVisible = visible;
+    // The tab is gone with the rule; do not leave the list on it.
+    if (!visible && m_filter == QLatin1String("reactions"))
+        setFilter(QStringLiteral("all"));
     rebuildVisible();
+    Q_EMIT reactionsVisibleChanged();
     Q_EMIT unseenCountChanged();
 }
 

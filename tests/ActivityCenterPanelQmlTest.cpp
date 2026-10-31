@@ -71,6 +71,7 @@ QtObject {
         id: model
         property int unseenCount: 1
         property string filter: "all"
+        property bool reactionsVisible: true
         property string searchQuery: ""
         property bool historyUnavailable: false
         property bool activityHasMore: true
@@ -277,6 +278,24 @@ private Q_SLOTS:
         QTest::keyClick(w, Qt::Key_L, Qt::AltModifier);
         QTRY_VERIFY(!f.panel->property("visible").toBool());
         QVERIFY2(f.warnings.isEmpty(), qPrintable(f.warnings.join('\n')));
+    }
+
+    void reactionsTabFollowsTheReactionRule()
+    {
+        Fixture f;
+        QVERIFY(make(f));
+        auto *w = qobject_cast<QQuickWindow *>(f.window);
+        QVERIFY(w);
+        QVERIFY(findVisualItem(w->contentItem(),
+                               QStringLiteral("activityFilter_reactions")));
+        f.activity->setProperty("reactionsVisible", false);
+        QTRY_VERIFY(!findVisualItem(w->contentItem(),
+                                    QStringLiteral("activityFilter_reactions")));
+        QVERIFY(findVisualItem(w->contentItem(),
+                               QStringLiteral("activityFilter_invites")));
+        f.activity->setProperty("reactionsVisible", true);
+        QTRY_VERIFY(findVisualItem(w->contentItem(),
+                                   QStringLiteral("activityFilter_reactions")));
     }
 
     void reboundKeysPreemptFocusedControls_data()
