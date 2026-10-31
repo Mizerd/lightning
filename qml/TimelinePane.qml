@@ -2320,12 +2320,21 @@ Rectangle {
                 anchors.fill: parent
                 anchors.margins: AppTheme.spacingS
                 spacing: AppTheme.spacingS
-            RowLayout {
+            // One row from 520 px of bar up. Narrower, the mode toggle and
+            // Jump to date take a row of their own above the field, counter and
+            // buttons: in one row they ran 160 px past a 288 px bar, which
+            // squeezed the field to nothing and put Close outside the card.
+            GridLayout {
                 id: findRow
+                objectName: "timelineFindRow"
+                readonly property bool narrow: findBar.width < 520
                 Layout.fillWidth: true
-                spacing: AppTheme.spacingS
+                columns: narrow ? 5 : 8
+                columnSpacing: AppTheme.spacingS
+                rowSpacing: AppTheme.spacingS
                 // Loaded-messages find vs history search.
                 SegmentedControl {
+                    id: findModeToggle
                     objectName: "findModeToggle"
                     visible: root.findHistoryAvailable
                     dense: true
@@ -2379,6 +2388,15 @@ Rectangle {
                     ToolTip.visible: hovered
                     ToolTip.delay: 500
                     onClicked: jumpToDateDialog.openDialog()
+                }
+                // Fills out the first row when the bar is narrow, so the field
+                // starts the second one whichever of the two above is shown.
+                Item {
+                    visible: findRow.narrow
+                    Layout.fillWidth: true
+                    Layout.columnSpan: findRow.columns - 1
+                                       - (findModeToggle.visible ? 1 : 0)
+                    implicitHeight: 1
                 }
                 AppTextField {
                     id: findField

@@ -275,6 +275,40 @@ private Q_SLOTS:
                                 .arg(tallest.toReal()).arg(composer->height())
                                 .arg(used).arg(pane->height())));
     }
+
+    // The find bar was one row of seven controls in a card 288 px wide at the
+    // floor: the field was squeezed away and Close sat outside the card.
+    void theFindBarKeepsEveryControlInsideItsCardAtTheFloor_data()
+    {
+        QTest::addColumn<QSize>("size");
+        QTest::newRow("640x420") << QSize(640, 420);
+        QTest::newRow("854x480") << QSize(854, 480);
+    }
+
+    void theFindBarKeepsEveryControlInsideItsCardAtTheFloor()
+    {
+        QFETCH(QSize, size);
+        m_controller->showMain();
+        m_window->resize(size);
+        QCoreApplication::processEvents();
+        QTest::qWait(200);
+        QQuickItem *pane = item("timelinePane");
+        QVERIFY(pane);
+        QVERIFY(QMetaObject::invokeMethod(pane, "openFind"));
+        QTest::qWait(300);
+        QQuickItem *bar = item("timelineFindBar");
+        QVERIFY(bar && bar->isVisible());
+        QStringList outside;
+        controlsOutsideHorizontally(bar, bar, outside);
+        QVERIFY2(outside.isEmpty(), qPrintable(outside.join(QStringLiteral("; "))));
+        QQuickItem *field = item("timelineFindField");
+        QVERIFY(field);
+        QVERIFY2(field->width() >= 100,
+                 qPrintable(QStringLiteral("the find field is %1 px wide")
+                                .arg(field->width())));
+        QMetaObject::invokeMethod(pane, "closeFind");
+        QTest::qWait(100);
+    }
 };
 
 QTEST_MAIN(SmallWindowQmlTest)
