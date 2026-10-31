@@ -21,6 +21,14 @@ private:
     }
 
 private Q_SLOTS:
+    void softwareVideoDecodingUsesQtEmptyDeviceList()
+    {
+        const auto source = mainSource();
+        QVERIFY(!source.isEmpty());
+        QVERIFY(source.contains("if (!qEnvironmentVariableIsSet(\"QT_FFMPEG_DECODING_HW_DEVICE_TYPES\"))\n"
+                                "        qputenv(\"QT_FFMPEG_DECODING_HW_DEVICE_TYPES\", \",\");"));
+    }
+
     // The decision table (2026-10-20): every Linux Qt 6.10+ moves to the
     // PulseAudio backend, the Flatpak unconditionally, a system Qt only when
     // it has that backend and a server answers; a user's choice, an older Qt,

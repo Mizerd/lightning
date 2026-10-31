@@ -1909,7 +1909,7 @@ int main(int argc, char *argv[])
     // pipeline through VAAPI, and chat-sized clips do not need hardware
     // decode. An explicit value (including "") wins.
     if (!qEnvironmentVariableIsSet("QT_FFMPEG_DECODING_HW_DEVICE_TYPES"))
-        qputenv("QT_FFMPEG_DECODING_HW_DEVICE_TYPES", "none");
+        qputenv("QT_FFMPEG_DECODING_HW_DEVICE_TYPES", ",");
 
     // Qt Multimedia's audio goes through its PulseAudio backend
     // (pipewire-pulse) wherever the running Qt (6.10+) would otherwise use its
