@@ -12,6 +12,12 @@
   `2fc01443`, audio and camera from everyone else stopped at one decrypted frame.
   The answer filter must ship first, and the switch can move only once no
   supported release predates it. `docs/voice-calls.md`, "VP8 backup".
+- **Known limit, kept by decision: a video section with no codec in common is
+  fatal to the session.** A VP8-only client (any build with no H.264 receive chain)
+  watching an H.264-only publisher only waits for a picture, because LiveKit
+  1.13.10 keeps VP8 in every section it offers. An SFU that drops VP8 from a section
+  turns that wait into `local_sdp_rejected`: webrtcbin refuses its own answer.
+  Pinned in `anAnswerAdmitsOnlyWhatThisBuildDecodes`; such an SFU is NOT TESTED.
 - On NixOS `nvcodec` still registers encoders only with `/run/opengl-driver/lib`
   on the library path. The stale-parser half is fixed; this half is not.
 - Stream Info covers MatrixRTC only and draws over the stage's header row.

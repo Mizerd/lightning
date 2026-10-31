@@ -1256,9 +1256,9 @@ it offers. An SFU with VP8 disabled would reach it. NOT TESTED.
 
 **A publish retired before its first answer used to storm the SFU.** webrtcbin
 keeps a transceiver that never got a section and asks for negotiation after every
-answer, so the same offer went out five times a second for as long as the call
-lasted: 771 in 90 s, live, when NVENC failed 200 ms into a share, and in plain
-software VP8 too. An offer identical to the last answered one is now dropped
+answer, so the same offer went out for as long as the call lasted. Live, when
+NVENC failed 200 ms into a share: 770 offers in the first 95 s and 1110 in the
+138 s until the run was stopped. In plain software VP8 in a test: 73 in 3 s. An offer identical to the last answered one is now dropped
 (`offerIdentity()`).
 
 Cost of the backup, same bench as below, real NVENC, three runs: 0.94-1.01 s
