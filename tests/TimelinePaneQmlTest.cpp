@@ -12439,6 +12439,44 @@ private Q_SLOTS:
             root->findChild<QQuickItem *>(QStringLiteral("spaceHomePane"))
                 == nullptr, 2000);
     }
+    // A follow-the-latest request queued by a count change must not call into
+    // the pane once it is gone ("Property 'positionViewAtLatest' of object
+    // QQuickFlickable is not a function", seen on sign-out). The queued work
+    // lives in a child Timer that dies with the pane.
+    void signingOutLeavesNoQueuedFollowLatestCall()
+    {
+        QTest::failOnWarning(QRegularExpression(
+            QStringLiteral("is not a function|invalid context|"
+                           "delayed function evaluation")));
+        AppController controller(AppController::MockBackend);
+        const QString room = loginAndRoomIdAt(controller, /*row=*/0);
+        QVERIFY(!room.isEmpty());
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty() && !createdSpy.wait(kSignalTimeoutMs))
+            QFAIL("pane did not load");
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root);
+        window.resize(900, 700);
+        root->setParentItem(window.contentItem());
+        root->setSize(QSizeF(window.width(), window.height()));
+        window.show();
+        controller.setCurrentRoomId(room);
+        QTRY_VERIFY_WITH_TIMEOUT(controller.timeline()->rowCount() > 0, 3000);
+        QTest::qWait(300);
+
+        // A reset in the same turn the pane is torn down.
+        controller.setCurrentRoomId(QString());
+        controller.setCurrentRoomId(room);
+        delete root;
+        QTest::qWait(200);
+    }
+
 };
 
 int main(int argc, char *argv[])

@@ -3184,7 +3184,7 @@ Rectangle {
                         // deferred end-anchor; otherwise the anchor restore has
                         // already positioned the saved spot.
                         if (stickToBottom)
-                            Qt.callLater(scrollToEndDeferred)
+                            scrollToEndTimer.restart()
                     }
                 }
                 Timer {
@@ -3196,7 +3196,7 @@ Rectangle {
                         if (!timeline.presentationReady) {
                             timeline.presentationReady = true
                             if (timeline.stickToBottom)
-                                Qt.callLater(timeline.scrollToEndDeferred)
+                                scrollToEndTimer.restart()
                         }
                     }
                 }
@@ -4496,6 +4496,15 @@ Rectangle {
                 // onCountChanged during a reset made DelegateModel cancel an
                 // out-of-range index. callLater coalesces requests and
                 // re-checks state at fire time.
+                // A child Timer rather than Qt.callLater: a queued callLater
+                // can fire after the pane is gone (sign-out, room switch) and
+                // throw "positionViewAtLatest is not a function". restart()
+                // coalesces requests exactly as callLater did.
+                Timer {
+                    id: scrollToEndTimer
+                    interval: 0
+                    onTriggered: timeline.scrollToEndDeferred()
+                }
                 function scrollToEndDeferred() {
                     // Never fight an in-flight wheel motion; its settle pass
                     // recomputes follow-latest.
@@ -6032,7 +6041,7 @@ Rectangle {
                     recomputePresentationReady()
                     if (stickToBottom) {
                         if (!moving && !wheelAnimating && count > 0)
-                            Qt.callLater(scrollToEndDeferred)
+                            scrollToEndTimer.restart()
                     } else {
                         maintainViewAnchorCoalesced()
                     }
@@ -6045,7 +6054,7 @@ Rectangle {
                     // pinned, an anchored reader keeps the anchored message.
                     if (stickToBottom) {
                         if (count > 0)
-                            Qt.callLater(scrollToEndDeferred)
+                            scrollToEndTimer.restart()
                     } else {
                         maintainViewAnchorCoalesced()
                     }
@@ -6126,14 +6135,14 @@ Rectangle {
                         // Same frame-rebase reason as goToLatest().
                         timeline.viewAnchorId = ""
                         timeline.viewAnchorLastY = 0
-                        Qt.callLater(timeline.scrollToEndDeferred)
+                        scrollToEndTimer.restart()
                     }
                 }
                 Connections {
                     target: app.settings
                     function onShowRoomActivityChanged() {
                         if (timeline.stickToBottom) {
-                            Qt.callLater(timeline.scrollToEndDeferred)
+                            scrollToEndTimer.restart()
                             return
                         }
                         // Capture the anchor right before the reflow and
@@ -6234,7 +6243,7 @@ Rectangle {
                     // A new event arrived or the timeline reset; follow the
                     // bottom.
                     recomputePresentationReady()
-                    if (stickToBottom) Qt.callLater(scrollToEndDeferred)
+                    if (stickToBottom) scrollToEndTimer.restart()
                 }
                 onMovementEnded: {
                     // Scrolling settled: recompute at-bottom (return to bottom
@@ -6246,7 +6255,7 @@ Rectangle {
                 }
                 Component.onCompleted: {
                     refreshMediaBand()
-                    Qt.callLater(scrollToEndDeferred)
+                    scrollToEndTimer.restart()
                     maybeFillViewport()
                     // The pane may be created while a room is already loaded.
                     if (app.currentRoomId !== "" && count > 0)
@@ -6330,7 +6339,9 @@ Rectangle {
                         var resetEpoch = ++timeline.resetEpoch
                         var readerEpoch = timeline.navigationEpoch
                         Qt.callLater(function() {
-                            if (timeline.resetEpoch !== resetEpoch
+                            // The pane may be gone by the time this runs.
+                            if (!timeline || !app
+                                    || timeline.resetEpoch !== resetEpoch
                                     || timeline.navigationEpoch !== readerEpoch)
                                 return
                             // "When returning to a conversation": previous
