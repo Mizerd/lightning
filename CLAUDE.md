@@ -737,6 +737,9 @@ Use the category that matches the evidence:
   *registered* tests and is not evidence that any of them passed; never
   report a registration count as a pass rate.
 - **QML tests:** contract scans and real offscreen module/component loading.
+- **Every Qt test run:** `QT_QPA_PLATFORM=offscreen` AND `dbus-run-session --`
+  (around `ctest` too). Offscreen alone still posts to the real desktop's
+  notification daemon. 2026-10-31 round: `docs/round-history.md`.
 - **Bridge/controller tests:** generation isolation, diff ingestion, media,
   thread, notification, and application policy.
 - **Application launch:** proves startup only.

@@ -1,5 +1,20 @@
 # Open items and the NOT TESTED inventory
 
+## 2026-10-31 — OPEN after the integration round
+
+- **A hardware share is opt-in** (`LIGHTNING_SHARE_ENCODER=hardware`) and stays so
+  until a release's viewers can decode H.264. No package carries it yet:
+  `docs/voice-calls.md`. DECISION for Rokas, with the patent/licence question.
+- On NixOS `nvcodec` still registers encoders only with `/run/opengl-driver/lib`
+  on the library path. The stale-parser half is fixed; this half is not.
+- Stream Info covers MatrixRTC only and draws over the stage's header row.
+- A narrow collapsed call strip (stage under 640 px) has room for the controls
+  alone: no faces and no format label until it is expanded.
+- `UserClientsInfo` asks once per user: a device that joined after the first ask
+  reads "no record" until Developer tools is toggled or the account changes.
+- The legacy lane's crossed offers, TURN, and real devices stay as
+  `docs/live-validation.md` lists them.
+
 ## 2026-10-20 — OPEN (GitHub #30/#48): a plain message Element shows is absent from the room
 
 The report: an `m.text` (no thread, no edit) missing between two rows that

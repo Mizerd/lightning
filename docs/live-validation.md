@@ -1,5 +1,29 @@
 # Live validation: what Rokas has actually confirmed
 
+## 2026-10-31 (evening) — the integrated tree, scripted, on one machine
+
+An agent's run, not Rokas's confirmation. Build from the final integration
+(`LIGHTNING_TEST_LOOPBACK_FOCI=ON` for the rig's loopback foci; nothing else
+differs). Xvfb, private sound servers, injected tones, no real devices.
+
+**PASS, legacy 1:1:** Lightning to Lightning 22/22 scripted cases. A real window
+on a fresh login in a new encrypted DM rang and answered, the bar read "Voice
+call Direct", tone reached the peer at peak 0.365 and the peer's reached the
+window's sink at peak 1644/32767.
+
+**PASS, MatrixRTC, encrypted, with Element Call 0.28:** the stage read "MatrixRTC",
+Stream Info read `H.264 ... nvh264enc cpu ... ximagesrc` for a hardware share
+(opt-in) and VP8 for the received camera. Element decoded 782 H.264 frames,
+0 dropped, with the picture correct. Audio: 2000 frames decrypted here, sink
+peak 948; Element's inbound level 0.397 with the tone on. `nvcodec` loaded with
+no preload (0 plugin failures).
+
+**NOT TESTED:** `gpu-zero-copy` in this run (the rig's share took the CPU path),
+Stream Info's corrected rates in a live call (fixed after this run; unit-tested),
+the client info popup with a real participant, a chosen real camera on the legacy
+lane (the binding change), any package, two machines, a physical window at
+640 px.
+
 ## 2026-10-31 — legacy 1:1 voice and video, scripted, against Element Web
 
 Not Rokas's confirmation: an agent's scripted run, recorded here so the claim

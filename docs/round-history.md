@@ -1,5 +1,36 @@
 # Round history
 
+## 2026-10-31 (evening) — integrating six slices, and what only the integrated tree showed
+
+Calls, hardware share, Stream Info, Activity, small windows and developer mode
+landed together. Each passed alone; these did not.
+
+- **A label that reads a latch feeds it.** Hiding the stage's format label on
+  `cramped` freed the room that released `cramped`, so the bar rebuilt its
+  Loaders for ever and `theControlDockComesBack...` hit the five-minute
+  watchdog. Layout hints may read a latch; nothing that changes the row's
+  implicit width may. The label goes on stage width alone.
+- **A hidden Window does not hide its items.** The full-screen window's Stream
+  Info overlay had `visible` true and its timer ticked beside the stage's, so a
+  row was sampled twice in 2 ms: "500.0 FPS" outgoing, "0.0 FPS, 0 kbps"
+  incoming. Every unit test passed; it took reading the numbers in a live call.
+- **A SONAME maps once.** NixOS' `nvidia-vaapi-driver` carries a RUNPATH to the
+  host's GStreamer, libva opens it into our process, and `nvcodec` then fails on
+  an undefined symbol in a library from a different version. `LD_LIBRARY_PATH`
+  outranks a RUNPATH, so the fix is one path. REFUTED on the way: a stale flake
+  input; the build's own libraries are all 1.28.6.
+- **A count assertion belongs to whoever adds the thing counted.** The legacy
+  lane added four queues in a file the live-queue sweep counts, in a slice whose
+  focused suites did not include that sweep. All four were already bounded.
+- **The first version of the stage's geometry test passed on the bug twice:**
+  the controller's rebuild left one row (the rest had no membership), and it
+  measured the row, not the stage, so a row wider than its stage reported
+  nothing. Both mutations pass only since it feeds six rows and measures the
+  stage.
+- **Qt tests post real notifications.** `offscreen` does not stop a test reaching
+  the session bus; they appeared on Rokas's desktop. Run them under
+  `dbus-run-session` (CLAUDE.md §12).
+
 ## 2026-10-31 — legacy 1:1 video, and three calls that could never have worked
 
 Legacy gained VP8, `m.call.negotiate`, MSC3077 metadata and a call format
