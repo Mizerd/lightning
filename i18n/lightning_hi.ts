@@ -531,7 +531,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>ActivityCenterPanel</name>
     <message>
-        <location filename="../qml/ActivityCenterPanel.qml" line="+118"/>
+        <location filename="../qml/ActivityCenterPanel.qml" line="+122"/>
         <source>custom emoji</source>
         <translation>कस्टम इमोजी</translation>
     </message>
@@ -592,12 +592,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+50"/>
-        <location line="+234"/>
+        <location line="+246"/>
         <source>Activity</source>
         <translation>गतिविधि</translation>
     </message>
     <message numerus="yes">
-        <location line="-224"/>
+        <location line="-236"/>
         <source>%n new</source>
         <translation>
             <numerusform>%n नया</numerusform>
@@ -697,12 +697,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+1"/>
-        <location line="+420"/>
+        <location line="+432"/>
         <source>Following</source>
         <translation>निम्नलिखित</translation>
     </message>
     <message>
-        <location line="-419"/>
+        <location line="-431"/>
         <source>All known</source>
         <translation>सभी ज्ञात</translation>
     </message>
@@ -717,7 +717,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>इस सर्वर से पुरानी गतिविधि उपलब्ध नहीं है।</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+17"/>
+        <source>No loaded activity matches your search.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
         <source>No followed threads found in recent activity.</source>
         <translation>हाल की गतिविधि में कोई फ़ॉलो किया गया थ्रेड नहीं मिला।</translation>
     </message>
@@ -757,7 +762,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>अभी यहाँ कुछ नहीं है। आपके मेंशन, उत्तर और प्रतिक्रियाएँ आते ही यहाँ दिखेंगी।</translation>
     </message>
     <message>
-        <location line="+226"/>
+        <location line="+9"/>
+        <source>Search loaded activity</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+227"/>
         <source>Threads activity</source>
         <translation>थ्रेड्स गतिविधि</translation>
     </message>
@@ -800,7 +810,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>उल्लेख करें</translation>
     </message>
     <message>
-        <location line="-621"/>
+        <location line="-633"/>
         <source>encrypted message</source>
         <translation>एन्क्रिप्टेड संदेश</translation>
     </message>
@@ -815,12 +825,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>कीवर्ड सेटिंग्स खोलें</translation>
     </message>
     <message>
-        <location line="+53"/>
+        <location line="+55"/>
         <source>No keywords are set. Add some in Settings, under Notifications.</source>
         <translation>कोई कीवर्ड सेट नहीं है। सेटिंग्स में, सूचनाएँ के अंतर्गत जोड़ें।</translation>
     </message>
     <message>
-        <location line="+196"/>
+        <location line="+206"/>
         <location line="+83"/>
         <location line="+33"/>
         <source>Encrypted message</source>
@@ -830,6 +840,15 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <location line="-114"/>
         <source>From %1</source>
         <translation>%1 की ओर से</translation>
+    </message>
+</context>
+<context>
+    <name>ActivityModel</name>
+    <message>
+        <location filename="../src/models/ActivityModel.cpp" line="+919"/>
+        <location line="+85"/>
+        <source>Encrypted message</source>
+        <translation type="unfinished">एन्क्रिप्टेड संदेश</translation>
     </message>
 </context>
 <context>
@@ -961,7 +980,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+8453"/>
+        <location filename="../src/app/AppController.cpp" line="+8460"/>
         <source>Room invitation</source>
         <translation>रूम का आमंत्रण</translation>
     </message>
@@ -1082,7 +1101,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>आने वाली कॉल</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-6476"/>
+        <location filename="../src/app/AppController.cpp" line="-6483"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>खाता बदलने के कारण साइन-आउट रद्द कर दिया गया। कुछ भी रीसेट नहीं हुआ।</translation>
     </message>
@@ -1102,7 +1121,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>%1 में आपसे एक वॉइस कॉल छूट गई</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+823"/>
+        <location filename="../src/app/AppController.cpp" line="+828"/>
         <source>The room was created, but adding it to the Space failed.</source>
         <translation>रूम बन गया, लेकिन उसे स्पेस में जोड़ा नहीं जा सका।</translation>
     </message>
@@ -1135,12 +1154,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <location line="+1"/>
         <location line="+55"/>
         <location line="+4784"/>
-        <location line="+982"/>
+        <location line="+984"/>
         <source>Not connected</source>
         <translation>कनेक्ट नहीं है</translation>
     </message>
     <message>
-        <location line="-5818"/>
+        <location line="-5820"/>
         <source>Connecting…</source>
         <translation>कनेक्ट हो रहा है…</translation>
     </message>
@@ -1213,12 +1232,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4525"/>
+        <location line="+4527"/>
         <source>Not signed in.</source>
         <translation>साइन इन नहीं है।</translation>
     </message>
     <message>
-        <location line="-4523"/>
+        <location line="-4525"/>
         <source>Room-key import failed.</source>
         <translation>रूम-कुंजी आयात विफल रहा।</translation>
     </message>
@@ -1238,13 +1257,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>YYYY-MM-DD प्रारूप में वास्तविक तिथियाँ दें, जहाँ “से” तिथि “तक” तिथि के बाद की न हो।</translation>
     </message>
     <message>
-        <location line="-5684"/>
-        <location line="+3314"/>
+        <location line="-5689"/>
+        <location line="+3319"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-3313"/>
+        <location line="-3318"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>यह एक टेस्ट सूचना है। यदि आप इसे पढ़ पा रहे हैं, तो डेस्कटॉप सूचनाएँ काम कर रही हैं।</translation>
     </message>
@@ -1259,7 +1278,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>कॉल शुरू हुई</translation>
     </message>
     <message>
-        <location line="+2203"/>
+        <location line="+2208"/>
         <source>That notification was for a different account, so nothing was sent. Switch back to that account and try again.</source>
         <translation>वह सूचना किसी दूसरे खाते के लिए थी, इसलिए कुछ नहीं भेजा गया। उस खाते पर वापस जाएँ और फिर कोशिश करें।</translation>
     </message>
@@ -1471,19 +1490,19 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+616"/>
-        <location line="+973"/>
+        <location line="+975"/>
         <location line="+867"/>
         <location line="+15"/>
         <source>Removal did not finish: the account&apos;s data is still in use. Nothing was deleted.</source>
         <translation>हटाना पूरा नहीं हुआ: खाते का डेटा अभी उपयोग में है। कुछ भी नहीं हटाया गया।</translation>
     </message>
     <message>
-        <location line="-1820"/>
+        <location line="-1822"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Your other accounts are still on this device; unlock the keyring and restart Lightning to continue with them.</source>
         <translation>Lightning अभी इस डिवाइस के सहेजे हुए साइन-इन नहीं पढ़ सकता — सिस्टम कीरिंग लॉक है या उपलब्ध नहीं है। आपके अन्य खाते अब भी इस डिवाइस पर हैं; उन्हें जारी रखने के लिए कीरिंग अनलॉक करें और Lightning फिर से शुरू करें।</translation>
     </message>
     <message>
-        <location line="+184"/>
+        <location line="+186"/>
         <source>This backend cannot change your display name.</source>
         <translation>यह बैकएंड आपका प्रदर्शित नाम नहीं बदल सकता।</translation>
     </message>
@@ -1568,8 +1587,8 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+572"/>
-        <location filename="../src/app/AppController.cpp" line="-2555"/>
-        <location line="+1194"/>
+        <location filename="../src/app/AppController.cpp" line="-2557"/>
+        <location line="+1196"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
         <translation>Lightning अभी इस डिवाइस के सहेजे हुए साइन-इन नहीं पढ़ सकता — सिस्टम कीरिंग लॉक है या उपलब्ध नहीं है। उसे अनलॉक करें और फिर कोशिश करें।</translation>
     </message>
@@ -3589,7 +3608,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>Lightning - पूर्ण स्क्रीन</translation>
     </message>
     <message>
-        <location line="+133"/>
+        <location line="+135"/>
         <source>Exit full screen (Esc)</source>
         <translation>पूर्ण स्क्रीन से बाहर निकलें (Esc)</translation>
     </message>
@@ -18867,7 +18886,37 @@ Signing out and signing in again is the only fix.</source>
         <translation>रूम इस आधार पर क्रमबद्ध करें</translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+9"/>
+        <source>Rooms stay in their groups. Within each group: current call, favourites, other rooms, then low priority.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Current call first, then invitations, favourites, other conversations, and low priority.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Within each section: alphabetical order.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Within each section: unread rooms first, then newest activity.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Within each section: your room arrangement, then the space&apos;s default order.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Within each section: newest activity first. Unread status does not change the order.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
         <source>Activity</source>
         <translation>गतिविधि</translation>
     </message>
@@ -19052,13 +19101,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+709"/>
+        <location line="+726"/>
         <location line="+1"/>
         <source>Search rooms</source>
         <translation>रूम खोजें</translation>
     </message>
     <message>
-        <location line="-652"/>
+        <location line="-654"/>
         <location line="+1"/>
         <source>Room list options</source>
         <translation>रूम सूची के विकल्प</translation>
@@ -19079,14 +19128,14 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+82"/>
+        <location line="+4"/>
         <location line="+3"/>
-        <location line="+2"/>
         <source>All</source>
         <translation>सभी</translation>
     </message>
     <message>
-        <location line="-4"/>
-        <location line="+5"/>
+        <location line="-6"/>
+        <location line="+7"/>
         <source>People</source>
         <translation>लोग</translation>
     </message>
@@ -19233,14 +19282,14 @@ Signing out and signing in again is the only fix.</source>
         <translation>अपठित रूम दिखाएँ</translation>
     </message>
     <message>
-        <location line="-431"/>
-        <location line="+2"/>
+        <location line="-432"/>
+        <location line="+3"/>
         <location line="+5"/>
         <source>Unreads</source>
         <translation>अपठित</translation>
     </message>
     <message>
-        <location line="-177"/>
+        <location line="-179"/>
         <source>Start or join a conversation</source>
         <translation>बातचीत शुरू करें या उसमें शामिल हों</translation>
     </message>
@@ -19275,7 +19324,11 @@ Signing out and signing in again is the only fix.</source>
         <translation>पते से शामिल हों…</translation>
     </message>
     <message>
-        <location line="+109"/>
+        <location line="-147"/>
+        <location line="+1"/>
+        <location line="+249"/>
+        <location line="+3"/>
+        <location line="+5"/>
         <source>Favourites</source>
         <translation>पसंदीदा</translation>
     </message>
@@ -19499,7 +19552,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+215"/>
         <location line="+61"/>
         <location line="+151"/>
-        <location line="+5126"/>
+        <location line="+5133"/>
         <location line="+96"/>
         <location line="+13"/>
         <location line="+50"/>
@@ -19508,15 +19561,15 @@ Signing out and signing in again is the only fix.</source>
         <translation>साइन इन नहीं हैं।</translation>
     </message>
     <message>
-        <location line="-5527"/>
+        <location line="-5534"/>
         <location line="+61"/>
         <location line="+151"/>
-        <location line="+5321"/>
+        <location line="+5328"/>
         <source>Unknown room: %1</source>
         <translation>अज्ञात रूम: %1</translation>
     </message>
     <message>
-        <location line="-5529"/>
+        <location line="-5536"/>
         <location line="+61"/>
         <location line="+151"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -19693,7 +19746,7 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location filename="../src/accounts/BackgroundSessionHost.cpp" line="+511"/>
-        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+268"/>
+        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+275"/>
         <location line="+54"/>
         <source>[unable to decrypt yet]</source>
         <translation>[अभी डिक्रिप्ट नहीं हो सका]</translation>
@@ -27079,7 +27132,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SpaceChannelModel</name>
     <message>
-        <location filename="../src/models/SpaceChannelModel.cpp" line="+897"/>
+        <location filename="../src/models/SpaceChannelModel.cpp" line="+900"/>
         <source>Create Room</source>
         <translation>कक्ष बनाएँ</translation>
     </message>
@@ -27131,7 +27184,7 @@ Note: importing keys does not verify this session.</source>
         <translation>लॉबी</translation>
     </message>
     <message>
-        <location line="+96"/>
+        <location line="+102"/>
         <source>People</source>
         <translation>लोग</translation>
     </message>
@@ -27167,7 +27220,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SpaceManager</name>
     <message>
-        <location filename="../src/spaces/SpaceManager.cpp" line="+251"/>
+        <location filename="../src/spaces/SpaceManager.cpp" line="+266"/>
         <source>All rooms</source>
         <translation>सभी रूम</translation>
     </message>
@@ -27459,7 +27512,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SpaceSettingsDialog</name>
     <message>
-        <location filename="../qml/SpaceSettingsDialog.qml" line="+158"/>
+        <location filename="../qml/SpaceSettingsDialog.qml" line="+190"/>
         <source>General</source>
         <translation>सामान्य</translation>
     </message>
@@ -27519,12 +27572,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="-42"/>
         <location line="+46"/>
-        <location line="+1004"/>
+        <location line="+1081"/>
         <source>Invite</source>
         <translation>आमंत्रित करें</translation>
     </message>
     <message>
-        <location line="-1049"/>
+        <location line="-1126"/>
         <location line="+46"/>
         <source>Kick</source>
         <translation>लात</translation>
@@ -27634,7 +27687,17 @@ Note: importing keys does not verify this session.</source>
         <translation>तस्वीरें (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg)</translation>
     </message>
     <message>
-        <location line="-322"/>
+        <location line="-464"/>
+        <source>Default order saved. Your personal room order still takes precedence.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Could not save the complete order. Some rooms may have moved; save again to retry, or reload the order.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+141"/>
         <source>The level every member starts at.</source>
         <translation>वह स्तर जिससे हर सदस्य शुरू करता है।</translation>
     </message>
@@ -27740,12 +27803,12 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+18"/>
-        <location line="+342"/>
+        <location line="+419"/>
         <source>Save</source>
         <translation>सहेजें</translation>
     </message>
     <message>
-        <location line="-325"/>
+        <location line="-402"/>
         <source>Banner</source>
         <translation>बैनर</translation>
     </message>
@@ -27780,7 +27843,42 @@ Note: importing keys does not verify this session.</source>
         <translation>चैट बैकग्राउंड</translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+30"/>
+        <source>Default room order</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>The starting order for everyone in this space. Personal room arrangements and sort choices take precedence.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+21"/>
+        <source>Move room up</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Move room down</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Saving…</source>
+        <translation type="unfinished">सहेजा जा रहा है…</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Save default order</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>Reload order</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+16"/>
         <source>Options</source>
         <translation>विकल्प</translation>
     </message>
@@ -28205,7 +28303,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SpacesRail</name>
     <message>
-        <location filename="../qml/SpacesRail.qml" line="+903"/>
+        <location filename="../qml/SpacesRail.qml" line="+904"/>
         <location line="+4"/>
         <location line="+1195"/>
         <location line="+160"/>
@@ -32433,12 +32531,12 @@ Note: importing keys does not verify this session.</source>
         <translation>बंद करें</translation>
     </message>
     <message>
-        <location line="+182"/>
+        <location line="+184"/>
         <source>Drop files to attach</source>
         <translation>संलग्न करने के लिए फ़ाइलें छोड़ें</translation>
     </message>
     <message>
-        <location line="-6766"/>
+        <location line="-6768"/>
         <source>Part of %1</source>
         <translation>%1 का हिस्सा</translation>
     </message>

@@ -529,7 +529,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>ActivityCenterPanel</name>
     <message>
-        <location filename="../qml/ActivityCenterPanel.qml" line="+118"/>
+        <location filename="../qml/ActivityCenterPanel.qml" line="+122"/>
         <source>custom emoji</source>
         <translation type="unfinished"></translation>
     </message>
@@ -590,12 +590,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+50"/>
-        <location line="+234"/>
+        <location line="+246"/>
         <source>Activity</source>
         <translation type="unfinished"></translation>
     </message>
     <message numerus="yes">
-        <location line="-224"/>
+        <location line="-236"/>
         <source>%n new</source>
         <translation>
             <numerusform>%n new</numerusform>
@@ -695,12 +695,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+1"/>
-        <location line="+420"/>
+        <location line="+432"/>
         <source>Following</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-419"/>
+        <location line="-431"/>
         <source>All known</source>
         <translation type="unfinished"></translation>
     </message>
@@ -715,7 +715,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+17"/>
+        <source>No loaded activity matches your search.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
         <source>No followed threads found in recent activity.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -755,7 +760,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+226"/>
+        <location line="+9"/>
+        <source>Search loaded activity</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+227"/>
         <source>Threads activity</source>
         <translation type="unfinished"></translation>
     </message>
@@ -798,7 +808,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-621"/>
+        <location line="-633"/>
         <source>encrypted message</source>
         <translation type="unfinished"></translation>
     </message>
@@ -813,12 +823,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+53"/>
+        <location line="+55"/>
         <source>No keywords are set. Add some in Settings, under Notifications.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+196"/>
+        <location line="+206"/>
         <location line="+83"/>
         <location line="+33"/>
         <source>Encrypted message</source>
@@ -827,6 +837,15 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="-114"/>
         <source>From %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>ActivityModel</name>
+    <message>
+        <location filename="../src/models/ActivityModel.cpp" line="+919"/>
+        <location line="+85"/>
+        <source>Encrypted message</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -959,7 +978,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+8453"/>
+        <location filename="../src/app/AppController.cpp" line="+8460"/>
         <source>Room invitation</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1080,7 +1099,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-6476"/>
+        <location filename="../src/app/AppController.cpp" line="-6483"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1100,7 +1119,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+823"/>
+        <location filename="../src/app/AppController.cpp" line="+828"/>
         <source>The room was created, but adding it to the Space failed.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1133,12 +1152,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <location line="+1"/>
         <location line="+55"/>
         <location line="+4784"/>
-        <location line="+982"/>
+        <location line="+984"/>
         <source>Not connected</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5818"/>
+        <location line="-5820"/>
         <source>Connecting…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1211,12 +1230,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4525"/>
+        <location line="+4527"/>
         <source>Not signed in.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4523"/>
+        <location line="-4525"/>
         <source>Room-key import failed.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1236,13 +1255,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5684"/>
-        <location line="+3314"/>
+        <location line="-5689"/>
+        <location line="+3319"/>
         <source>Lightning</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3313"/>
+        <location line="-3318"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1257,7 +1276,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+2203"/>
+        <location line="+2208"/>
         <source>That notification was for a different account, so nothing was sent. Switch back to that account and try again.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1469,19 +1488,19 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+616"/>
-        <location line="+973"/>
+        <location line="+975"/>
         <location line="+867"/>
         <location line="+15"/>
         <source>Removal did not finish: the account&apos;s data is still in use. Nothing was deleted.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-1820"/>
+        <location line="-1822"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Your other accounts are still on this device; unlock the keyring and restart Lightning to continue with them.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+184"/>
+        <location line="+186"/>
         <source>This backend cannot change your display name.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1566,8 +1585,8 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+572"/>
-        <location filename="../src/app/AppController.cpp" line="-2555"/>
-        <location line="+1194"/>
+        <location filename="../src/app/AppController.cpp" line="-2557"/>
+        <location line="+1196"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -3587,7 +3606,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+133"/>
+        <location line="+135"/>
         <source>Exit full screen (Esc)</source>
         <translation type="unfinished"></translation>
     </message>
@@ -18856,7 +18875,37 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+9"/>
+        <source>Rooms stay in their groups. Within each group: current call, favourites, other rooms, then low priority.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Current call first, then invitations, favourites, other conversations, and low priority.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Within each section: alphabetical order.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Within each section: unread rooms first, then newest activity.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Within each section: your room arrangement, then the space&apos;s default order.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Within each section: newest activity first. Unread status does not change the order.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
         <source>Activity</source>
         <translation type="unfinished"></translation>
     </message>
@@ -19041,13 +19090,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+709"/>
+        <location line="+726"/>
         <location line="+1"/>
         <source>Search rooms</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-652"/>
+        <location line="-654"/>
         <location line="+1"/>
         <source>Room list options</source>
         <translation type="unfinished"></translation>
@@ -19068,14 +19117,14 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+82"/>
+        <location line="+4"/>
         <location line="+3"/>
-        <location line="+2"/>
         <source>All</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4"/>
-        <location line="+5"/>
+        <location line="-6"/>
+        <location line="+7"/>
         <source>People</source>
         <translation type="unfinished"></translation>
     </message>
@@ -19222,14 +19271,14 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-431"/>
-        <location line="+2"/>
+        <location line="-432"/>
+        <location line="+3"/>
         <location line="+5"/>
         <source>Unreads</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-177"/>
+        <location line="-179"/>
         <source>Start or join a conversation</source>
         <translation type="unfinished"></translation>
     </message>
@@ -19264,7 +19313,11 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+109"/>
+        <location line="-147"/>
+        <location line="+1"/>
+        <location line="+249"/>
+        <location line="+3"/>
+        <location line="+5"/>
         <source>Favourites</source>
         <translation type="unfinished"></translation>
     </message>
@@ -19488,7 +19541,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+215"/>
         <location line="+61"/>
         <location line="+151"/>
-        <location line="+5126"/>
+        <location line="+5133"/>
         <location line="+96"/>
         <location line="+13"/>
         <location line="+50"/>
@@ -19497,15 +19550,15 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5527"/>
+        <location line="-5534"/>
         <location line="+61"/>
         <location line="+151"/>
-        <location line="+5321"/>
+        <location line="+5328"/>
         <source>Unknown room: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5529"/>
+        <location line="-5536"/>
         <location line="+61"/>
         <location line="+151"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -19682,7 +19735,7 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location filename="../src/accounts/BackgroundSessionHost.cpp" line="+511"/>
-        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+268"/>
+        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+275"/>
         <location line="+54"/>
         <source>[unable to decrypt yet]</source>
         <translation type="unfinished"></translation>
@@ -27059,7 +27112,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SpaceChannelModel</name>
     <message>
-        <location filename="../src/models/SpaceChannelModel.cpp" line="+897"/>
+        <location filename="../src/models/SpaceChannelModel.cpp" line="+900"/>
         <source>Create Room</source>
         <translation type="unfinished"></translation>
     </message>
@@ -27111,7 +27164,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+96"/>
+        <location line="+102"/>
         <source>People</source>
         <translation type="unfinished"></translation>
     </message>
@@ -27147,7 +27200,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SpaceManager</name>
     <message>
-        <location filename="../src/spaces/SpaceManager.cpp" line="+251"/>
+        <location filename="../src/spaces/SpaceManager.cpp" line="+266"/>
         <source>All rooms</source>
         <translation type="unfinished"></translation>
     </message>
@@ -27439,7 +27492,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SpaceSettingsDialog</name>
     <message>
-        <location filename="../qml/SpaceSettingsDialog.qml" line="+158"/>
+        <location filename="../qml/SpaceSettingsDialog.qml" line="+190"/>
         <source>General</source>
         <translation type="unfinished"></translation>
     </message>
@@ -27499,12 +27552,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="-42"/>
         <location line="+46"/>
-        <location line="+1004"/>
+        <location line="+1081"/>
         <source>Invite</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-1049"/>
+        <location line="-1126"/>
         <location line="+46"/>
         <source>Kick</source>
         <translation type="unfinished"></translation>
@@ -27614,7 +27667,17 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-322"/>
+        <location line="-464"/>
+        <source>Default order saved. Your personal room order still takes precedence.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Could not save the complete order. Some rooms may have moved; save again to retry, or reload the order.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+141"/>
         <source>The level every member starts at.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -27720,12 +27783,12 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+18"/>
-        <location line="+342"/>
+        <location line="+419"/>
         <source>Save</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-325"/>
+        <location line="-402"/>
         <source>Banner</source>
         <translation type="unfinished"></translation>
     </message>
@@ -27760,7 +27823,42 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+30"/>
+        <source>Default room order</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>The starting order for everyone in this space. Personal room arrangements and sort choices take precedence.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+21"/>
+        <source>Move room up</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Move room down</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Saving…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Save default order</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>Reload order</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+16"/>
         <source>Options</source>
         <translation type="unfinished"></translation>
     </message>
@@ -28185,7 +28283,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SpacesRail</name>
     <message>
-        <location filename="../qml/SpacesRail.qml" line="+903"/>
+        <location filename="../qml/SpacesRail.qml" line="+904"/>
         <location line="+4"/>
         <location line="+1195"/>
         <location line="+160"/>
@@ -32413,12 +32511,12 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+182"/>
+        <location line="+184"/>
         <source>Drop files to attach</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-6766"/>
+        <location line="-6768"/>
         <source>Part of %1</source>
         <translation type="unfinished"></translation>
     </message>
