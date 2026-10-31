@@ -18,6 +18,11 @@
   1.13.10 keeps VP8 in every section it offers. An SFU that drops VP8 from a section
   turns that wait into `local_sdp_rejected`: webrtcbin refuses its own answer.
   Pinned in `anAnswerAdmitsOnlyWhatThisBuildDecodes`; such an SFU is NOT TESTED.
+- **NOT TESTED live: the offer storm's fix.** A publish retired before its first
+  answer repeated the same offer until the call ended (1110 in 138 s when NVENC
+  failed 200 ms into a share). `offerIdentity()` stops it in the engine tests, but
+  no live share has retired that early since: the GPU was busy, and that needs
+  NVENC to fail or a share stopped within its first answer.
 - On NixOS `nvcodec` still registers encoders only with `/run/opengl-driver/lib`
   on the library path. The stale-parser half is fixed; this half is not.
 - Stream Info covers MatrixRTC only and draws over the stage's header row.

@@ -7030,8 +7030,11 @@ private slots:
         const int dropped = sender.offersDroppedForTest();
         QVERIFY(dropped > 0);
         sender.renegotiatePublisher();
-        while (!sender.m_publisher.offerPending)
+        QElapsedTimer waited;
+        waited.start();
+        while (!sender.m_publisher.offerPending && waited.elapsed() < 5000)
             QCoreApplication::processEvents();
+        QVERIFY(sender.m_publisher.offerPending);
         sender.m_publisher.negotiationDirty = true;
         QTRY_COMPARE_WITH_TIMEOUT(sender.offersDroppedForTest(), dropped + 2, 5000);
         QVERIFY(!sender.m_publisher.offerPending);
