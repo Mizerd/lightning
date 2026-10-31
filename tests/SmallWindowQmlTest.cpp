@@ -545,6 +545,50 @@ private Q_SLOTS:
                             + stray.join(QStringLiteral("; "))));
         QVERIFY(ok);
     }
+
+    // The account switcher grows from the rail's bottom tile. Its quick rows
+    // and the Add / Settings / Sign out footer must stay on screen in a short
+    // window (the footer used to be cut by the window edge).
+    void theAccountSwitcherFooterStaysInsideTheWindowAtTheFloor()
+    {
+        m_controller->showMain();
+        m_window->resize(640, 360);
+        QCoreApplication::processEvents();
+        QTest::qWait(150);
+        QQmlComponent component(m_engine);
+        component.setData(QByteArray(
+            "import QtQuick\nimport QtQuick.Controls\nimport MatrixClient\n"
+            "Item { anchors.fill: parent\n"
+            "  AccountMenu { id: dlg; objectName: 'dlg'; x: 86; y: parent.height - 60; margins: 12 }\n}\n"),
+            QUrl(QStringLiteral("account-menu-under-test.qml")));
+        QScopedPointer<QObject> owner(component.create());
+        QVERIFY2(owner, qPrintable(component.errorString()));
+        auto *host = qobject_cast<QQuickItem *>(owner.data());
+        QVERIFY(host);
+        host->setParentItem(m_window->contentItem());
+        host->setWidth(m_window->width());
+        host->setHeight(m_window->height());
+        QObject *menu = host->findChild<QObject *>(QStringLiteral("dlg"));
+        QVERIFY(menu);
+        QVERIFY(QMetaObject::invokeMethod(menu, "open"));
+        QTRY_VERIFY_WITH_TIMEOUT(menu->property("opened").toBool(), 1500);
+        QTest::qWait(400);
+        auto *content = menu->property("contentItem").value<QQuickItem *>();
+        QVERIFY(content);
+        const QRectF win(0, 0, m_window->width(), m_window->height());
+        const QRectF cr = content->mapRectToScene(
+            QRectF(0, 0, content->width(), content->height()));
+        QStringList stray;
+        controlsOutsideBox(content, win, stray);
+        QMetaObject::invokeMethod(menu, "close");
+        QTest::qWait(150);
+        QVERIFY2(win.adjusted(-1, -1, 1, 1).contains(cr),
+                 qPrintable(QStringLiteral("switcher content is %1,%2 %3x%4 in a "
+                                           "%5x%6 window").arg(cr.x()).arg(cr.y())
+                                .arg(cr.width()).arg(cr.height())
+                                .arg(win.width()).arg(win.height())));
+        QVERIFY2(stray.isEmpty(), qPrintable(stray.join(QStringLiteral("; "))));
+    }
 };
 
 QTEST_MAIN(SmallWindowQmlTest)
