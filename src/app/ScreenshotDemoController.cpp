@@ -578,7 +578,7 @@ bool ScreenshotDemoController::sizeForPreset(const QString &preset, int *w, int 
         bool okW = false, okH = false;
         const int pw = p.left(x).toInt(&okW);
         const int ph = p.mid(x + 1).toInt(&okH);
-        if (okW && okH && pw >= 480 && pw <= 3840 && ph >= 480 && ph <= 2160) {
+        if (okW && okH && pw >= 320 && pw <= 3840 && ph >= 320 && ph <= 2160) {
             if (w) *w = pw;
             if (h) *h = ph;
             return true;

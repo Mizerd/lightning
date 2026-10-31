@@ -22,6 +22,8 @@
 #if defined(LIGHTNING_HAVE_QT_AUDIO_BACKEND_NAME)
 #include <QtMultimedia/private/qplatformmediaintegration_p.h>
 #endif
+#include <functional>
+#include <QQuickItem>
 #include "app/FontManager.h"
 #include "app/QuitSignalBridge.h"
 #include "app/SingleInstanceGuard.h"
@@ -2836,7 +2838,83 @@ int main(int argc, char *argv[])
                 auto *win = qobject_cast<QQuickWindow *>(obj);
                 if (!win)
                     return;
-                QTimer::singleShot(captureDelay, win, [win, capturePath] {
+                // Wait for the scene to have caught up with the window: under load
+                // the offscreen platform applies a resize late, and a capture or
+                // an audit taken against the stale layout reports items hanging
+                // off a window that no longer exists.
+                auto settled = std::make_shared<int>(0);
+                auto *poll = new QTimer(win);
+                poll->setInterval(200);
+                QObject::connect(poll, &QTimer::timeout, win, [win, settled] {
+                    const QQuickItem *ci = win->contentItem();
+                    if (ci && qFuzzyCompare(ci->width() + 1, win->width() + 1)
+                        && qFuzzyCompare(ci->height() + 1, win->height() + 1))
+                        ++*settled;
+                    else
+                        *settled = 0;
+                });
+                poll->start();
+                QTimer::singleShot(captureDelay, win, [win, capturePath, settled] {
+                    for (int i = 0; i < 100 && *settled < 5; ++i)
+                        QCoreApplication::processEvents(QEventLoop::AllEvents, 200);
+                    // Development-only geometry audit (small-window round):
+                    // LIGHTNING_DEMO_AUDIT=1 lists every visible control
+                    // whose box, after its clipping ancestors, still leaves
+                    // the window, and every popup taller or wider than it.
+                    if (qEnvironmentVariableIntValue("LIGHTNING_DEMO_AUDIT")
+                        != 0) {
+                        const QRectF wr(0, 0, win->width(), win->height());
+                        QTextStream(stdout) << "AUDIT window " << win->width()
+                                            << "x" << win->height() << "\n";
+                        std::function<void(QQuickItem *)> walk =
+                            [&](QQuickItem *it) {
+                            if (!it->isVisible() || it->opacity() <= 0.01)
+                                return;
+                            const QByteArray cls = it->metaObject()->className();
+                            if (qEnvironmentVariableIsSet("LIGHTNING_DEMO_AUDIT_NAMES")
+                                && qEnvironmentVariable("LIGHTNING_DEMO_AUDIT_NAMES")
+                                       .split(QLatin1Char(','))
+                                       .contains(it->objectName()))
+                                QTextStream(stdout) << "AUDIT item "
+                                    << it->objectName() << " "
+                                    << it->mapToScene(QPointF(0, 0)).x() << ","
+                                    << it->mapToScene(QPointF(0, 0)).y() << " "
+                                    << it->width() << "x" << it->height() << "\n";
+                            const bool control = cls.contains("Button")
+                                || cls.contains("TextField")
+                                || cls.contains("ComboBox")
+                                || cls.contains("CheckBox")
+                                || cls.contains("Switch")
+                                || cls.contains("PopupItem");
+                            if (control && it->width() > 0 && it->height() > 0) {
+                                QRectF r = it->mapRectToScene(
+                                    QRectF(0, 0, it->width(), it->height()));
+                                for (QQuickItem *a = it->parentItem(); a;
+                                     a = a->parentItem())
+                                    if (a->clip())
+                                        r = r.intersected(a->mapRectToScene(
+                                            QRectF(0, 0, a->width(), a->height())));
+                                const bool popup = cls.contains("PopupItem");
+                                const QRectF full = it->mapRectToScene(
+                                    QRectF(0, 0, it->width(), it->height()));
+                                if (popup && !wr.adjusted(-1, -1, 1, 1).contains(full))
+                                    QTextStream(stdout) << "AUDIT popup-outside "
+                                        << cls << " " << it->objectName() << " "
+                                        << full.x() << "," << full.y() << " "
+                                        << full.width() << "x" << full.height()
+                                        << "\n";
+                                else if (!popup && !r.isEmpty()
+                                         && !wr.adjusted(-1, -1, 1, 1).contains(r))
+                                    QTextStream(stdout) << "AUDIT control-outside "
+                                        << cls << " " << it->objectName() << " "
+                                        << r.x() << "," << r.y() << " "
+                                        << r.width() << "x" << r.height() << "\n";
+                            }
+                            for (QQuickItem *c : it->childItems())
+                                walk(c);
+                        };
+                        walk(win->contentItem());
+                    }
                     const QImage img = win->grabWindow();
                     if (!img.isNull() && img.save(capturePath))
                         QTextStream(stdout) << "demo-capture: wrote "
