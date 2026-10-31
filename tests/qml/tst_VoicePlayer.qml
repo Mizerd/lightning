@@ -230,6 +230,32 @@ TestCase {
         }
     }
 
+    // A volume control placed at a chosen height in the window, to see where
+    // its popup lands.
+    Component {
+        id: placedVolumeComponent
+        Item {
+            id: place
+            property real controlY: 0
+            property alias control: placed
+            property alias output: placedOutput
+            width: test.width
+            height: test.height
+            QtObject {
+                id: placedOutput
+                property real volume: 1.0
+                property bool muted: false
+                property bool userUnmuted: false
+            }
+            MediaVolumeControl {
+                id: placed
+                y: place.controlY
+                audio: placedOutput
+                sliderObjectName: "placedSlider"
+            }
+        }
+    }
+
     function init() {
         voice.calls = []
         voice.info = {}
@@ -1127,6 +1153,46 @@ TestCase {
         keyClick(Qt.Key_Escape)
         tryVerify(function() { return !slider.visible }, 2000,
                   "Escape left the hover-opened popup open")
+    }
+
+    // The popup stays inside the window. Docked under the room header the
+    // host sits at the window top and there is no room above it: the popup
+    // opens downward from the button's bottom edge instead of being cut off.
+    // Old code: y was always -height, so the top of the slider (and the
+    // handle at full volume) went above the window.
+    function popupRectOf(controlY) {
+        var place = createTemporaryObject(placedVolumeComponent, test,
+                                          { controlY: controlY })
+        verify(place, "the placed control did not build")
+        place.control.forceActiveFocus(Qt.TabFocusReason)
+        var slider = find(Overlay.overlay, "placedSlider")
+        verify(slider, "no popup")
+        tryVerify(function() { return slider.visible }, 2000)
+        var tl = slider.mapToItem(Overlay.overlay, 0, 0)
+        var ctl = place.control.mapToItem(Overlay.overlay, 0, 0)
+        // The popup's padding is 8 around the slider.
+        return { top: tl.y - 8, bottom: tl.y + slider.height + 8,
+                 ctlTop: ctl.y, ctlBottom: ctl.y + place.control.height,
+                 window: Overlay.overlay.height }
+    }
+    function test_theVolumePopupOpensDownWhenThereIsNoRoomAbove() {
+        var r = popupRectOf(4)
+        verify(r.top >= 0, "popup top " + r.top + " is above the window")
+        verify(r.bottom <= r.window, "popup bottom " + r.bottom + " is below the window")
+        verify(Math.abs(r.top - r.ctlBottom) <= 1,
+               "popup is not against the button's bottom edge: " + r.top + " vs " + r.ctlBottom)
+    }
+    function test_theVolumePopupOpensUpWhereItFits() {
+        var r = popupRectOf(300)
+        verify(r.top >= 0 && r.bottom <= r.window)
+        verify(Math.abs(r.bottom - r.ctlTop) <= 1,
+               "popup is not against the button's top edge: " + r.bottom + " vs " + r.ctlTop)
+    }
+    function test_theVolumePopupStaysInsideAtTheWindowBottom() {
+        var r = popupRectOf(test.height - 40)
+        verify(r.top >= 0 && r.bottom <= r.window,
+               "popup spans " + r.top + ".." + r.bottom + " in " + r.window)
+        verify(Math.abs(r.bottom - r.ctlTop) <= 1, "did not open upward")
     }
 
     // C21-F06: the wheel over the popup's slider steps the level. Old code:

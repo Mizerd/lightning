@@ -163,8 +163,10 @@ IconButton {
     Popup {
         id: volumePopup
         x: Math.round((parent.width - width) / 2)
-        // Touch the button's top edge so there is no dead gap.
-        y: -height
+        // Touch the button's top edge so there is no dead gap, or its bottom
+        // edge when there is no room above (a strip docked under the room
+        // header). Decided in onAboutToShow, never bound to geometry.
+        y: openDown ? root.height : -height
         width: 44
         height: 124
         padding: AppTheme.spacing8
@@ -173,6 +175,15 @@ IconButton {
         visible: root.audio !== null && !root.dismissed
                  && (root.wantVolumeOpen || closeGrace.running)
         closePolicy: Popup.NoAutoClose
+        property bool openDown: false
+        onAboutToShow: {
+            var ref = Overlay.overlay
+            if (!ref)
+                return
+            var top = root.mapToItem(ref, 0, 0).y
+            // Up when the whole popup fits above the button inside the window.
+            volumePopup.openDown = top < volumePopup.height
+        }
         background: Rectangle {
             radius: AppTheme.radiusMd
             color: root.scrim ? AppTheme.scrimSurface : AppTheme.surfaceElevated
