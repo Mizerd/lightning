@@ -26,6 +26,9 @@
 #include <QSignalSpy>
 #include <QtMath>
 #include <QTemporaryDir>
+#include <QScopeGuard>
+#include "app/RoomInfoController.h"
+#include "matrix/MockMatrixClient.h"
 
 #include <memory>
 
@@ -33,6 +36,14 @@
 #include "auth/AuthManager.h"
 
 namespace {
+
+class RosterClient final : public MockMatrixClient
+{
+public:
+    bool supportsRoomManagement() const override { return true; }
+    quint64 requestRoomMembers(const QString &) override { return ++lastOp; }
+    quint64 lastOp = 0;
+};
 
 QString readQml(const QString &name)
 {
@@ -195,6 +206,59 @@ private Q_SLOTS:
         m_window.reset();
         m_engine.reset();
         m_controller.reset();
+    }
+
+    void anUnknownMemberCountDoesNotFlashZeroDuringPartialHydration()
+    {
+        RosterClient client;
+        auto *info = m_controller->roomInfo();
+        auto *original = m_controller->findChild<MockMatrixClient *>();
+        QVERIFY(original);
+        const QString originalRoom = info->roomId();
+        const auto restore = qScopeGuard([&] {
+            info->setClient(original);
+            info->setRoomId(originalRoom);
+        });
+        info->setClient(&client);
+        const QString room = QStringLiteral("!hydration:example.org");
+        info->setRoomId(room);
+        settle();
+        auto *label = itemNamed(QStringLiteral("roomOverviewMemberCount"));
+        QVERIFY(label);
+        QVERIFY(info->loading());
+        QCOMPARE(info->joinedCount(), 0);
+        QVERIFY(!label->isVisible());
+        QVariantMap snapshot{{QStringLiteral("ok"), true},
+                             {QStringLiteral("partial"), true},
+                             {QStringLiteral("joinedCount"), 0}};
+        Q_EMIT client.roomMembersReceived(client.lastOp, room, snapshot);
+        settle();
+        QVERIFY(info->loading());
+        QVERIFY(!label->isVisible());
+        snapshot.insert(QStringLiteral("partial"), false);
+        snapshot.insert(QStringLiteral("joinedCount"), 9);
+        Q_EMIT client.roomMembersReceived(client.lastOp, room, snapshot);
+        settle();
+        QVERIFY(!info->loading());
+        QCOMPARE(info->joinedCount(), 9);
+        QVERIFY(label->isVisible());
+        QVERIFY(label->property("text").toString().startsWith(QLatin1Char('9')));
+        info->refreshMembers();
+        snapshot.insert(QStringLiteral("partial"), true);
+        snapshot.insert(QStringLiteral("joinedCount"), 0);
+        Q_EMIT client.roomMembersReceived(client.lastOp, room, snapshot);
+        settle();
+        QVERIFY(info->loading());
+        QCOMPARE(info->joinedCount(), 9);
+        QVERIFY(label->isVisible());
+        // A completed answer may really be zero; only an unknown loading
+        // count is withheld.
+        snapshot.insert(QStringLiteral("partial"), false);
+        Q_EMIT client.roomMembersReceived(client.lastOp, room, snapshot);
+        settle();
+        QVERIFY(!info->loading());
+        QCOMPARE(info->joinedCount(), 0);
+        QVERIFY(label->isVisible());
     }
 
     // Fails on the old panel: the name wrapped to ~15 lines.

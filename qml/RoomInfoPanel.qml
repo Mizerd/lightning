@@ -746,6 +746,10 @@ Rectangle {
                     }
 
                     Label {
+                        objectName: "roomOverviewMemberCount"
+                        // A cache-only roster has rows, but no whole-room
+                        // count yet. Keep a known count during refresh.
+                        visible: !app.roomInfo.loading || app.roomInfo.joinedCount > 0
                         // Plural-aware so one member reads "1 member".
                         text: app.roomInfo.invitedCount > 0
                               ? qsTr("%n member(s) (%1 invited)", "",
