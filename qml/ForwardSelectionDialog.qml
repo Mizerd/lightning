@@ -18,6 +18,11 @@ Dialog {
     parent: Overlay.overlay
     anchors.centerIn: parent
     width: Math.min(520, parent ? parent.width - AppTheme.spacing24 * 2 : 520)
+    // Never taller than the window: the destination list below takes the
+    // difference, so the Forward / Cancel buttons stay on screen.
+    height: Math.min(implicitHeight,
+                     parent ? parent.height - AppTheme.spacing24 * 2
+                            : implicitHeight)
     padding: AppTheme.spacing16
 
     // [{roomId, name, threadRootId}]: chosen destinations.
@@ -131,6 +136,8 @@ Dialog {
             objectName: "forwardDestinationList"
             Layout.fillWidth: true
             Layout.preferredHeight: 240
+            Layout.minimumHeight: 80
+            Layout.fillHeight: true
             visible: !root.sending && !root.finished
             clip: true
             model: app.allRooms

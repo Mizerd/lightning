@@ -16,7 +16,10 @@
 
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
+#include <QQmlComponent>
 #include <QQmlContext>
+#include <QQmlExpression>
+#include <QScopedPointer>
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QSignalSpy>
@@ -94,6 +97,31 @@ private:
         }
         for (QQuickItem *c : it->childItems())
             controlsOutsideHorizontally(c, space, out);
+    }
+
+    // Every visible control under `it` (after what a nested scroller shows)
+    // that leaves `box`, in scene coordinates. Both axes: a dialog whose body
+    // is not scrollable loses its bottom controls past the box.
+    static void controlsOutsideBox(QQuickItem *it, const QRectF &box,
+                                   QStringList &out)
+    {
+        if (!it->isVisible() || it->opacity() <= 0.01)
+            return;
+        const QByteArray cls = it->metaObject()->className();
+        if (isControl(cls) && it->width() > 0 && it->height() > 0) {
+            QRectF r = it->mapRectToScene(QRectF(0, 0, it->width(), it->height()));
+            for (QQuickItem *a = it->parentItem(); a; a = a->parentItem())
+                if (a->inherits("QQuickFlickable"))
+                    r = r.intersected(a->mapRectToScene(
+                        QRectF(0, 0, a->width(), a->height())));
+            if (!r.isEmpty() && !box.adjusted(-1, -1, 1, 1).contains(r))
+                out << QStringLiteral("%1 %2 [%3,%4 %5x%6]")
+                           .arg(QString::fromLatin1(cls), it->objectName())
+                           .arg(qRound(r.x())).arg(qRound(r.y()))
+                           .arg(qRound(r.width())).arg(qRound(r.height()));
+        }
+        for (QQuickItem *c : it->childItems())
+            controlsOutsideBox(c, box, out);
     }
 
 private Q_SLOTS:
@@ -308,6 +336,88 @@ private Q_SLOTS:
                                 .arg(field->width())));
         QMetaObject::invokeMethod(pane, "closeFind");
         QTest::qWait(100);
+    }
+
+    // Every main dialog, opened in the floor-sized window: its box must be
+    // inside the window. A dialog taller than the window loses its footer
+    // buttons below the edge, where nothing can reach them.
+    void everyMainDialogFitsTheWindowAtTheFloor_data()
+    {
+        QTest::addColumn<QString>("type");
+        QTest::addColumn<QString>("open");
+        const auto row = [](const char *type, const char *open) {
+            QTest::newRow(type) << QString::fromLatin1(type)
+                                << QString::fromLatin1(open);
+        };
+        row("JumpToDateDialog", "openDialog()");
+        row("SendLaterDialog", "openFor({})");
+        row("LeaveRoomConfirmDialog",
+            "openFor('!r:mock.local', 'Room', 12, 'public', false)");
+        row("ExportRoomDialog", "openDialog()");
+        row("DiscoverJoinDialog", "openDialog('browse')");
+        row("ForwardSelectionDialog", "openDialog()");
+        row("QrLoginDialog", "openDialog()");
+        row("InvitePeopleDialog", "openFor('!general:mock.local')");
+        row("CreatePollDialog", "openDialog()");
+        row("NewConversationDialog", "openDialog('room', {})");
+        row("RoomUpgradeDialog", "openFor('!general:mock.local')");
+        row("SpaceSettingsDialog", "openFor('!space:mock.local')");
+        row("AddWidgetDialog", "openDialog()");
+        row("MessageSearchDialog", "openDialog('')");
+        row("StatusDialog", "openForEdit()");
+        row("ChatBackgroundDialog", "openForDefault()");
+        row("PolicyListDialog", "openFor('!r:mock.local', 'Room')");
+    }
+
+    void everyMainDialogFitsTheWindowAtTheFloor()
+    {
+        QFETCH(QString, type);
+        QFETCH(QString, open);
+        m_controller->showMain();
+        m_window->resize(640, 420);
+        QCoreApplication::processEvents();
+        QTest::qWait(150);
+        QQmlComponent component(m_engine);
+        component.setData(QStringLiteral(
+            "import QtQuick\nimport QtQuick.Controls\nimport MatrixClient\n"
+            "Item { anchors.fill: parent\n  %1 { id: dlg; objectName: 'dlg' }\n}\n")
+                .arg(type).toUtf8(), QUrl(QStringLiteral("dialog-under-test.qml")));
+        QScopedPointer<QObject> owner(component.create());
+        QVERIFY2(owner, qPrintable(component.errorString()));
+        auto *host = qobject_cast<QQuickItem *>(owner.data());
+        QVERIFY(host);
+        host->setParentItem(m_window->contentItem());
+        host->setWidth(m_window->width());
+        host->setHeight(m_window->height());
+        QQmlExpression expr(qmlContext(host), host,
+                            QStringLiteral("dlg.%1").arg(open));
+        expr.evaluate();
+        QVERIFY2(!expr.hasError(), qPrintable(expr.error().toString()));
+        QObject *dlg = host->findChild<QObject *>(QStringLiteral("dlg"));
+        QVERIFY(dlg);
+        QTRY_VERIFY_WITH_TIMEOUT(dlg->property("opened").toBool(), 1500);
+        QTest::qWait(350);
+        const qreal x = dlg->property("x").toReal();
+        const qreal y = dlg->property("y").toReal();
+        const qreal w = dlg->property("width").toReal();
+        const qreal h = dlg->property("height").toReal();
+        const QRectF box(x, y, w, h);
+        const QRectF win(0, 0, m_window->width(), m_window->height());
+        QStringList stray;
+        for (const char *part : { "contentItem", "footer", "header" }) {
+            auto *it = dlg->property(part).value<QQuickItem *>();
+            if (it)
+                controlsOutsideBox(it, QRectF(x, y, w, h), stray);
+        }
+        QMetaObject::invokeMethod(dlg, "close");
+        QTest::qWait(150);
+        QVERIFY2(stray.isEmpty(),
+                 qPrintable(type + QLatin1String(" has controls outside its "
+                            "box: ") + stray.join(QStringLiteral("; "))));
+        QVERIFY2(win.adjusted(-1, -1, 1, 1).contains(box),
+                 qPrintable(QStringLiteral("%1 is %2,%3 %4x%5 in a %6x%7 window")
+                                .arg(type).arg(x).arg(y).arg(w).arg(h)
+                                .arg(win.width()).arg(win.height())));
     }
 };
 
