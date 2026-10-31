@@ -12,6 +12,9 @@ struct StreamInfoStats {
     std::atomic<quint64> bytes{0}, packets{0}, frames{0}, decrypted{0}, dropped{0};
     std::atomic<int> width{0}, height{0};
     QString source, encoder, scaling;
+    /// What the track carries, not what SDP once offered: a hardware share is
+    /// H.264 and a software fallback is not.
+    QString codec = QStringLiteral("VP8");
     bool outgoing = false;
     bool screen = false;
     qint64 lastMs = -1;
@@ -32,7 +35,7 @@ struct StreamInfoStats {
         QVariantMap row{
             {QStringLiteral("outgoing"), outgoing},
             {QStringLiteral("screen"), screen},
-            {QStringLiteral("codec"), QStringLiteral("VP8")},
+            {QStringLiteral("codec"), codec},
             {QStringLiteral("encoder"), encoder},
             {QStringLiteral("source"), source},
             {QStringLiteral("scaling"), scaling},

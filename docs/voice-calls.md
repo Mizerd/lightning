@@ -1193,8 +1193,8 @@ with no bitstream restriction, before the decryptor runs, and the SPS is inside
 the AAD. Every keyframe failed its tag at Element until `withReceiverHeader()`
 did both on the send side.
 
-`shareEncoderInUse()` (for the Stream Info overlay; no caller yet) and the
-`screen share encoder=` log line name the factory and the path.
+`shareEncoderInUse()` (shown by Stream Info) and the `screen share encoder=` log
+line name the factory and the path.
 
 Measured on an RTX 3080 (5 s of 1080p30, `gltestsrc` 4K through the real stages,
 three runs, machine busy): today's GPU path 8.9-10.9 s of CPU, `nvh264enc`
@@ -1220,7 +1220,8 @@ or at the decoded receive sink, rather than promising the display presented
 every frame. Bitrate estimates count RTP bytes, including headers, between
 samples. An em dash means no measurement yet, including the first sample after
 showing the overlay. Sender encoder/capture names are element factories, never
-device properties or paths. Scaling reports the engine's actual GPU/CPU choice.
+device properties or paths; a share adds its path, e.g. `nvh264enc gpu-zero-copy`,
+and the codec is the one the track really carries, H.264 or VP8. Scaling reports the engine's actual GPU/CPU choice.
 Received frame drops count the crypto probe's rejected frames. Existing
 background audio-health logging is independent of this overlay.
 

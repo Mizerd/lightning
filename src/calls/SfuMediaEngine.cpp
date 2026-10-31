@@ -6122,7 +6122,13 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
     streamInfo->outgoing = true;
     streamInfo->screen = screenShare;
     streamInfo->source = streamInfoFactory(bin, "capsrc");
-    streamInfo->encoder = streamInfoFactory(bin, "videoenc");
+    // A share names the path as well: "nvh264enc gpu-zero-copy". After the
+    // fallbacks above, so it reports what is running, not what was tried.
+    streamInfo->encoder = screenShare && !shareEncoderInUse().isEmpty()
+        ? shareEncoderInUse()
+        : streamInfoFactory(bin, "videoenc");
+    if (screenShare && !hardwareFactory.isEmpty())
+        streamInfo->codec = QStringLiteral("H.264");
     streamInfo->scaling = useGpu ? QStringLiteral("GPU") : QStringLiteral("CPU");
     auto probeState = std::make_shared<PublishProbeState>();
     // A portal camera is started off the GUI thread (below), so it can still
@@ -10475,6 +10481,8 @@ bool SfuMediaEngine::prepareReceiveChain(GstElement *pipeline,
     *binOut = bin;
     const auto streamInfo = video ? attachStreamInfo(bin) : StreamInfoPtr();
     if (streamInfo) {
+        if (h264)
+            streamInfo->codec = QStringLiteral("H.264");
         GstPad *rtp = gst_element_get_static_pad(bin, "sink");
         instrumentStreamInfo(rtp, streamInfo, true);
         if (rtp) gst_object_unref(rtp);

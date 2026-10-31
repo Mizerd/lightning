@@ -6805,6 +6805,11 @@ private slots:
         engine.publishVideo(cid, true, -1);
         QCOMPARE(engine.shareEncoderInUse().section(QLatin1Char(' '), 0, 0),
                  QStringLiteral("vp8enc"));
+        // The overlay reads what is running, path included.
+        const auto row = engine.streamInfoStats().first().toMap();
+        QVERIFY(row.value("screen").toBool());
+        QCOMPARE(row.value("encoder").toString(), engine.shareEncoderInUse());
+        QCOMPARE(row.value("codec").toString(), QStringLiteral("VP8"));
         // A late report from a bin that is gone.
         engine.handleShareEncoderFailed(QStringLiteral("cid-old-share"));
         QCOMPARE(failed.count(), 0);
