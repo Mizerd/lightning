@@ -245,6 +245,36 @@ private Q_SLOTS:
         QMetaObject::invokeMethod(popup, "close");
         QTest::qWait(100);
     }
+
+    // During a call the stage takes a share of the column. In a short window
+    // that share must leave room for the composer: the largest panel the pane
+    // will ever request still keeps header + call controls + composer + a
+    // sliver of timeline inside the pane (the composer used to be pushed off
+    // the bottom of the window).
+    void theCallPanelNeverPushesTheComposerOutOfAShortWindow()
+    {
+        m_controller->showMain();
+        m_window->resize(640, 420);
+        QCoreApplication::processEvents();
+        QTest::qWait(200);
+        QQuickItem *pane = item("timelinePane");
+        QQuickItem *header = item("roomHeaderBand");
+        QQuickItem *callBar = item("timelineCallHeaderBar");
+        QQuickItem *composer = item("messageComposer");
+        QVERIFY(pane && header && callBar && composer);
+        QVariant tallest;
+        QVERIFY(QMetaObject::invokeMethod(pane, "clampCallPanelHeight",
+                                          Q_RETURN_ARG(QVariant, tallest),
+                                          Q_ARG(QVariant, QVariant(100000))));
+        const qreal used = header->height() + callBar->height() + 9
+                           + tallest.toReal() + composer->height();
+        QVERIFY2(used <= pane->height(),
+                 qPrintable(QStringLiteral("header %1 + call bar %2 + panel %3 "
+                                           "+ composer %4 = %5 > pane %6")
+                                .arg(header->height()).arg(callBar->height())
+                                .arg(tallest.toReal()).arg(composer->height())
+                                .arg(used).arg(pane->height())));
+    }
 };
 
 QTEST_MAIN(SmallWindowQmlTest)

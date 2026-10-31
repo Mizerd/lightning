@@ -363,6 +363,18 @@ Rectangle {
                        Math.max(64, root.height * 0.6))
             : Math.min(220, Math.max(64, root.height * 0.45))
         var ceiling = Math.max(floor, root.height * 0.75)
+        // What the rest of the column needs, so the composer is never pushed
+        // below the window: the room header, the call controls, the divider,
+        // the composer itself and a sliver of timeline. In a short window
+        // (a quarter of a screen) the 0.6 / 0.7 shares above do not leave
+        // that, and the column used to overflow its bottom edge, taking the
+        // message box out of reach during a call.
+        var reserve = roomHeaderBand.height + timelineCallHeaderBar.height + 9
+                      + (messageComposer.visible ? messageComposer.height : 0)
+                      + 80
+        var room = Math.max(64, root.height - reserve)
+        floor = Math.min(floor, room)
+        ceiling = Math.min(ceiling, room)
         return Math.max(floor, Math.min(value, ceiling))
     }
 
