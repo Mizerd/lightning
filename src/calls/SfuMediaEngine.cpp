@@ -1642,6 +1642,8 @@ bool SfuMediaEngine::ensurePeer(Target target)
             if (kind != GST_WEBRTC_KIND_VIDEO)
                 return;
             const bool h264 = !h264DecoderElement().isEmpty()
+                && firstMissingElement({QByteArrayLiteral("rtph264depay"),
+                                        QByteArrayLiteral("h264parse")}).isEmpty()
                 && qEnvironmentVariable("LIGHTNING_RECEIVE_VIDEO_CODEC")
                     != QLatin1String("vp8");
             GstCaps *caps = gst_caps_from_string(
@@ -5090,6 +5092,23 @@ SfuMediaEngine::shareHardwareEncoder()
     return g_shareEncoderProbe.load() == 2 ? g_shareEncoder : std::nullopt;
 }
 
+void SfuMediaEngine::setShareHardwareEncoderForTest(
+    const std::optional<ShareHardwareEncoder> &encoder)
+{
+    g_shareEncoder = encoder;
+    g_shareEncoderProbe.store(2);
+}
+
+bool SfuMediaEngine::shareHardwareEncoderFailedForTest()
+{
+    return g_shareHardwareEncoderFailed.load();
+}
+
+void SfuMediaEngine::clearShareHardwareEncoderFailedForTest()
+{
+    g_shareHardwareEncoderFailed.store(false);
+}
+
 QString SfuMediaEngine::h264DecoderElement()
 {
     for (const char *name : {"avdec_h264", "openh264dec"}) {
@@ -6410,9 +6429,18 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
     ++m_publishedMedia;
     if (screenShare) {
         if (!hardwareFactory.isEmpty() && !publishShareBackup(cid, bin, glEncode)) {
-            // Do not leave a hardware-only publication behind silently.
+            // Do not leave a hardware-only publication behind silently, and
+            // do not fail every later share the same way. Queued: the caller
+            // is still inside startScreenShare().
+            g_shareHardwareEncoderFailed.store(true);
             unpublish(cid);
-            Q_EMIT publishFailed(cid, QStringLiteral("screen_share_failed"));
+            QMetaObject::invokeMethod(
+                this,
+                [this, cid] {
+                    Q_EMIT publishFailed(cid,
+                                         QStringLiteral("screen_share_failed"));
+                },
+                Qt::QueuedConnection);
             return;
         }
         Q_EMIT shareTrackReady(cid, m_shareBackups.value(cid));
@@ -6478,20 +6506,12 @@ QString SfuMediaEngine::offerForSfu(const QString &sdp, bool multiCodec)
         return sdp;
     // LiveKit matches a media section to a declared cid by the msid's SECOND
     // token, and webrtcbin writes its transceiver's name there. A lone track
-    // survives on the SFU's "first pending of this kind" fallback; a second
-    // codec of one publication does not, so these sections name their cid, as
-    // a browser's do.
+    // survives on the SFU's "first pending of this kind" fallback; with two
+    // video sections that fallback hands a section the wrong track, so each
+    // names its cid, as a browser's do.
     static const QRegularExpression msid(
         QStringLiteral("^(a=(?:ssrc:\\d+ )?msid:)(\\S+) \\S+(\\r?)$"));
-    QSet<QString> named;
     const QStringList lines = sdp.split(QLatin1Char('\n'));
-    for (const QString &line : lines) {
-        const QString stream = msid.match(line).captured(2);
-        if (stream.endsWith(kShareBackupSuffix)) {
-            named.insert(stream);
-            named.insert(stream.chopped(kShareBackupSuffix.size()));
-        }
-    }
     // pion fixes a session's video codecs from the FIRST video section it ever
     // sees, and a browser lists every codec in each one. webrtcbin lists one,
     // so anything else, here the backup's VP8 or a share's H.264 after a VP8
@@ -6512,6 +6532,7 @@ QString SfuMediaEngine::offerForSfu(const QString &sdp, bool multiCodec)
     };
     QStringList out;
     QStringList section; // Attributes of the codecs a video section lacks.
+    bool video = false;
     const auto flushSection = [&] {
         // Before the final empty element a trailing newline leaves.
         out.append(section);
@@ -6522,6 +6543,8 @@ QString SfuMediaEngine::offerForSfu(const QString &sdp, bool multiCodec)
     for (QString line : lines) {
         if (line.startsWith(QLatin1String("m=")) || line.isEmpty())
             flushSection();
+        if (line.startsWith(QLatin1String("m=")))
+            video = line.startsWith(QLatin1String("m=video "));
         if (line.startsWith(QLatin1String("m=video "))) {
             const QStringList words = QString(line).remove(QLatin1Char('\r'))
                                           .split(QLatin1Char(' '));
@@ -6534,8 +6557,7 @@ QString SfuMediaEngine::offerForSfu(const QString &sdp, bool multiCodec)
                     section << attribute + eol;
             }
         }
-        if (const auto match = msid.match(line);
-            match.hasMatch() && named.contains(match.captured(2))) {
+        if (const auto match = msid.match(line); video && match.hasMatch()) {
             line = match.captured(1) + match.captured(2) + QLatin1Char(' ')
                 + match.captured(2) + match.captured(3);
         }
@@ -6563,8 +6585,8 @@ bool SfuMediaEngine::publishShareBackup(const QString &cid, GstElement *primary,
         "! videorate drop-only=true skip-to-first=true "
         "! %1 ! video/x-raw,format=I420,width=(int)[1,640],height=(int)[1,360],"
         "pixel-aspect-ratio=(fraction)1/1,framerate=(fraction)10/1 "
-        "! vp8enc name=videoenc deadline=1 cpu-used=8 threads=2 "
-        "target-bitrate=350000 keyframe-max-dist=20 "
+        "! vp8enc name=videoenc deadline=1 lag-in-frames=0 cpu-used=8 threads=2 "
+        "end-usage=cbr target-bitrate=350000 keyframe-max-dist=20 "
         "! %2 pt=96 ssrc=%3 mtu=%4 "
         "! capsfilter caps=\"application/x-rtp,media=video,encoding-name=VP8,payload=96,"
         "clock-rate=(int)90000,ssrc=(uint)%3\"")
@@ -6612,7 +6634,8 @@ bool SfuMediaEngine::publishShareBackup(const QString &cid, GstElement *primary,
     GstPad *rtp = gst_element_get_static_pad(backup, "src");
     GstPad *sink = gst_element_request_pad_simple(m_publisher.webrtc, "sink_%u");
     applyPublisherMsid(sink, backupCid);
-    const bool linked = gst_element_link_pads(primary, "backup_raw", backup, "sink")
+    const bool linked = !std::exchange(m_failNextShareBackup, false)
+        && gst_element_link_pads(primary, "backup_raw", backup, "sink")
         && rtp && sink && gst_pad_link(rtp, sink) == GST_PAD_LINK_OK;
     if (!linked) {
         if (rtp) gst_object_unref(rtp);

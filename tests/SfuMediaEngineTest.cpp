@@ -1123,6 +1123,126 @@ static void installListing(SfuMediaEngine &engine,
         options);
 }
 
+namespace {
+static void useStandInHardware(bool on)
+{
+    SfuMediaEngine::clearShareHardwareEncoderFailedForTest();
+    if (on) {
+        qputenv("LIGHTNING_SHARE_ENCODER", "hardware");
+        qputenv("LIGHTNING_SHARE_GPU", "0");
+        SfuMediaEngine::setShareHardwareEncoderForTest(
+            SfuMediaEngine::ShareHardwareEncoder{
+                {"openh264enc", "bitrate=%1 gop-size=%2",
+                 "constrained-baseline", false},
+                false});
+    } else {
+        qunsetenv("LIGHTNING_SHARE_ENCODER");
+        qunsetenv("LIGHTNING_SHARE_GPU");
+        SfuMediaEngine::setShareHardwareEncoderForTest(std::nullopt);
+    }
+}
+
+// A subscriber offer shaped like LiveKit's: a data channel, Opus with RED,
+// and one section per entry of `videos`, each a list of payload types.
+static QString subscriberOffer(const QList<QList<int>> &videos, int version)
+{
+    QStringList mids{QStringLiteral("0"), QStringLiteral("1")};
+    for (int i = 0; i < videos.size(); ++i)
+        mids << QString::number(i + 2);
+    const QString transport = QStringLiteral(
+        "a=ice-ufrag:abcd\r\na=ice-pwd:0123456789012345678901234\r\n"
+        "a=setup:actpass\r\n");
+    QString sdp = QStringLiteral(
+        "v=0\r\no=- 1 %1 IN IP4 0.0.0.0\r\ns=-\r\nt=0 0\r\n"
+        "a=group:BUNDLE %2\r\na=fingerprint:sha-256 %3\r\n")
+        .arg(version).arg(mids.join(QLatin1Char(' ')),
+             QStringList(32, QStringLiteral("AB")).join(QLatin1Char(':')));
+    sdp += QStringLiteral("m=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\n"
+                          "c=IN IP4 0.0.0.0\r\n") + transport
+        + QStringLiteral("a=mid:0\r\na=sctp-port:5000\r\n");
+    sdp += QStringLiteral("m=audio 9 UDP/TLS/RTP/SAVPF 111 63\r\n"
+                          "c=IN IP4 0.0.0.0\r\n") + transport
+        + QStringLiteral("a=mid:1\r\na=sendonly\r\na=rtcp-mux\r\n"
+                         "a=rtpmap:111 opus/48000/2\r\n"
+                         "a=rtpmap:63 red/48000/2\r\na=fmtp:63 111/111\r\n"
+                         "a=ssrc:1000 cname:a\r\n"
+                         "a=ssrc:1000 msid:PA_a|TR_a TR_a\r\n"
+                         "a=msid:PA_a|TR_a TR_a\r\n");
+    for (int i = 0; i < videos.size(); ++i) {
+        QStringList payloads;
+        QString maps;
+        for (const int pt : videos[i]) {
+            payloads << QString::number(pt);
+            maps += pt == 96 ? QStringLiteral("a=rtpmap:96 VP8/90000\r\n")
+                : pt == 98   ? QStringLiteral("a=rtpmap:98 VP9/90000\r\n")
+                             : QStringLiteral(
+                                 "a=rtpmap:125 H264/90000\r\n"
+                                 "a=fmtp:125 packetization-mode=1;"
+                                 "profile-level-id=42e01f;"
+                                 "level-asymmetry-allowed=1\r\n");
+        }
+        const QString id = QStringLiteral("TR_v%1").arg(i);
+        sdp += QStringLiteral("m=video 9 UDP/TLS/RTP/SAVPF %1\r\n"
+                              "c=IN IP4 0.0.0.0\r\n")
+                   .arg(payloads.join(QLatin1Char(' ')))
+            + transport
+            + QStringLiteral("a=mid:%1\r\na=sendonly\r\na=rtcp-mux\r\n")
+                  .arg(i + 2)
+            + maps
+            + QStringLiteral("a=ssrc:%1 cname:b\r\n"
+                             "a=ssrc:%1 msid:PA_b|%2 %2\r\n"
+                             "a=msid:PA_b|%2 %2\r\n")
+                  .arg(2000 + i).arg(id);
+    }
+    return sdp;
+}
+static QString answerTo(SfuMediaEngine &engine, const QString &offer)
+{
+    QSignalSpy spy(&engine, &SfuMediaEngine::localDescription);
+    engine.applyRemoteDescription(SfuMediaEngine::Target::Subscriber,
+                                  QStringLiteral("offer"), offer);
+    for (int i = 0; i < 40; ++i) {
+        for (const auto &emitted : std::as_const(spy)) {
+            if (emitted.at(1).toString() == QLatin1String("answer"))
+                return emitted.at(2).toString();
+        }
+        QTest::qWait(50);
+    }
+    return {};
+}
+/// Section `index` of an SDP, with the m= line first.
+static QStringList sdpSection(const QString &sdp, int index)
+{
+    return sdp.split(QStringLiteral("m=")).value(index + 1)
+        .split(QStringLiteral("\r\n"), Qt::SkipEmptyParts);
+}
+/// A section's encodings, in answer order, from its rtpmap lines.
+static QStringList sdpEncodings(const QStringList &section)
+{
+    QStringList names;
+    const auto words = section.value(0).split(QLatin1Char(' '));
+    for (const QString &pt : words.mid(3)) {
+        for (const QString &line : section) {
+            if (line.startsWith(QStringLiteral("a=rtpmap:") + pt + QLatin1Char(' ')))
+                names << line.section(QLatin1Char(' '), 1).section(QLatin1Char('/'), 0, 0);
+        }
+    }
+    return names;
+}
+static QStringList withoutTransport(const QStringList &section)
+{
+    QStringList kept;
+    for (const QString &line : section) {
+        if (!line.startsWith(QLatin1String("a=ice-"))
+            && !line.startsWith(QLatin1String("a=fingerprint"))
+            && !line.startsWith(QLatin1String("a=ssrc"))
+            && !line.startsWith(QLatin1String("a=msid")))
+            kept << line;
+    }
+    return kept;
+}
+} // namespace
+
 class SfuMediaEngineTest : public QObject
 {
     Q_OBJECT
@@ -6668,21 +6788,200 @@ private slots:
         }
     }
 
+    void anAnswerAdmitsOnlyWhatThisBuildDecodes_data()
+    {
+        QTest::addColumn<bool>("vp8Only");
+        QTest::newRow("as built") << false;
+        QTest::newRow("forced VP8") << true;
+    }
     void anAnswerAdmitsOnlyWhatThisBuildDecodes()
     {
-        GstCaps *vp8 = gst_caps_from_string(
-            SfuMediaEngine::receivableVideoCaps(false).toUtf8().constData());
-        GstCaps *both = gst_caps_from_string(
-            SfuMediaEngine::receivableVideoCaps(true).toUtf8().constData());
-        QVERIFY(vp8);
-        QVERIFY(both);
-        QCOMPARE(gst_caps_get_size(vp8), 1u);
-        QCOMPARE(gst_caps_get_size(both), 2u);
-        QCOMPARE(gst_structure_get_string(gst_caps_get_structure(vp8, 0), "encoding-name"), "VP8");
-        QCOMPARE(gst_structure_get_string(gst_caps_get_structure(both, 0), "encoding-name"), "VP8");
-        QCOMPARE(gst_structure_get_string(gst_caps_get_structure(both, 1), "encoding-name"), "H264");
-        gst_caps_unref(vp8);
-        gst_caps_unref(both);
+        QFETCH(bool, vp8Only);
+        if (!gst_init_check(nullptr, nullptr, nullptr))
+            QSKIP("no GStreamer");
+        const bool h264 = !vp8Only && !SfuMediaEngine::h264DecoderElement().isEmpty()
+            && SfuMediaEngine::firstMissingElement(
+                   {QByteArrayLiteral("rtph264depay"),
+                    QByteArrayLiteral("h264parse")}).isEmpty();
+        if (!vp8Only && !h264)
+            QSKIP("this environment has no H.264 receive chain");
+        const auto restore = qScopeGuard(
+            [] { qunsetenv("LIGHTNING_RECEIVE_VIDEO_CODEC"); });
+        if (vp8Only)
+            qputenv("LIGHTNING_RECEIVE_VIDEO_CODEC", "vp8");
+        else
+            qunsetenv("LIGHTNING_RECEIVE_VIDEO_CODEC");
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        engine.start();
+        const QStringList wanted = h264
+            ? QStringList{QStringLiteral("VP8"), QStringLiteral("H264")}
+            : QStringList{QStringLiteral("VP8")};
+        const QList<int> all{96, 98, 125};
+
+        const QString first = answerTo(engine, subscriberOffer({all}, 1));
+        QVERIFY(!first.isEmpty());
+        QVERIFY2(sdpSection(first, 0).value(0).startsWith(
+                     QLatin1String("application 9 ")), qPrintable(first));
+        QVERIFY2(sdpSection(first, 1).value(0).startsWith(
+                     QLatin1String("audio 9 ")), qPrintable(first));
+        QVERIFY(sdpEncodings(sdpSection(first, 1)).first()
+                    .compare(QLatin1String("opus"), Qt::CaseInsensitive) == 0);
+        QCOMPARE(sdpEncodings(sdpSection(first, 2)), wanted);
+
+        // Renegotiation: the same section stays, the new one is limited too.
+        const QString second = answerTo(engine, subscriberOffer({all, all}, 2));
+        QVERIFY(!second.isEmpty());
+        QCOMPARE(sdpEncodings(sdpSection(second, 2)), wanted);
+        QCOMPARE(sdpEncodings(sdpSection(second, 3)), wanted);
+
+        // Nothing in common. LiveKit keeps VP8 in every section it offers, so
+        // this was never seen on the rig (see docs/voice-calls.md), but webrtcbin
+        // refuses its own answer and the engine reports that as fatal. Pinned so
+        // a change of either is seen.
+        QSignalSpy failed(&engine, &SfuMediaEngine::failed);
+        const QString third = answerTo(
+            engine, subscriberOffer({all, all, QList<int>{98}}, 3));
+        QVERIFY2(third.isEmpty(), qPrintable(third));
+        QCOMPARE(failed.count(), 1);
+        QCOMPARE(failed.at(0).at(0).toString(),
+                 QStringLiteral("local_sdp_rejected"));
+        engine.stop();
+    }
+
+    // The two rewrites reach the SFU, and webrtcbin keeps its own description.
+    void onlyTheSfuReadsTheRewrittenOffer()
+    {
+        if (!gst_init_check(nullptr, nullptr, nullptr)
+            || !SfuMediaEngine::firstMissingElement(
+                    {QByteArrayLiteral("openh264enc"),
+                     QByteArrayLiteral("h264parse")}).isEmpty())
+            QSKIP("no software H.264 encoder to stand in for the hardware");
+        const auto restore = qScopeGuard([] { useStandInHardware(false); });
+        useStandInHardware(true);
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        QSignalSpy spy(&engine, &SfuMediaEngine::localDescription);
+        engine.start();
+        const QString cid = QStringLiteral("rewritten");
+        engine.publishVideo(cid, /*screenShare=*/true, 0);
+        QString sent;
+        QTRY_VERIFY_WITH_TIMEOUT(
+            [&] {
+                for (const auto &emitted : std::as_const(spy)) {
+                    if (emitted.at(1).toString() == QLatin1String("offer")
+                        && emitted.at(2).toString().contains(cid))
+                        sent = emitted.at(2).toString();
+                }
+                return !sent.isEmpty();
+            }(), 10000);
+        QVERIFY2(sent.contains(QStringLiteral("a=ssrc:")) && sent.contains(
+                     QStringLiteral(" msid:%1 %1\r\n").arg(cid)), qPrintable(sent));
+        QVERIFY2(sent.contains(QStringLiteral("SAVPF 102 96\r\n")), qPrintable(sent));
+        QVERIFY2(sent.contains(QStringLiteral("SAVPF 96 102\r\n")), qPrintable(sent));
+
+        GstWebRTCSessionDescription *local = nullptr;
+        QTRY_VERIFY_WITH_TIMEOUT(
+            [&] {
+                if (local)
+                    gst_webrtc_session_description_free(local);
+                local = nullptr;
+                g_object_get(engine.m_publisher.webrtc, "local-description",
+                             &local, nullptr);
+                return local != nullptr;
+            }(), 5000);
+        gchar *text = gst_sdp_message_as_text(local->sdp);
+        const QString kept = QString::fromUtf8(text);
+        g_free(text);
+        gst_webrtc_session_description_free(local);
+        QVERIFY(kept.contains(cid));
+        QVERIFY2(!kept.contains(QStringLiteral(" msid:%1 %1\r\n").arg(cid)), qPrintable(kept));
+        QVERIFY2(!kept.contains(QLatin1String("SAVPF 102 96")), qPrintable(kept));
+        QVERIFY2(kept.contains(QLatin1String("webrtctransceiver")), qPrintable(kept));
+        engine.stop();
+    }
+
+    void aBackupThatCannotStartLatchesSoftwareAndReportsLater()
+    {
+        if (!gst_init_check(nullptr, nullptr, nullptr)
+            || !SfuMediaEngine::firstMissingElement(
+                    {QByteArrayLiteral("openh264enc"),
+                     QByteArrayLiteral("h264parse")}).isEmpty())
+            QSKIP("no software H.264 encoder to stand in for the hardware");
+        const auto restore = qScopeGuard([] { useStandInHardware(false); });
+        useStandInHardware(true);
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        QSignalSpy failed(&engine, &SfuMediaEngine::publishFailed);
+        QSignalSpy ready(&engine, &SfuMediaEngine::shareTrackReady);
+        engine.start();
+        engine.failNextShareBackupForTest();
+        engine.publishVideo(QStringLiteral("first"), true, 0);
+        QCOMPARE(failed.count(), 0); // Queued: the caller is still on the stack.
+        QVERIFY(SfuMediaEngine::shareHardwareEncoderFailedForTest());
+        QVERIFY(!engine.hasPublishedBinForTest(QStringLiteral("first")));
+        QTRY_COMPARE(failed.count(), 1);
+        QCOMPARE(failed.at(0).at(0).toString(), QStringLiteral("first"));
+        QCOMPARE(ready.count(), 0);
+
+        engine.publishVideo(QStringLiteral("second"), true, 0);
+        QCOMPARE(ready.count(), 1);
+        QCOMPARE(ready.at(0).at(1).toString(), QString());
+        QVERIFY2(engine.shareEncoderInUse().startsWith(QLatin1String("vp8enc")),
+                 qPrintable(engine.shareEncoderInUse()));
+        engine.stop();
+    }
+
+    void anErrorOnTheBackupEndsTheShareOnceAndLatchesSoftware()
+    {
+        if (!gst_init_check(nullptr, nullptr, nullptr)
+            || !SfuMediaEngine::firstMissingElement(
+                    {QByteArrayLiteral("openh264enc"),
+                     QByteArrayLiteral("h264parse")}).isEmpty())
+            QSKIP("no software H.264 encoder to stand in for the hardware");
+        const auto restore = qScopeGuard([] { useStandInHardware(false); });
+        useStandInHardware(true);
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        QSignalSpy failed(&engine, &SfuMediaEngine::publishFailed);
+        engine.start();
+        const QString cid = QStringLiteral("erring");
+        engine.publishVideo(cid, true, 0);
+        GstElement *backup = engine.publishedBinForTest(cid + QStringLiteral("-vp8"));
+        QVERIFY(backup);
+        QVERIFY(!SfuMediaEngine::shareHardwareEncoderFailedForTest());
+        GstElement *encoder = gst_bin_get_by_name(GST_BIN(backup), "videoenc");
+        QVERIFY(encoder);
+        GST_ELEMENT_ERROR(encoder, LIBRARY, ENCODE, ("test"), ("test"));
+        GST_ELEMENT_ERROR(encoder, LIBRARY, ENCODE, ("test"), ("test"));
+        gst_object_unref(encoder);
+        QTRY_COMPARE(failed.count(), 1);
+        QTest::qWait(300);
+        QCOMPARE(failed.count(), 1);
+        QCOMPARE(failed.at(0).at(0).toString(), cid);
+        QCOMPARE(failed.at(0).at(1).toString(), QStringLiteral("screen_share_failed"));
+        QVERIFY(SfuMediaEngine::shareHardwareEncoderFailedForTest());
+        engine.stop();
+    }
+
+    // A camera and a share pending at once: without their cids LiveKit gives
+    // both sections the first pending video track.
+    void anOfferNamesEveryVideoSection()
+    {
+        const QString offer = QStringLiteral(
+            "m=audio 9 UDP/TLS/RTP/SAVPF 111\r\n"
+            "a=ssrc:10 msid:mic webrtctransceiver0\r\n"
+            "m=video 9 UDP/TLS/RTP/SAVPF 96\r\n"
+            "a=rtpmap:96 VP8/90000\r\n"
+            "a=ssrc:11 msid:camera webrtctransceiver1\r\n"
+            "m=video 9 UDP/TLS/RTP/SAVPF 96\r\n"
+            "a=rtpmap:96 VP8/90000\r\n"
+            "a=ssrc:12 msid:share webrtctransceiver2\r\n");
+        const QString sent = SfuMediaEngine::offerForSfu(offer, true);
+        QVERIFY2(sent.contains(QLatin1String("a=ssrc:11 msid:camera camera\r\n")),
+                 qPrintable(sent));
+        QVERIFY(sent.contains(QLatin1String("a=ssrc:12 msid:share share\r\n")));
+        QVERIFY(sent.contains(QLatin1String("a=ssrc:10 msid:mic webrtctransceiver0\r\n")));
     }
 
     void anOfferNamesBothCodecsOfABackedUpShare()

@@ -1209,8 +1209,9 @@ the capture tee (`publishShareBackup()`), encrypted by its own probe. LiveKit
 never transcodes, so VP8 is the only way a viewer without H.264 sees the share.
 `AddTrack` carries both cids in `simulcast_codecs` with `BackupCodecPolicy
 SIMULCAST`: the default policy would drop every viewer to the backup once one
-of them needed it. Stream Info gets a row per codec. A backup that fails ends
-the share, and the next one is plain software VP8.
+of them needed it. Stream Info gets a row per codec. A backup that fails, at
+start or while running, ends the share once, and the next one in this process is
+plain software VP8 (`g_shareHardwareEncoderFailed`).
 
 Four things had to be right and every one of them failed silently:
 
@@ -1220,8 +1221,9 @@ Four things had to be right and every one of them failed silently:
   branch's entry answers the query with no preference.
 * **LiveKit reads the msid's SECOND token, and webrtcbin writes
   `webrtctransceiverN` there.** A single track only ever worked through the SFU's
-  "first pending track of this kind" fallback. `offerForSfu()` names the cid for
-  a backed-up share's two sections.
+  "first pending track of this kind" fallback. While hardware encoding is
+  requested, `offerForSfu()` names the cid in every video section; audio and the
+  default path keep what webrtcbin wrote.
 * **pion takes a session's video codecs from the first video section it sees.**
   A browser lists every codec in each section; webrtcbin lists one. So the VP8
   section was answered as H.264 and its packets attached as H.264. `offerForSfu()`
@@ -1231,8 +1233,10 @@ Four things had to be right and every one of them failed silently:
 * **An answer is the only thing the SFU picks a codec from.** It sends a
   publication's first codec any answer admits, and an answer from webrtcbin with
   no preferences admits everything. The subscriber now answers VP8, plus H.264
-  only with a decoder (`receivableVideoCaps()`). `LIGHTNING_RECEIVE_VIDEO_CODEC=vp8`
-  forces the VP8-only case.
+  only with a whole receive chain, `rtph264depay`, `h264parse` and a decoder
+  (`receivableVideoCaps()`). `LIGHTNING_RECEIVE_VIDEO_CODEC=vp8` forces the
+  VP8-only case. A bundled build with no H.264 decoder answers VP8 alone, and
+  everything below about a VP8-only client is about it.
 
 **The last point is why a released client does not get the backup.** A build from
 before this answers every codec, so the SFU sends it H.264; its receive chain is
@@ -1240,6 +1244,15 @@ VP8 only and the failure stops the whole subscriber pipeline, not just the share
 live, against `2fc01443`, `nicesrc0` posted a stream error and audio and camera
 from everyone else stopped at one decrypted frame. Keep the switch off until no
 supported release predates this answer.
+
+**A VP8-only client watching an H.264-only publisher** keeps its call. Measured
+on LiveKit 1.13.10 with a publisher that had no backup: the SFU still lists VP8
+in that section, so the answer succeeds and the SFU binds nothing; the share
+waits for a picture for ever while audio and camera from everyone else keep
+flowing. webrtcbin only fails on a section with truly no common codec: it refuses
+its own answer and the engine reports `local_sdp_rejected`, which is fatal to the
+session. No section like that has been seen on LiveKit, because VP8 stays in what
+it offers. An SFU with VP8 disabled would reach it. NOT TESTED.
 
 Cost of the backup, same bench as below, real NVENC, three runs: 0.94-1.01 s
 against 0.63-0.80 s for 5 s of video, about 6% of a core; the VP8 GPU path it

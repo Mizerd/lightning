@@ -4964,6 +4964,18 @@ if(BUILD_TESTING)
             set_tests_properties(call-live-diagnostic PROPERTIES TIMEOUT 240)
         endif()
 
+        # The controller with a real engine behind it: what a share declares.
+        qt_add_executable(sfu-share-declaration-test
+            tests/SfuShareDeclarationTest.cpp
+        )
+        lightning_configure_qml_test(sfu-share-declaration-test)
+        target_include_directories(sfu-share-declaration-test PRIVATE src)
+        target_compile_definitions(sfu-share-declaration-test PRIVATE
+            HAVE_LIGHTNING_WEBRTC)
+        add_test(NAME sfu-share-declaration
+            COMMAND sfu-share-declaration-test)
+        set_tests_properties(sfu-share-declaration PROPERTIES TIMEOUT 120)
+
         # Opt-in: one end of a live legacy call, driven by a scenario script.
         option(LIGHTNING_BUILD_LEGACY_CALL_PEER "Build the legacy call live peer" OFF)
         if(LIGHTNING_BUILD_LEGACY_CALL_PEER AND ENABLE_RUST_SDK_BACKEND)

@@ -5,6 +5,13 @@
 - **A hardware share is opt-in** (`LIGHTNING_SHARE_ENCODER=hardware`) and stays so
   until a release's viewers can decode H.264. No package carries it yet:
   `docs/voice-calls.md`. DECISION for Rokas, with the patent/licence question.
+- **Rollout limit of the VP8 backup: the hardware default cannot change in the
+  release that first answers only decodable codecs.** A build from before that
+  answers every codec, the SFU sends it H.264 instead of the backup, and its
+  VP8-only receive chain stops the whole subscriber pipeline: measured against
+  `2fc01443`, audio and camera from everyone else stopped at one decrypted frame.
+  The answer filter must ship first, and the switch can move only once no
+  supported release predates it. `docs/voice-calls.md`, "VP8 backup".
 - On NixOS `nvcodec` still registers encoders only with `/run/opengl-driver/lib`
   on the library path. The stale-parser half is fixed; this half is not.
 - Stream Info covers MatrixRTC only and draws over the stage's header row.

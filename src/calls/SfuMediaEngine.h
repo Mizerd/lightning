@@ -844,6 +844,13 @@ public:
     /// Test-only: make the next publish's link to webrtcbin fail once, to
     /// reach the link-failure cleanup path.
     void failNextPublishLinkForTest() { m_failNextPublishLink = true; }
+    /// Test-only: the next share's VP8 backup fails to link.
+    void failNextShareBackupForTest() { m_failNextShareBackup = true; }
+    /// Test-only: what the hardware probe found, and the failure latch.
+    static void setShareHardwareEncoderForTest(
+        const std::optional<ShareHardwareEncoder> &encoder);
+    static bool shareHardwareEncoderFailedForTest();
+    static void clearShareHardwareEncoderFailedForTest();
     /// Per-application share audio from a scripted listing: `enumerate` is
     /// called synchronously on every scan with the records whose process is
     /// to be checked; branches are audiotestsrc. `options` sets the retire
@@ -1617,6 +1624,7 @@ private:
         = std::make_shared<std::atomic<int>>(0);
     /// Test-only fault injection; see failNextPublishLinkForTest().
     bool m_failNextPublishLink = false;
+    bool m_failNextShareBackup = false;
     /// Receive bins keyed by the webrtcbin src pad feeding each, so a
     /// departing track's bin can be retired. Written from streaming threads,
     /// read by stop(), hence the mutex.
