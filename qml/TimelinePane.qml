@@ -1598,10 +1598,6 @@ Rectangle {
                         }
                         onClicked: callFormatMenu.popup(
                             callFormatChevron, 0, callFormatChevron.height)
-                        CallFormatMenu {
-                            id: callFormatMenu
-                            roomId: app.currentRoomId
-                        }
                     }
                     // Shown only when the room has pins.
                     IconButton {
@@ -1787,6 +1783,12 @@ Rectangle {
                             roomHeaderOverflowButton.height + AppTheme.spacing4)
                     }
                     // A Popup is not an Item, so it costs the row no width.
+                    // A sibling of the chevron's button rather than its child,
+                    // because the overflow row opens it with the chevron folded.
+                    CallFormatMenu {
+                        id: callFormatMenu
+                        roomId: app.currentRoomId
+                    }
                     // Each entry binds to its button; `folded` is only set on
                     // an available action.
                     AppMenu {
@@ -1798,6 +1800,23 @@ Rectangle {
                             iconName: "call"
                             text: startVoiceCallButton.actionLabel
                             onTriggered: startVoiceCallButton.clicked()
+                        }
+                        // The chevron folds with the call button and is the
+                        // only way to a video call or the call type. Deferred
+                        // because this menu is still closing when it triggers.
+                        AppMenuItem {
+                            objectName: "overflowCallOptions"
+                            visible: startVoiceCallButton.folded
+                            iconName: "videocam"
+                            text: qsTr("Call options")
+                            onTriggered: Qt.callLater(function () {
+                                callFormatMenu.popup(
+                                    roomHeaderOverflowButton,
+                                    roomHeaderOverflowButton.width
+                                    - callFormatMenu.width,
+                                    roomHeaderOverflowButton.height
+                                    + AppTheme.spacing4)
+                            })
                         }
                         AppMenuItem {
                             objectName: "overflowPinnedMessages"
