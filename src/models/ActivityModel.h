@@ -84,6 +84,7 @@ public:
     };
 
     static constexpr int kMaxEntries = 400;
+    static constexpr qint64 kSeedReadHorizonMs = 30LL * 24 * 60 * 60 * 1000;
     static constexpr int kMaxKeywords = 32;
     static constexpr int kMaxKeywordLength = 64;
     static constexpr int kPreviewChars = 140;
@@ -186,7 +187,11 @@ public:
     void inviteAnswered(const QString &roomId);
     // Entries the server remembers (GET /notifications) for a fresh session,
     // oldest first; ids already present are skipped.
-    void seed(const QVariantList &entries);
+    // `firstPage` is the session's opening seed: rows the server already
+    // marks read and that are older than kSeedReadHorizonMs are not listed
+    // (an account with few recent mentions otherwise opens on two-year-old
+    // history); "Load older activity" still reaches them.
+    void seed(const QVariantList &entries, bool firstPage = false);
 
     Q_INVOKABLE void markAllSeen();
     Q_INVOKABLE void markSeen(const QString &id);

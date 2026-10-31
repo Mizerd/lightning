@@ -1467,7 +1467,7 @@ void ActivityModel::inviteAnswered(const QString &roomId)
     inviteResolved(roomId);
 }
 
-void ActivityModel::seed(const QVariantList &entries)
+void ActivityModel::seed(const QVariantList &entries, bool firstPage)
 {
     if (!m_client)
         return;
@@ -1476,6 +1476,11 @@ void ActivityModel::seed(const QVariantList &entries)
     QStringList seeded;
     for (const QVariant &v : entries) {
         const QVariantMap m = v.toMap();
+        if (firstPage && m.value(QStringLiteral("read")).toBool()) {
+            const qint64 ts = m.value(QStringLiteral("timestampMs")).toLongLong();
+            if (ts > 0 && ts < now() - kSeedReadHorizonMs)
+                continue;
+        }
         Entry e;
         e.id = m.value(QStringLiteral("eventId")).toString();
         e.roomId = m.value(QStringLiteral("roomId")).toString();

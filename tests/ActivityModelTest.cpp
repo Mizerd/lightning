@@ -255,6 +255,32 @@ private Q_SLOTS:
         QCOMPARE(h.model.count(), 0);
         QVERIFY(h.model.activityHasMore());
     }
+    // The opening seed is /notifications, which reaches back years on an
+    // account with few recent mentions. Rows the server already marks read and
+    // that are older than the horizon are not listed; unread ones, recent ones
+    // and later pages are untouched.
+    void theOpeningSeedSkipsOldReadRows()
+    {
+        Harness h;
+        const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+        const qint64 old = nowMs - ActivityModel::kSeedReadHorizonMs - 86400000LL;
+        auto row = [&](const QString &id, qint64 ts, bool read) {
+            return QVariantMap{
+                { QStringLiteral("eventId"), id },
+                { QStringLiteral("roomId"), kRoom },
+                { QStringLiteral("senderId"), QStringLiteral("@bob:mock.local") },
+                { QStringLiteral("timestampMs"), ts },
+                { QStringLiteral("read"), read },
+            };
+        };
+        h.model.seed({ row(QStringLiteral("$oldRead"), old, true),
+                       row(QStringLiteral("$oldUnread"), old, false),
+                       row(QStringLiteral("$recentRead"), nowMs - 1000, true) },
+                     true);
+        QCOMPARE(h.model.count(), 2);
+        h.model.seed({ row(QStringLiteral("$pagedOld"), old - 1000, true) }, false);
+        QCOMPARE(h.model.count(), 3);
+    }
     // Reading a room (this client's read receipt) marks its entries seen up
     // to that point.
     void readingARoomMarksItsEntriesSeenUpToThatPoint()

@@ -2338,7 +2338,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             m.insert(QStringLiteral("roomName"), m_client->roomInfo(roomId).name);
             named.append(m);
         }
-        m_activity->seed(named);
+        m_activity->seed(named, true);
     });
     connect(m_client.get(), &MatrixClient::connectionStateChanged, this,
             [this](MatrixClient::ConnectionState state) {
