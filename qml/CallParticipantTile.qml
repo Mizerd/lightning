@@ -29,6 +29,9 @@ Item {
         typeof app !== "undefined" && app && app.softwareRenderer === true
 
     property string userId: ""
+    /// This participant's Matrix device, from the call membership. Developer
+    /// tools only; may be empty until the membership lands.
+    property string deviceId: ""
     property string displayName: ""
     property string avatarMxc: ""
 
@@ -825,6 +828,22 @@ Item {
                             root.applyVolumePercent(100);
                         }
                     }
+                }
+            }
+
+            // Developer tools: which session this is, as far as this device
+            // knows. Built only while the popup is open, so a call with the
+            // switch off asks for nothing.
+            Loader {
+                objectName: "callParticipantClientInfo"
+                Layout.fillWidth: true
+                active: volumePopup.visible && root.userId.length > 0
+                        && typeof app !== "undefined" && app && app.settings
+                        && app.settings.developerTools === true
+                visible: active
+                sourceComponent: UserClientsInfo {
+                    userId: root.userId
+                    deviceId: root.deviceId
                 }
             }
         }

@@ -37,6 +37,9 @@ struct CallParticipantRow {
     /// keyed on it.
     QString sid;
     QString userId;
+    /// The Matrix device from the call membership; empty until it resolves.
+    /// Developer tools only.
+    QString deviceId;
     QString displayName;
     QString avatarMxc;
     bool local = false;
@@ -62,6 +65,7 @@ public:
     enum Roles {
         IdentityRole = Qt::UserRole + 1,
         UserIdRole,
+        DeviceIdRole,
         DisplayNameRole,
         AvatarMxcRole,
         LocalRole,

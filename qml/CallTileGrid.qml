@@ -148,6 +148,7 @@ Item {
             required property int index
             required property string identity
             required property string userId
+            required property string deviceId
             required property string displayName
             required property string avatarMxc
             required property bool local
@@ -175,6 +176,7 @@ Item {
                 anchors.fill: parent
                 identity: personCell.identity
                 userId: personCell.userId
+                deviceId: personCell.deviceId
                 displayName: personCell.displayName
                 avatarMxc: personCell.avatarMxc
                 local: personCell.local

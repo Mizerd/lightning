@@ -40,6 +40,7 @@ QHash<int, QByteArray> CallParticipantModel::roleNames() const
     return {
         { IdentityRole, "identity" },
         { UserIdRole, "userId" },
+        { DeviceIdRole, "deviceId" },
         { DisplayNameRole, "displayName" },
         { AvatarMxcRole, "avatarMxc" },
         { LocalRole, "local" },
@@ -70,6 +71,8 @@ QVariant CallParticipantModel::data(const QModelIndex &index, int role) const
         return entry.row.identity;
     case UserIdRole:
         return entry.row.userId;
+    case DeviceIdRole:
+        return entry.row.deviceId;
     case DisplayNameRole:
         return entry.row.displayName;
     case AvatarMxcRole:
@@ -153,6 +156,10 @@ QList<int> CallParticipantModel::mergeRow(Entry &entry,
     if (entry.row.userId != row.userId) {
         entry.row.userId = row.userId;
         note(UserIdRole);
+    }
+    if (entry.row.deviceId != row.deviceId) {
+        entry.row.deviceId = row.deviceId;
+        note(DeviceIdRole);
     }
     if (entry.row.displayName != row.displayName) {
         entry.row.displayName = row.displayName;

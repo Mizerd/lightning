@@ -1758,6 +1758,9 @@ private Q_SLOTS:
         QCOMPARE(participantRole(c.call.participantModel(), row,
                                  CallParticipantModel::DisplayNameRole).toString(),
                  alice.displayName);
+        QCOMPARE(participantRole(c.call.participantModel(), row,
+                                 CallParticipantModel::DeviceIdRole).toString(),
+                 alice.deviceId);
         c.call.startKeyLaneForTest();
         QCOMPARE(c.client.keySends.size(), 1);
         QCOMPARE(c.lastSend().devices, QStringList{ alice.deviceId });

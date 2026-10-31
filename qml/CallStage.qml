@@ -393,6 +393,7 @@ Rectangle {
                     sourceComponent: CallParticipantTile {
                         identity: spotPerson.identity
                         userId: spotPerson.userId
+                        deviceId: spotPerson.deviceId
                         displayName: spotPerson.displayName
                         avatarMxc: spotPerson.avatarMxc
                         local: spotPerson.local
@@ -954,6 +955,7 @@ Rectangle {
                                         compact: true
                                         identity: stripPerson.identity
                                         userId: stripPerson.userId
+                                        deviceId: stripPerson.deviceId
                                         displayName: stripPerson.displayName
                                         avatarMxc: stripPerson.avatarMxc
                                         local: stripPerson.local

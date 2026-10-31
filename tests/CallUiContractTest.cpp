@@ -6342,6 +6342,74 @@ Item {
         }
     }
 
+    /// The participant's session lives in the tile's own popup and only under
+    /// Developer tools: with the switch off nothing is built and nothing asked.
+    void aParticipantsSessionShowsOnlyWithDeveloperTools()
+    {
+        AppController app(AppController::MockBackend);
+        QSignalSpy loginSpy(app.auth(), &AuthManager::loginSucceeded);
+        app.auth()->login(QStringLiteral("https://mock.local"),
+                          QStringLiteral("alice"), QStringLiteral("unused"));
+        QVERIFY(loginSpy.wait(3000));
+        app.settings()->setDeveloperTools(false);
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty("app", &app);
+        QQuickWindow window;
+        window.resize(400, 300);
+        QQmlComponent component(&engine);
+        component.setData(QByteArrayLiteral(R"(
+import QtQuick
+import MatrixClient
+Item {
+    width: 400
+    height: 300
+    CallParticipantTile {
+        objectName: "infoTile"
+        x: 20; y: 20
+        width: 300
+        height: 180
+        identity: "PA_remote"
+        userId: "@bob:mock.local"
+        deviceId: "BOBDEVICE"
+        displayName: "Bob"
+    }
+}
+)"), QUrl(QStringLiteral("qrc:/callclientinfotest.qml")));
+        QVERIFY2(component.errors().isEmpty(),
+                 qPrintable(component.errorString()));
+        std::unique_ptr<QObject> owner(component.create());
+        auto *outer = qobject_cast<QQuickItem *>(owner.get());
+        QVERIFY(outer != nullptr);
+        outer->setParentItem(window.contentItem());
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        auto *tile = outer->findChild<QQuickItem *>(QStringLiteral("infoTile"));
+        QVERIFY(tile != nullptr);
+        QMetaObject::invokeMethod(tile, "openVolumeControl");
+        settle(6);
+        auto *popup = tile->findChild<QObject *>(
+            QStringLiteral("callParticipantVolumePopup"));
+        QVERIFY(popup != nullptr);
+        QTRY_VERIFY(popup->property("opened").toBool());
+        auto *host = tile->findChild<QObject *>(
+            QStringLiteral("callParticipantClientInfo"));
+        QVERIFY(host != nullptr);
+        QVERIFY2(!host->property("active").toBool(),
+                 "the switch is off and the tile built the session view anyway");
+
+        app.settings()->setDeveloperTools(true);
+        QTRY_VERIFY(host->property("active").toBool());
+        auto *info = qvariant_cast<QObject *>(host->property("item"));
+        QVERIFY(info != nullptr);
+        QCOMPARE(info->property("userId").toString(),
+                 QStringLiteral("@bob:mock.local"));
+        QCOMPARE(info->property("deviceId").toString(),
+                 QStringLiteral("BOBDEVICE"));
+        QVERIFY(info->property("visible").toBool());
+        app.settings()->setDeveloperTools(false);
+        QTRY_VERIFY(!host->property("active").toBool());
+    }
+
     /// Real tile in a real (offscreen) window: the hover-revealed volume
     /// button must survive taking focus, the popup must put focus on the
     /// slider, and the wheel must reach the controller.
