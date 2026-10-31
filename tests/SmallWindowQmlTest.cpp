@@ -27,6 +27,13 @@
 
 #include "app/AppController.h"
 #include "auth/AuthManager.h"
+#include "calls/CallController.h"
+#include "calls/CallMediaBackend.h"
+#include "calls/CallParticipantModel.h"
+#include "calls/CallStageState.h"
+#include "calls/OneToOneDm.h"
+#include "calls/SfuCallController.h"
+#include "matrix/MockMatrixClient.h"
 
 namespace {
 constexpr int kSignalTimeoutMs = 5000;
@@ -302,6 +309,218 @@ private Q_SLOTS:
                                 .arg(header->height()).arg(callBar->height())
                                 .arg(tallest.toReal()).arg(composer->height())
                                 .arg(used).arg(pane->height())));
+    }
+
+    // The stage's header row holds the call controls, and beside a spotlight
+    // the participant faces too. Neither cell's rect shows the fault on its
+    // own: the row squeezes the controls' CELL and the bar inside it keeps its
+    // width, so what is measured is the bar's own buttons. The faces must still
+    // be drawn somewhere.
+    void theCallControlsNeverDrawOverTheParticipantFaces_data()
+    {
+        QTest::addColumn<QSize>("size");
+        QTest::addColumn<bool>("collapsed");
+        QTest::newRow("640x720") << QSize(640, 720) << false;
+        QTest::newRow("640x360") << QSize(640, 360) << false;
+        QTest::newRow("854x480") << QSize(854, 480) << false;
+        QTest::newRow("1280x720") << QSize(1280, 720) << false;
+        QTest::newRow("960x540") << QSize(960, 540) << false;
+        QTest::newRow("1000x600") << QSize(1000, 600) << false;
+        QTest::newRow("1000x600 collapsed") << QSize(1000, 600) << true;
+        QTest::newRow("640x720 collapsed") << QSize(640, 720) << true;
+    }
+
+    void theCallControlsNeverDrawOverTheParticipantFaces()
+    {
+#ifndef HAVE_LIGHTNING_WEBRTC
+        QSKIP("built without the SFU media engine");
+#else
+        QFETCH(QSize, size);
+        QFETCH(bool, collapsed);
+        const QString room = QStringLiteral("!general:mock.local");
+        m_controller->showMain();
+        m_controller->setCurrentRoomId(room);
+        m_window->resize(size);
+        SfuCallController *call = m_controller->groupCall();
+        call->setMembershipForTest(room, QString());
+        call->setCallStateForTest(SfuCallController::State::Connected);
+        Q_EMIT call->stateChanged();
+        QVariantList people;
+        for (int i = 0; i < 6; ++i) {
+            QVariantMap person;
+            person.insert(QStringLiteral("identity"),
+                          QStringLiteral("person%1").arg(i));
+            person.insert(QStringLiteral("sid"), QStringLiteral("PA_%1").arg(i));
+            if (i == 0) {
+                QVariantMap track;
+                track.insert(QStringLiteral("source"),
+                             QStringLiteral("screen_share"));
+                track.insert(QStringLiteral("sid"), QStringLiteral("TR_share"));
+                track.insert(QStringLiteral("muted"), false);
+                person.insert(QStringLiteral("tracks"), QVariantList{track});
+            }
+            people << person;
+        }
+        call->ingestParticipantsForTest(people);
+        call->stageState()->restoreShare(QStringLiteral("TR_share"));
+        // Straight into the model: these people have no Matrix membership, so
+        // the controller's own rebuild keeps only the local row.
+        QList<CallParticipantRow> rows;
+        for (int i = 0; i < 6; ++i) {
+            CallParticipantRow person;
+            person.identity = QStringLiteral("person%1").arg(i);
+            person.sid = QStringLiteral("PA_%1").arg(i);
+            person.displayName = person.identity;
+            rows << person;
+        }
+        call->participantModel()->applyParticipants(rows);
+        QTRY_VERIFY(item("callHeaderRow") != nullptr);
+        QQuickItem *stage = item("timelineCallStage");
+        QVERIFY(stage);
+        QObject *pane = item("timelinePane");
+        QVERIFY(pane);
+        pane->setProperty("callPanelCollapsed", collapsed);
+        QTest::qWait(250);
+
+        QQuickItem *row = item("callHeaderRow");
+        QQuickItem *controls = item("callStageControls");
+        QQuickItem *bar = findItem(controls, QStringLiteral("callHeaderBarRow"));
+        QVERIFY(row && controls && bar);
+        QVERIFY2(collapsed
+                     || stage->property("effectiveLayout").toString()
+                            == QLatin1String("spotlight"),
+                 "no spotlight, so the faces are not in play");
+        const auto shown = [this](const char *name) {
+            QQuickItem *it = item(name);
+            // All it asked for: a host squeezed down shows one face of six.
+            return it && it->isVisible() && it->width() > 0
+                && it->width() + 1 >= it->implicitWidth();
+        };
+        const bool facesDrawn = shown("callHeaderBubblesHost")
+            || shown("callStrip") || shown("callStripBubblesHost");
+        // The stage, not the row: a row wider than its stage reports nothing.
+        const QRectF rowBox = stage->mapRectToScene(
+            QRectF(0, 0, stage->width(), stage->height()));
+        QStringList faults;
+        const auto box = [](QQuickItem *it) {
+            return it->mapRectToScene(QRectF(0, 0, it->width(), it->height()));
+        };
+        QList<QPair<QString, QRectF>> cells;
+        for (QQuickItem *c : row->childItems()) {
+            if (!c->isVisible() || c->width() <= 0 || c->height() <= 0
+                || c == controls->parentItem())
+                continue;
+            const QString name = c->objectName().isEmpty()
+                ? QString::fromLatin1(c->metaObject()->className())
+                : c->objectName();
+            cells.append({name, box(c)});
+        }
+        // What the controls really occupy, not the cell they were given.
+        for (QQuickItem *c : bar->childItems())
+            if (c->isVisible() && c->width() > 0 && c->height() > 0) {
+                const QRectF r = box(c);
+                cells.append({c->objectName().isEmpty()
+                                  ? QStringLiteral("control")
+                                  : c->objectName(), r});
+            }
+        for (int i = 0; i < cells.size(); ++i) {
+            const QRectF a = cells.at(i).second;
+            if (a.left() < rowBox.left() - 1 || a.right() > rowBox.right() + 1)
+                faults << QStringLiteral("%1 [%2..%3] leaves the stage [%4..%5]")
+                              .arg(cells.at(i).first).arg(a.left())
+                              .arg(a.right()).arg(rowBox.left())
+                              .arg(rowBox.right());
+            for (int j = i + 1; j < cells.size(); ++j) {
+                const QRectF overlap = a.intersected(cells.at(j).second);
+                if (overlap.width() > 1 && overlap.height() > 1)
+                    faults << QStringLiteral("%1 overlaps %2 by %3 px")
+                                  .arg(cells.at(i).first, cells.at(j).first)
+                                  .arg(overlap.width());
+            }
+        }
+        pane->setProperty("callPanelCollapsed", false);
+        call->setCallStateForTest(SfuCallController::State::Idle);
+        Q_EMIT call->stateChanged();
+        QVERIFY2(faults.isEmpty(), qPrintable(faults.join(QStringLiteral("; "))));
+        // Collapsed, the narrowest strip has room for the controls alone;
+        // expanding it shows everyone.
+        QVERIFY2(collapsed || facesDrawn, "the faces went nowhere");
+#endif
+    }
+
+    // The chevron beside the call button is the only way to a video call and
+    // the call type; it folds out of a narrow header with that button.
+    void theCallTypeMenuIsReachableWhenTheCallButtonFolds()
+    {
+        // The mock has no call lane until a backend exists; then a 1:1 DM has.
+        class Engine : public CallMediaBackend
+        {
+        public:
+            using CallMediaBackend::CallMediaBackend;
+            void createOffer(const QString &) override {}
+            void createAnswer(const QString &, const QString &) override {}
+            void setRemoteAnswer(const QString &, const QString &) override {}
+            void addRemoteCandidate(const QString &, const QString &,
+                                    const QString &, int) override {}
+            void setIceServers(const QStringList &, const QString &,
+                               const QString &) override {}
+            void close(const QString &) override {}
+            bool supportsVideo() const override { return true; }
+        };
+        Engine engine;
+        m_controller->calls()->setMediaBackend(&engine);
+        const auto *mock = m_controller->findChild<MockMatrixClient *>();
+        QVERIFY(mock);
+        QString dm;
+        for (const RoomInfo &room : mock->rooms())
+            if (!calls::oneToOneDmPeer(room, true).isEmpty()) {
+                dm = room.id;
+                break;
+            }
+        QVERIFY(!dm.isEmpty());
+        m_controller->showMain();
+        m_controller->setCurrentRoomId(dm);
+        m_window->resize(640, 360);
+        QTest::qWait(150);
+        QObject *button = m_window->findChild<QObject *>(
+            QStringLiteral("startVoiceCallButton"));
+        QVERIFY(button);
+        QVERIFY2(button->property("available").toBool(),
+                 "this room offers no call, so nothing can fold");
+        QVERIFY2(button->property("folded").toBool(),
+                 "the floor did not fold the call button: nothing measured");
+        QQuickItem *overflow = item("roomHeaderOverflowButton");
+        QVERIFY(overflow);
+        QObject *menu = m_window->findChild<QObject *>(
+            QStringLiteral("roomHeaderOverflowMenu"));
+        QVERIFY(menu);
+        QMetaObject::invokeMethod(menu, "open");
+        QTRY_VERIFY(menu->property("opened").toBool());
+        QObject *row =
+            menu->findChild<QObject *>(QStringLiteral("overflowCallOptions"));
+        QVERIFY(row);
+        QVERIFY(row->property("visible").toBool());
+        QMetaObject::invokeMethod(row, "triggered");
+        QMetaObject::invokeMethod(menu, "close");
+        QObject *format = m_window->findChild<QObject *>(
+            QStringLiteral("callFormatMenu"));
+        QVERIFY(format);
+        QTRY_VERIFY(format->property("opened").toBool());
+        const qreal x = format->property("x").toReal();
+        const qreal width = format->property("width").toReal();
+        const QRectF placed = overflow->mapRectToScene(QRectF(
+            x, format->property("y").toReal(), width,
+            format->property("height").toReal()));
+        QVERIFY2(placed.left() >= 0 && placed.right() <= m_window->width()
+                     && placed.top() >= 0
+                     && placed.bottom() <= m_window->height(),
+                 qPrintable(QStringLiteral("the call menu sits at %1,%2 %3x%4")
+                                .arg(placed.x()).arg(placed.y())
+                                .arg(placed.width()).arg(placed.height())));
+        QMetaObject::invokeMethod(format, "close");
+        QTRY_VERIFY(!format->property("visible").toBool());
+        m_controller->calls()->setMediaBackend(nullptr);
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
     }
 
     // The find bar was one row of seven controls in a card 288 px wide at the

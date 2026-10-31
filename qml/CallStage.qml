@@ -168,6 +168,14 @@ Rectangle {
     readonly property bool bubblesInHeader:
         !root.collapsed && !root.fullScreenActive
         && root.effectiveLayout === "spotlight"
+        && root.width >= root.headerFacesMinimumWidth
+    /// The narrowest stage whose header row holds the compact controls beside
+    /// a full row of faces. The faces' cell cannot shrink and the controls'
+    /// can only give way visually, so below this they drew over each other;
+    /// the faces go to the strip under the spotlight instead. A width, not a
+    /// measurement of the row, because the row's contents depend on this. The
+    /// format label follows it.
+    readonly property int headerFacesMinimumWidth: 640
 
     /// Strip height, capped at 96. A function so tests can call it;
     /// CallUiContractTest also pins the call site.
@@ -368,6 +376,7 @@ Rectangle {
                     id: spotPerson
                     required property string identity
                     required property string userId
+                    required property string deviceId
                     required property string displayName
                     required property string avatarMxc
                     required property bool local
@@ -440,6 +449,7 @@ Rectangle {
             // Named: the dock's compaction latch asks how much room the row
             // could give it (see reassessControlRoom()).
             id: callHeaderRow
+            objectName: "callHeaderRow"
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
 
@@ -449,7 +459,10 @@ Rectangle {
                 color: AppTheme.accent
             }
             Text {
-                Layout.fillWidth: !root.collapsed
+                // Collapsed it may also give way, but never grows past its
+                // text: the bubbles take what is left.
+                Layout.fillWidth: true
+                Layout.maximumWidth: root.collapsed ? implicitWidth : Number.POSITIVE_INFINITY
                 // Ask for 1 px while filling: a RowLayout squeezes children in
                 // proportion to preferred width, and a long title would
                 // otherwise squeeze the controls (a squeezed AppButton draws
@@ -471,6 +484,9 @@ Rectangle {
             // Which format this call uses; the name CallFormatMenu gives it.
             Text {
                 objectName: "callStageFormatLabel"
+                // Goes on width alone. Reading `cramped` here would feed the
+                // latch: hiding this frees the room that releases it.
+                visible: root.width >= root.headerFacesMinimumWidth
                 text: qsTr("MatrixRTC")
                 color: AppTheme.stormTextMuted
                 font.pixelSize: AppTheme.textMeta
@@ -546,7 +562,10 @@ Rectangle {
                 Layout.fillWidth: root.collapsed
                 Layout.preferredHeight: active ? implicitHeight : 0
                 Layout.alignment: Qt.AlignVCenter
-                active: root.collapsed || root.bubblesInHeader
+                // A narrow collapsed strip has room for the controls alone.
+                active: (root.collapsed
+                         && root.width >= root.headerFacesMinimumWidth)
+                        || root.bubblesInHeader
                 visible: active
                 sourceComponent: CallSpeakerBubbles {
                     objectName: "callHeaderBubbles"
@@ -574,8 +593,10 @@ Rectangle {
                 // `Layout.minimumWidth: 0` alone does nothing: without
                 // fillWidth an item's horizontal size policy is fixed (min =
                 // preferred = max). The maximum caps growth at the natural size
-                // so wide windows are unchanged.
-                Layout.minimumWidth: 0
+                // so wide windows are unchanged. Once compact there is nothing
+                // left to give: squeezing the cell further only moves the bar
+                // over its neighbours, so they give way instead.
+                Layout.minimumWidth: root.collapsed || cramped ? implicitWidth : 0
                 Layout.fillWidth: true
                 Layout.maximumWidth: implicitWidth
                 Layout.alignment: Qt.AlignVCenter
@@ -925,6 +946,7 @@ Rectangle {
                                     id: stripPerson
                                     required property string identity
                                     required property string userId
+                                    required property string deviceId
                                     required property string displayName
                                     required property string avatarMxc
                                     required property bool local

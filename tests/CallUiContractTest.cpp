@@ -1745,11 +1745,14 @@ Item {
             createdSpy.at(0).at(0).value<QObject *>());
         QVERIFY2(root != nullptr, "CallStage must instantiate");
 
-        // Into a window, or the Loader never lays its item out.
+        // Shown: a child changing visibility leaves the layout waiting for a
+        // polish, which only an exposed window runs, and the row then freezes.
         QQuickWindow window;
         window.resize(1100, 620);
         root->setParentItem(window.contentItem());
         root->setHeight(620);
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window, 5000));
 
         auto *bar = root->findChild<QQuickItem *>(
             QStringLiteral("callStageControls"));
@@ -1764,7 +1767,9 @@ Item {
 
         for (const int width : { 1100, 900, 760, 700, 640, 560, 480 }) {
             root->setWidth(width);
-            settle(6);
+            settle(4);
+            QTest::qWait(80);
+            settle(4);
 
             const QPointF rowRight = row->mapToItem(nullptr,
                                                     QPointF(row->width(), 0));

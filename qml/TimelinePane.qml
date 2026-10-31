@@ -2026,6 +2026,7 @@ Rectangle {
             active: root.callStageOwnsColumn
             visible: active
             sourceComponent: CallStage {
+                objectName: "timelineCallStage"
                 collapsed: root.callPanelCollapsed
                 // Opens the room's side panel, like the header bar's button.
                 onParticipantsRequested: root.infoOpen = !root.infoOpen
