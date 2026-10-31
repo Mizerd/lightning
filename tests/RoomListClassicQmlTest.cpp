@@ -459,6 +459,15 @@ RoomsPanel { width: 320; height: 700 }
 )QML", 320, 700));
         auto *button = byName(f.item.get(), QStringLiteral("favouritesShortcut"));
         QVERIFY(button && button->isVisible());
+        // Shown only where the backend can favourite at all.
+        QVERIFY(f.controller->roomList()->roomFavouritesSupported());
+        QFile panel(QStringLiteral(LIGHTNING_SOURCE_DIR "/qml/RoomsPanel.qml"));
+        QVERIFY(panel.open(QIODevice::ReadOnly));
+        const QString source = QString::fromUtf8(panel.readAll());
+        const int at = source.indexOf(QStringLiteral("objectName: \"favouritesShortcut\""));
+        QVERIFY(at >= 0);
+        QVERIFY(source.mid(at, 300).contains(
+            QStringLiteral("app.roomList.roomFavouritesSupported")));
         const auto bounds = button->mapRectToItem(f.item.get(), button->boundingRect());
         QVERIFY(bounds.left() >= 0);
         QVERIFY(bounds.right() <= f.item->width());

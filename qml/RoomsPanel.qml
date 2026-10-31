@@ -416,7 +416,8 @@ Rectangle {
 
                     IconButton {
                         objectName: "favouritesShortcut"
-                        visible: app.loggedIn
+                        visible: app.loggedIn && app.roomList
+                                 && app.roomList.roomFavouritesSupported
                         implicitWidth: 30; implicitHeight: 30
                         radius: AppTheme.radiusMd
                         iconName: "star"
