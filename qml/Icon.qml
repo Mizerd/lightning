@@ -145,6 +145,9 @@ Text {
         "hard_drive": "\uf80e",
         "bookmark": "\ue8e7",
         "unfold_less": "\ue5d6",
+        // Message search: a list with a lens, distinct from the plain lens
+        // that searches rooms.
+        "manage_search": "\uf02f",
     })
 
     text: _codepoints[name] !== undefined ? _codepoints[name] : ""

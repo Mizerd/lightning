@@ -27,8 +27,8 @@ constexpr auto kKeepImportantKey = "roomList/keepImportantInCollapsed";
 // Keep every name here and nowhere else.
 constexpr auto kIconCreate = "add";
 constexpr auto kIconJoinAddress = "link";
-constexpr auto kIconExploreSpaces = "groups";
-constexpr auto kIconMessageSearch = "search";
+constexpr auto kIconExploreSpaces = "explore";
+constexpr auto kIconMessageSearch = "manage_search";
 constexpr auto kIconLobby = "flag";
 } // namespace
 

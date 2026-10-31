@@ -3,7 +3,9 @@
 #
 # Downloads the upstream variable font + codepoints, subsets it to exactly
 # the icon names listed below (the set qml/Icon.qml maps), and instances it
-# to the design defaults (wght 400, FILL 0, GRAD 0, opsz 24). Adding an
+# to wght 500, FILL 0, GRAD 0, opsz 20. Glyphs are drawn at 16-24 px, where
+# the opsz 20 master keeps strokes at one optical weight; the upstream default
+# (wght 400, opsz 24) read thin and uneven beside Inter text. Adding an
 # icon = add its name here AND to the map in qml/Icon.qml, then rerun.
 # Requires fonttools (e.g. nix shell nixpkgs#python3Packages.fonttools).
 set -euo pipefail
@@ -26,7 +28,7 @@ emoji_symbols flag explore travel_explore \
 mic_off call_end videocam_off screen_share stop_screen_share front_hand \
 headset_mic headset_off grid_view \
 folder arrow_upward create_new_folder desktop_windows audio_file movie \
-picture_as_pdf folder_zip draft hard_drive bookmark unfold_less"
+picture_as_pdf folder_zip draft hard_drive bookmark unfold_less manage_search"
 
 work=$(mktemp -d); trap 'rm -rf "$work"' EXIT
 base="https://github.com/google/material-design-icons/raw/master/variablefont"
@@ -47,6 +49,6 @@ EOF
 pyftsubset "$work/msr.ttf" --unicodes="$unicodes" \
     --output-file="$work/sub.ttf"
 fonttools varLib.instancer "$work/sub.ttf" \
-    wght=400 FILL=0 GRAD=0 opsz=24 \
+    wght=500 FILL=0 GRAD=0 opsz=20 \
     -o data/fonts/MaterialSymbolsRounded-subset.ttf
 ls -la data/fonts/MaterialSymbolsRounded-subset.ttf
