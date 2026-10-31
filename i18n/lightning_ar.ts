@@ -950,7 +950,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+8319"/>
+        <location filename="../src/app/AppController.cpp" line="+8435"/>
         <source>Room invitation</source>
         <translation>دعوة إلى غرفة</translation>
     </message>
@@ -1075,7 +1075,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>مكالمة واردة</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-6369"/>
+        <location filename="../src/app/AppController.cpp" line="-6477"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>أُلغي تسجيل الخروج لأن الحساب تغيّر. لم يُعَد ضبط أي شيء.</translation>
     </message>
@@ -1127,13 +1127,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+1"/>
         <location line="+55"/>
-        <location line="+4677"/>
+        <location line="+4785"/>
         <location line="+982"/>
         <source>Not connected</source>
         <translation>غير متصل</translation>
     </message>
     <message>
-        <location line="-5711"/>
+        <location line="-5819"/>
         <source>Connecting…</source>
         <translation>جارٍ الاتصال…</translation>
     </message>
@@ -1194,29 +1194,29 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3279"/>
+        <location line="+3387"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>تعذّر على Lightning قراءة الملف المحدد.</translation>
     </message>
     <message>
-        <location line="-3285"/>
+        <location line="-3393"/>
         <source>A room-key import is already in progress.</source>
         <translation>هناك استيراد لمفاتيح الغرف قيد التنفيذ بالفعل.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4418"/>
+        <location line="+4526"/>
         <source>Not signed in.</source>
         <translation>لم تسجّل الدخول.</translation>
     </message>
     <message>
-        <location line="-4416"/>
+        <location line="-4524"/>
         <source>Room-key import failed.</source>
         <translation>فشل استيراد مفاتيح الغرف.</translation>
     </message>
     <message>
-        <location line="+2508"/>
+        <location line="+2616"/>
         <source>Enter a size limit from 1 to 2000 MB.</source>
         <translation>أدخل حدًّا للحجم من 1 إلى 2000 ميغابايت.</translation>
     </message>
@@ -1231,13 +1231,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>استخدم تواريخ حقيقية بصيغة YYYY-MM-DD، على ألا يكون «من» بعد «إلى».</translation>
     </message>
     <message>
-        <location line="-5572"/>
-        <location line="+3309"/>
+        <location line="-5685"/>
+        <location line="+3314"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-3308"/>
+        <location line="-3313"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>هذا إشعار تجريبي. إن استطعت قراءته فإشعارات سطح المكتب تعمل.</translation>
     </message>
@@ -1247,7 +1247,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>إشارات جديدة</translation>
     </message>
     <message>
-        <location line="+673"/>
+        <location line="+678"/>
         <source>Call started</source>
         <translation>بدأت المكالمة</translation>
     </message>
@@ -1257,17 +1257,17 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>كان ذلك الإشعار لحساب آخر، فلم يُرسَل شيء. عُد إلى ذلك الحساب وحاول مجددًا.</translation>
     </message>
     <message>
-        <location line="+751"/>
+        <location line="+770"/>
         <source>Calls aren&apos;t available while this account uses a proxy.</source>
         <translation>المكالمات غير متاحة ما دام هذا الحساب يستخدم وكيلًا.</translation>
     </message>
     <message>
-        <location line="+36"/>
+        <location line="+35"/>
         <source>Video calls need a MatrixRTC service, which isn&apos;t available here yet.</source>
         <translation>تحتاج مكالمات الفيديو إلى خدمة MatrixRTC، وهي غير متوفرة هنا بعد.</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+19"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>هذه الغرفة مشفرة، والمكالمات المشفرة غير متاحة بعد في هذا الإصدار.</translation>
     </message>
@@ -1287,7 +1287,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>الاتصال غير متاح هنا.</translation>
     </message>
     <message>
-        <location line="+259"/>
+        <location line="+176"/>
+        <source>Your camera couldn&apos;t be started. The call goes on without it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+172"/>
         <source>Modern room list</source>
         <translation>قائمة غرف حديثة</translation>
     </message>
@@ -2814,9 +2819,57 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
 </context>
 <context>
+    <name>CallFormatMenu</name>
+    <message>
+        <location filename="../qml/CallFormatMenu.qml" line="+22"/>
+        <source>MatrixRTC</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Direct</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>not available here</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Voice call</source>
+        <translation type="unfinished">مكالمة صوتية</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Video call</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Call type</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Automatic (%1)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>MatrixRTC (through a call server)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Direct (1:1 peer-to-peer)</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>CallHeaderBar</name>
     <message>
-        <location filename="../qml/CallHeaderBar.qml" line="+101"/>
+        <location filename="../qml/CallHeaderBar.qml" line="+110"/>
         <location line="+10"/>
         <source>Connecting…</source>
         <translation>جارٍ الاتصال…</translation>
@@ -2838,17 +2891,25 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>جارٍ الاتصال…</translation>
     </message>
     <message>
-        <location line="+166"/>
+        <location line="+3"/>
+        <source>Video call</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+178"/>
+        <location line="+29"/>
         <source>Turn off camera</source>
         <translation>قم بإيقاف تشغيل الكاميرا</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="-28"/>
+        <location line="+29"/>
         <source>Turn on camera</source>
         <translation>قم بتشغيل الكاميرا</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="-21"/>
+        <location line="+30"/>
         <source>Choose camera</source>
         <translation>اختر الكاميرا</translation>
     </message>
@@ -2934,12 +2995,32 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>إخراج المكالمة في نافذة عائمة</translation>
     </message>
     <message>
-        <location line="-403"/>
+        <location line="-435"/>
         <source>Unmute microphone</source>
         <translation>إلغاء كتم صوت الميكروفون</translation>
     </message>
     <message>
+        <location line="-133"/>
+        <source>MatrixRTC</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location line="+1"/>
+        <source>Direct</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>MatrixRTC call: media goes through a call server</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Direct call (m.call): media goes straight to the other person</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+130"/>
         <source>Mute microphone</source>
         <translation>كتم صوت الميكروفون</translation>
     </message>
@@ -2964,7 +3045,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>اختر جهاز الإخراج</translation>
     </message>
     <message>
-        <location line="+384"/>
+        <location line="+416"/>
         <source>Leave call</source>
         <translation>اترك المكالمة</translation>
     </message>
@@ -3445,7 +3526,17 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>%1من الأشخاص في المكالمة</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+10"/>
+        <source>MatrixRTC</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>MatrixRTC call: media goes through a call server</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+10"/>
         <source>Reconnecting…</source>
         <translation>جارٍ إعادة الاتصال…</translation>
     </message>
@@ -9723,6 +9814,11 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+2"/>
+        <source>Video call — connecting…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
         <source>Voice call — connecting…</source>
         <translation>مكالمة صوتية — جارٍ الاتصال…</translation>
     </message>
@@ -9730,6 +9826,16 @@ Signing out and signing in again is the only fix.</source>
         <location line="+2"/>
         <source>Voice call</source>
         <translation>مكالمة صوتية</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Video call</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Incoming video call</source>
+        <translation type="unfinished">مكالمة فيديو واردة</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -9763,6 +9869,16 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+10"/>
+        <source>%1 is calling with video.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Incoming video call.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
         <source>%1 is calling.</source>
         <translation>%1 يتصل.</translation>
     </message>
@@ -9792,7 +9908,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>قبول</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+16"/>
+        <source>Audio only</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+14"/>
         <source>Decline</source>
         <translation>رفض</translation>
     </message>
@@ -10245,6 +10366,14 @@ Signing out and signing in again is the only fix.</source>
         <location line="+7"/>
         <source>Leave room</source>
         <translation>مغادرة الغرفة</translation>
+    </message>
+</context>
+<context>
+    <name>LegacyCallVideo</name>
+    <message>
+        <location filename="../qml/LegacyCallVideo.qml" line="+35"/>
+        <source>Their camera is off</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -12701,7 +12830,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>الانتقال إلى الرسالة الأصلية</translation>
     </message>
     <message>
-        <location line="+102"/>
+        <location line="+106"/>
         <location line="+1007"/>
         <location line="+1318"/>
         <source>Reply</source>
@@ -12756,8 +12885,8 @@ Signing out and signing in again is the only fix.</source>
         <translation>في انتظار المفاتيح…</translation>
     </message>
     <message>
-        <location line="-1223"/>
-        <location line="+1233"/>
+        <location line="-1227"/>
+        <location line="+1237"/>
         <source>Retry decryption</source>
         <translation>إعادة محاولة فك التعمية</translation>
     </message>
@@ -12767,7 +12896,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>إعدادات الأمان</translation>
     </message>
     <message>
-        <location line="-2338"/>
+        <location line="-2342"/>
         <source>Link</source>
         <translation>رابط</translation>
     </message>
@@ -12777,7 +12906,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>فتح هذا الخيط</translation>
     </message>
     <message>
-        <location line="+801"/>
+        <location line="+805"/>
         <source>Show the link preview again</source>
         <translation>إظهار معاينة الرابط مرة أخرى</translation>
     </message>
@@ -13162,7 +13291,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>تحرير</translation>
     </message>
     <message>
-        <location line="-4546"/>
+        <location line="-4550"/>
         <source>%1 B</source>
         <translation>%1 ب</translation>
     </message>
@@ -13196,22 +13325,22 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-656"/>
         <location line="+654"/>
-        <location line="+4230"/>
+        <location line="+4234"/>
         <location line="+462"/>
         <location line="+587"/>
         <source>GIF</source>
         <translation>GIF</translation>
     </message>
     <message>
-        <location line="-5933"/>
+        <location line="-5937"/>
         <location line="+66"/>
         <location line="+587"/>
-        <location line="+4853"/>
+        <location line="+4857"/>
         <source>Image</source>
         <translation>صورة</translation>
     </message>
     <message>
-        <location line="-5504"/>
+        <location line="-5508"/>
         <source>Attachment</source>
         <translation>مرفق</translation>
     </message>
@@ -13265,7 +13394,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>خيط</translation>
     </message>
     <message>
-        <location line="+323"/>
+        <location line="+327"/>
         <source>Message deleted</source>
         <translation>حُذفت الرسالة</translation>
     </message>
@@ -13554,10 +13683,10 @@ Signing out and signing in again is the only fix.</source>
         <translation>فشل تحميل الملصق — انقر لإعادة المحاولة</translation>
     </message>
     <message>
-        <location line="-6377"/>
+        <location line="-6381"/>
         <location line="+70"/>
         <location line="+590"/>
-        <location line="+4851"/>
+        <location line="+4855"/>
         <location line="+1192"/>
         <location line="+89"/>
         <source>Video</source>
@@ -13570,9 +13699,9 @@ Signing out and signing in again is the only fix.</source>
         <translation>فيديو</translation>
     </message>
     <message>
-        <location line="-6804"/>
+        <location line="-6808"/>
         <location line="+656"/>
-        <location line="+4962"/>
+        <location line="+4966"/>
         <location line="+1388"/>
         <location line="+4"/>
         <location line="+30"/>
@@ -13816,7 +13945,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>رسالة أقدم رقم %1 (صفحة %2)</translation>
     </message>
     <message>
-        <location line="+1580"/>
+        <location line="+1581"/>
         <source>You joined the room.</source>
         <translation>انضممت إلى الغرفة.</translation>
     </message>
@@ -17843,7 +17972,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>الودجات</translation>
     </message>
     <message>
-        <location line="+2420"/>
+        <location line="+2424"/>
         <source>Open</source>
         <translation>فتح</translation>
     </message>
@@ -17853,7 +17982,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>تصدير الغرفة…</translation>
     </message>
     <message>
-        <location line="-636"/>
+        <location line="-640"/>
         <source>Anyone can read this room&apos;s history without joining, even though not everyone can join it.</source>
         <translation>يمكن لأي شخص قراءة سجل هذه الغرفة دون الانضمام إليها، رغم أن الانضمام إليها ليس متاحًا للجميع.</translation>
     </message>
@@ -17924,7 +18053,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>عرض الموضوع كاملًا</translation>
     </message>
     <message numerus="yes">
-        <location line="+7"/>
+        <location line="+11"/>
         <source>%n member(s) (%1 invited)</source>
         <translation>
             <numerusform>لا أعضاء (%1 مدعو)</numerusform>
@@ -25914,7 +26043,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SfuCallController</name>
     <message>
-        <location filename="../src/calls/SfuCallController.cpp" line="+813"/>
+        <location filename="../src/calls/SfuCallController.cpp" line="+815"/>
         <location line="+466"/>
         <location line="+131"/>
         <source>Screen sharing isn&apos;t available on this desktop.</source>
@@ -26293,12 +26422,12 @@ Note: importing keys does not verify this session.</source>
         <translation>لا يُسمع شيء الآن.</translation>
     </message>
     <message>
-        <location line="+457"/>
+        <location line="+459"/>
         <source>The call was declined.</source>
         <translation>رُفضت المكالمة.</translation>
     </message>
     <message>
-        <location line="-4620"/>
+        <location line="-4622"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>هذه الغرفة مشفرة، والمكالمات المشفرة غير متاحة بعد في هذا الإصدار.</translation>
     </message>
@@ -31845,12 +31974,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-558"/>
         <location filename="../qml/TimelinePane.qml" line="+388"/>
-        <location line="+6639"/>
+        <location line="+6691"/>
         <source>Space</source>
         <translation>فضاء</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-6638"/>
+        <location filename="../qml/TimelinePane.qml" line="-6690"/>
         <source>Home</source>
         <translation>الرئيسية</translation>
     </message>
@@ -31867,7 +31996,13 @@ Note: importing keys does not verify this session.</source>
         <translation>ابدأ مكالمة صوتية</translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+18"/>
+        <location line="+1"/>
+        <source>Call options</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+38"/>
         <location line="+2"/>
         <source>Pinned messages</source>
         <translation>الرسائل المثبّتة</translation>
@@ -31936,12 +32071,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+4953"/>
+        <location line="+4970"/>
         <source>Room information</source>
         <translation>معلومات الغرفة</translation>
     </message>
     <message>
-        <location line="-4937"/>
+        <location line="-4954"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation>المزيد من إجراءات الغرفة</translation>
@@ -31977,7 +32112,7 @@ Note: importing keys does not verify this session.</source>
         <translation>العودة إلى الغرفة</translation>
     </message>
     <message>
-        <location line="+180"/>
+        <location line="+197"/>
         <source>This room has been upgraded.</source>
         <translation>تمت ترقية هذه الغرفة.</translation>
     </message>
@@ -32628,13 +32763,13 @@ Note: importing keys does not verify this session.</source>
         <translation>إلغاء</translation>
     </message>
     <message>
-        <location line="-7295"/>
+        <location line="-7347"/>
         <location line="+92"/>
         <source>View profile</source>
         <translation>عرض الملف الشخصي</translation>
     </message>
     <message>
-        <location line="+6425"/>
+        <location line="+6477"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation>الصور (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
@@ -32700,12 +32835,12 @@ Note: importing keys does not verify this session.</source>
         <translation>إغلاق</translation>
     </message>
     <message>
-        <location line="+181"/>
+        <location line="+182"/>
         <source>Drop files to attach</source>
         <translation>أفلت الملفات لإرفاقها</translation>
     </message>
     <message>
-        <location line="-6737"/>
+        <location line="-6738"/>
         <source>Part of %1</source>
         <translation>جزء من %1</translation>
     </message>
@@ -34225,7 +34360,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2649"/>
+        <location filename="../src/main.cpp" line="+2656"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>عميل Matrix أصلي بـ Qt/QML. الخلفية: --backend={mock,http,rust}. الافتراضي: rust (http في النسخ الخالية من Rust SDK).</translation>
     </message>

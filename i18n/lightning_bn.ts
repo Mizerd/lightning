@@ -918,7 +918,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+8319"/>
+        <location filename="../src/app/AppController.cpp" line="+8435"/>
         <source>Room invitation</source>
         <translation>রুমের আমন্ত্রণ</translation>
     </message>
@@ -1039,7 +1039,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>আগত কল</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-6369"/>
+        <location filename="../src/app/AppController.cpp" line="-6477"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>অ্যাকাউন্ট বদলে যাওয়ায় সাইন আউট বাতিল হয়েছে। কিছুই রিসেট হয়নি।</translation>
     </message>
@@ -1091,13 +1091,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+1"/>
         <location line="+55"/>
-        <location line="+4677"/>
+        <location line="+4785"/>
         <location line="+982"/>
         <source>Not connected</source>
         <translation>সংযুক্ত নয়</translation>
     </message>
     <message>
-        <location line="-5711"/>
+        <location line="-5819"/>
         <source>Connecting…</source>
         <translation>সংযোগ করা হচ্ছে…</translation>
     </message>
@@ -1158,29 +1158,29 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3279"/>
+        <location line="+3387"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning নির্বাচিত ফাইলটি পড়তে পারেনি।</translation>
     </message>
     <message>
-        <location line="-3285"/>
+        <location line="-3393"/>
         <source>A room-key import is already in progress.</source>
         <translation>একটি রুম-কী আমদানি ইতিমধ্যেই চলছে।</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4418"/>
+        <location line="+4526"/>
         <source>Not signed in.</source>
         <translation>সাইন ইন করা নেই।</translation>
     </message>
     <message>
-        <location line="-4416"/>
+        <location line="-4524"/>
         <source>Room-key import failed.</source>
         <translation>রুম-কী আমদানি ব্যর্থ হয়েছে।</translation>
     </message>
     <message>
-        <location line="+2508"/>
+        <location line="+2616"/>
         <source>Enter a size limit from 1 to 2000 MB.</source>
         <translation>১ থেকে ২০০০ MB-এর মধ্যে আকারের সীমা দিন।</translation>
     </message>
@@ -1195,13 +1195,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>YYYY-MM-DD ফরম্যাটে প্রকৃত তারিখ দিন; “শুরু” তারিখ “শেষ” তারিখের পরে হতে পারবে না।</translation>
     </message>
     <message>
-        <location line="-5572"/>
-        <location line="+3309"/>
+        <location line="-5685"/>
+        <location line="+3314"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-3308"/>
+        <location line="-3313"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>এটি একটি পরীক্ষামূলক বিজ্ঞপ্তি। এটি পড়তে পারলে ডেস্কটপ বিজ্ঞপ্তি কাজ করছে।</translation>
     </message>
@@ -1211,7 +1211,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>নতুন উল্লেখ</translation>
     </message>
     <message>
-        <location line="+673"/>
+        <location line="+678"/>
         <source>Call started</source>
         <translation>কল শুরু হয়েছে</translation>
     </message>
@@ -1221,17 +1221,17 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>ওই বিজ্ঞপ্তিটি অন্য একটি অ্যাকাউন্টের ছিল, তাই কিছু পাঠানো হয়নি। ওই অ্যাকাউন্টে ফিরে গিয়ে আবার চেষ্টা করুন।</translation>
     </message>
     <message>
-        <location line="+751"/>
+        <location line="+770"/>
         <source>Calls aren&apos;t available while this account uses a proxy.</source>
         <translation>এই অ্যাকাউন্ট প্রক্সি ব্যবহার করার সময় কল উপলভ্য নয়.</translation>
     </message>
     <message>
-        <location line="+36"/>
+        <location line="+35"/>
         <source>Video calls need a MatrixRTC service, which isn&apos;t available here yet.</source>
         <translation>ভিডিও কলের জন্য একটি MatrixRTC পরিষেবা প্রয়োজন, যা এখনও এখানে উপলব্ধ নয়৷</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+19"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>এই রুমটি এনক্রিপ্ট করা হয়েছে, এবং এনক্রিপ্ট করা কল এখনও এই বিল্ডে উপলব্ধ নেই৷</translation>
     </message>
@@ -1251,7 +1251,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>এখানে কল করার সুবিধা নেই।</translation>
     </message>
     <message>
-        <location line="+259"/>
+        <location line="+176"/>
+        <source>Your camera couldn&apos;t be started. The call goes on without it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+172"/>
         <source>Modern room list</source>
         <translation>আধুনিক রুম তালিকা</translation>
     </message>
@@ -2758,9 +2763,57 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
 </context>
 <context>
+    <name>CallFormatMenu</name>
+    <message>
+        <location filename="../qml/CallFormatMenu.qml" line="+22"/>
+        <source>MatrixRTC</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Direct</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>not available here</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Voice call</source>
+        <translation type="unfinished">ভয়েস কল</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Video call</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Call type</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Automatic (%1)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>MatrixRTC (through a call server)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Direct (1:1 peer-to-peer)</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>CallHeaderBar</name>
     <message>
-        <location filename="../qml/CallHeaderBar.qml" line="+101"/>
+        <location filename="../qml/CallHeaderBar.qml" line="+110"/>
         <location line="+10"/>
         <source>Connecting…</source>
         <translation>সংযোগ করা হচ্ছে…</translation>
@@ -2782,17 +2835,25 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>কল করা হচ্ছে…</translation>
     </message>
     <message>
-        <location line="+166"/>
+        <location line="+3"/>
+        <source>Video call</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+178"/>
+        <location line="+29"/>
         <source>Turn off camera</source>
         <translation>ক্যামেরা বন্ধ করুন</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="-28"/>
+        <location line="+29"/>
         <source>Turn on camera</source>
         <translation>ক্যামেরা চালু করুন</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="-21"/>
+        <location line="+30"/>
         <source>Choose camera</source>
         <translation>ক্যামেরা বেছে নিন</translation>
     </message>
@@ -2878,12 +2939,32 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>কলটি ভাসমান উইন্ডোতে আলাদা করুন</translation>
     </message>
     <message>
-        <location line="-403"/>
+        <location line="-435"/>
         <source>Unmute microphone</source>
         <translation>মাইক্রোফোন আনমিউট করুন</translation>
     </message>
     <message>
+        <location line="-133"/>
+        <source>MatrixRTC</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location line="+1"/>
+        <source>Direct</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>MatrixRTC call: media goes through a call server</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Direct call (m.call): media goes straight to the other person</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+130"/>
         <source>Mute microphone</source>
         <translation>মাইক্রোফোন নিঃশব্দ করুন</translation>
     </message>
@@ -2908,7 +2989,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>আউটপুট ডিভাইস নির্বাচন করুন</translation>
     </message>
     <message>
-        <location line="+384"/>
+        <location line="+416"/>
         <source>Leave call</source>
         <translation>কল ছেড়ে দিন</translation>
     </message>
@@ -3385,7 +3466,17 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>%1ব্যক্তি কলে আছেন</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+10"/>
+        <source>MatrixRTC</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>MatrixRTC call: media goes through a call server</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+10"/>
         <source>Reconnecting…</source>
         <translation>পুনরায় সংযোগ করা হচ্ছে...</translation>
     </message>
@@ -9599,6 +9690,11 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+2"/>
+        <source>Video call — connecting…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
         <source>Voice call — connecting…</source>
         <translation>ভয়েস কল — সংযোগ করা হচ্ছে…</translation>
     </message>
@@ -9606,6 +9702,16 @@ Signing out and signing in again is the only fix.</source>
         <location line="+2"/>
         <source>Voice call</source>
         <translation>ভয়েস কল</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Video call</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Incoming video call</source>
+        <translation type="unfinished">আগত ভিডিও কল</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -9639,6 +9745,16 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+10"/>
+        <source>%1 is calling with video.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Incoming video call.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
         <source>%1 is calling.</source>
         <translation>%1 কল করছেন।</translation>
     </message>
@@ -9668,7 +9784,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>গ্রহণ করুন</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+16"/>
+        <source>Audio only</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+14"/>
         <source>Decline</source>
         <translation>প্রত্যাখ্যান করুন</translation>
     </message>
@@ -10117,6 +10238,14 @@ Signing out and signing in again is the only fix.</source>
         <location line="+7"/>
         <source>Leave room</source>
         <translation>রুম ছাড়ুন</translation>
+    </message>
+</context>
+<context>
+    <name>LegacyCallVideo</name>
+    <message>
+        <location filename="../qml/LegacyCallVideo.qml" line="+35"/>
+        <source>Their camera is off</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -12541,7 +12670,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>মূল বার্তায় যান</translation>
     </message>
     <message>
-        <location line="+102"/>
+        <location line="+106"/>
         <location line="+1007"/>
         <location line="+1318"/>
         <source>Reply</source>
@@ -12592,8 +12721,8 @@ Signing out and signing in again is the only fix.</source>
         <translation>কীর অপেক্ষায়…</translation>
     </message>
     <message>
-        <location line="-1223"/>
-        <location line="+1233"/>
+        <location line="-1227"/>
+        <location line="+1237"/>
         <source>Retry decryption</source>
         <translation>ডিক্রিপশন আবার চেষ্টা করুন</translation>
     </message>
@@ -12603,7 +12732,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>নিরাপত্তা সেটিংস</translation>
     </message>
     <message>
-        <location line="-2338"/>
+        <location line="-2342"/>
         <source>Link</source>
         <translation>লিঙ্ক</translation>
     </message>
@@ -12613,7 +12742,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>এই থ্রেডটি খুলুন</translation>
     </message>
     <message>
-        <location line="+801"/>
+        <location line="+805"/>
         <source>Show the link preview again</source>
         <translation>আবার লিঙ্ক প্রিভিউ দেখান</translation>
     </message>
@@ -12998,7 +13127,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>সম্পাদনা</translation>
     </message>
     <message>
-        <location line="-4546"/>
+        <location line="-4550"/>
         <source>%1 B</source>
         <translation>%1 B</translation>
     </message>
@@ -13032,22 +13161,22 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-656"/>
         <location line="+654"/>
-        <location line="+4230"/>
+        <location line="+4234"/>
         <location line="+462"/>
         <location line="+587"/>
         <source>GIF</source>
         <translation>GIF</translation>
     </message>
     <message>
-        <location line="-5933"/>
+        <location line="-5937"/>
         <location line="+66"/>
         <location line="+587"/>
-        <location line="+4853"/>
+        <location line="+4857"/>
         <source>Image</source>
         <translation>ছবি</translation>
     </message>
     <message>
-        <location line="-5504"/>
+        <location line="-5508"/>
         <source>Attachment</source>
         <translation>সংযুক্তি</translation>
     </message>
@@ -13093,7 +13222,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>থ্রেড</translation>
     </message>
     <message>
-        <location line="+323"/>
+        <location line="+327"/>
         <source>Message deleted</source>
         <translation>বার্তা মুছে ফেলা হয়েছে</translation>
     </message>
@@ -13378,10 +13507,10 @@ Signing out and signing in again is the only fix.</source>
         <translation>স্টিকার লোড হয়নি — আবার চেষ্টা করতে ক্লিক করুন</translation>
     </message>
     <message>
-        <location line="-6377"/>
+        <location line="-6381"/>
         <location line="+70"/>
         <location line="+590"/>
-        <location line="+4851"/>
+        <location line="+4855"/>
         <location line="+1192"/>
         <location line="+89"/>
         <source>Video</source>
@@ -13394,9 +13523,9 @@ Signing out and signing in again is the only fix.</source>
         <translation>ভিডিও</translation>
     </message>
     <message>
-        <location line="-6804"/>
+        <location line="-6808"/>
         <location line="+656"/>
-        <location line="+4962"/>
+        <location line="+4966"/>
         <location line="+1388"/>
         <location line="+4"/>
         <location line="+30"/>
@@ -13628,7 +13757,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>পুরনো বার্তা #%1 (পৃষ্ঠা %2)</translation>
     </message>
     <message>
-        <location line="+1580"/>
+        <location line="+1581"/>
         <source>You joined the room.</source>
         <translation>আপনি রুমে যোগ দিয়েছেন।</translation>
     </message>
@@ -17615,7 +17744,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>উইজেট</translation>
     </message>
     <message>
-        <location line="+2420"/>
+        <location line="+2424"/>
         <source>Open</source>
         <translation>খুলুন</translation>
     </message>
@@ -17625,7 +17754,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>রুম এক্সপোর্ট করুন…</translation>
     </message>
     <message>
-        <location line="-636"/>
+        <location line="-640"/>
         <source>Anyone can read this room&apos;s history without joining, even though not everyone can join it.</source>
         <translation>এই রুমে সবাই যোগ দিতে না পারলেও, যে কেউ যোগ না দিয়েই এর ইতিহাস পড়তে পারেন।</translation>
     </message>
@@ -17696,7 +17825,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>পুরো বিষয় দেখান</translation>
     </message>
     <message numerus="yes">
-        <location line="+7"/>
+        <location line="+11"/>
         <source>%n member(s) (%1 invited)</source>
         <translation>
             <numerusform>%n জন সদস্য (%1 জন আমন্ত্রিত)</numerusform>
@@ -25578,7 +25707,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SfuCallController</name>
     <message>
-        <location filename="../src/calls/SfuCallController.cpp" line="+813"/>
+        <location filename="../src/calls/SfuCallController.cpp" line="+815"/>
         <location line="+466"/>
         <location line="+131"/>
         <source>Screen sharing isn&apos;t available on this desktop.</source>
@@ -25957,12 +26086,12 @@ Note: importing keys does not verify this session.</source>
         <translation>এখন কিছুই শোনা যাচ্ছে না।</translation>
     </message>
     <message>
-        <location line="+457"/>
+        <location line="+459"/>
         <source>The call was declined.</source>
         <translation>কলটি প্রত্যাখ্যান করা হয়েছে।</translation>
     </message>
     <message>
-        <location line="-4620"/>
+        <location line="-4622"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>এই রুমটি এনক্রিপ্ট করা হয়েছে, এবং এনক্রিপ্ট করা কল এখনও এই বিল্ডে উপলব্ধ নেই৷</translation>
     </message>
@@ -31301,12 +31430,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-558"/>
         <location filename="../qml/TimelinePane.qml" line="+388"/>
-        <location line="+6639"/>
+        <location line="+6691"/>
         <source>Space</source>
         <translation>স্পেস</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-6638"/>
+        <location filename="../qml/TimelinePane.qml" line="-6690"/>
         <source>Home</source>
         <translation>হোম</translation>
     </message>
@@ -31323,7 +31452,13 @@ Note: importing keys does not verify this session.</source>
         <translation>একটি ভয়েস কল শুরু করুন</translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+18"/>
+        <location line="+1"/>
+        <source>Call options</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+38"/>
         <location line="+2"/>
         <source>Pinned messages</source>
         <translation>পিন করা বার্তা</translation>
@@ -31392,12 +31527,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+4953"/>
+        <location line="+4970"/>
         <source>Room information</source>
         <translation>রুমের তথ্য</translation>
     </message>
     <message>
-        <location line="-4937"/>
+        <location line="-4954"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation>রুমের আরও কাজ</translation>
@@ -31433,7 +31568,7 @@ Note: importing keys does not verify this session.</source>
         <translation>রুমে ফিরে যান</translation>
     </message>
     <message>
-        <location line="+180"/>
+        <location line="+197"/>
         <source>This room has been upgraded.</source>
         <translation>এই রুমটি আপগ্রেড করা হয়েছে।</translation>
     </message>
@@ -32056,13 +32191,13 @@ Note: importing keys does not verify this session.</source>
         <translation>বাতিল</translation>
     </message>
     <message>
-        <location line="-7295"/>
+        <location line="-7347"/>
         <location line="+92"/>
         <source>View profile</source>
         <translation>প্রোফাইল দেখুন</translation>
     </message>
     <message>
-        <location line="+6425"/>
+        <location line="+6477"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation>ছবি (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
@@ -32128,12 +32263,12 @@ Note: importing keys does not verify this session.</source>
         <translation>বন্ধ করুন</translation>
     </message>
     <message>
-        <location line="+181"/>
+        <location line="+182"/>
         <source>Drop files to attach</source>
         <translation>সংযুক্ত করতে ফাইল ছেড়ে দিন</translation>
     </message>
     <message>
-        <location line="-6737"/>
+        <location line="-6738"/>
         <source>Part of %1</source>
         <translation>%1 এর অংশ</translation>
     </message>
@@ -33649,7 +33784,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2649"/>
+        <location filename="../src/main.cpp" line="+2656"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>নেটিভ Qt/QML Matrix ক্লায়েন্ট। ব্যাকএন্ড: --backend={mock,http,rust}। ডিফল্ট: rust (Rust SDK ছাড়া বিল্ডে http)।</translation>
     </message>

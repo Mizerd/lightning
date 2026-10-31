@@ -921,19 +921,19 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     <name>AppController</name>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+572"/>
-        <location filename="../src/app/AppController.cpp" line="+7222"/>
+        <location filename="../src/app/AppController.cpp" line="+7338"/>
         <location line="+1194"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
         <translation>Lightning kann die gespeicherten Anmeldungen dieses Geräts gerade nicht lesen – der System-Schlüsselbund ist gesperrt oder nicht verfügbar. Entsperre ihn und versuche es erneut.</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-7779"/>
-        <location line="+3309"/>
+        <location filename="../src/app/AppController.cpp" line="-7892"/>
+        <location line="+3314"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-3308"/>
+        <location line="-3313"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>Dies ist eine Testbenachrichtigung. Wenn du sie lesen kannst, funktionieren Desktop-Benachrichtigungen.</translation>
     </message>
@@ -943,7 +943,7 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <translation>Neue Erwähnungen</translation>
     </message>
     <message>
-        <location line="+673"/>
+        <location line="+678"/>
         <source>Call started</source>
         <translation>Anruf gestartet</translation>
     </message>
@@ -990,13 +990,13 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     <message>
         <location line="+1"/>
         <location line="+55"/>
-        <location line="+4677"/>
+        <location line="+4785"/>
         <location line="+982"/>
         <source>Not connected</source>
         <translation>Nicht verbunden</translation>
     </message>
     <message>
-        <location line="-5711"/>
+        <location line="-5819"/>
         <source>Connecting…</source>
         <translation>Verbindet …</translation>
     </message>
@@ -1052,24 +1052,24 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3279"/>
+        <location line="+3387"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning konnte die ausgewählte Datei nicht lesen.</translation>
     </message>
     <message>
-        <location line="-3285"/>
+        <location line="-3393"/>
         <source>A room-key import is already in progress.</source>
         <translation>Ein Raumschlüssel-Import läuft bereits.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4418"/>
+        <location line="+4526"/>
         <source>Not signed in.</source>
         <translation>Nicht angemeldet.</translation>
     </message>
     <message>
-        <location line="-4416"/>
+        <location line="-4524"/>
         <source>Room-key import failed.</source>
         <translation>Der Raumschlüssel-Import ist fehlgeschlagen.</translation>
     </message>
@@ -1079,17 +1079,17 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <translation>Diese Benachrichtigung gehörte zu einem anderen Konto, daher wurde nichts gesendet. Wechsle zu diesem Konto zurück und versuche es erneut.</translation>
     </message>
     <message>
-        <location line="+751"/>
+        <location line="+770"/>
         <source>Calls aren&apos;t available while this account uses a proxy.</source>
         <translation>Anrufe sind nicht verfügbar, solange dieses Konto einen Proxy verwendet.</translation>
     </message>
     <message>
-        <location line="+36"/>
+        <location line="+35"/>
         <source>Video calls need a MatrixRTC service, which isn&apos;t available here yet.</source>
         <translation>Videoanrufe benötigen einen MatrixRTC-Dienst, der hier noch nicht verfügbar ist.</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+19"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>Dieser Raum ist verschlüsselt, und verschlüsselte Anrufe sind in dieser Version noch nicht verfügbar.</translation>
     </message>
@@ -1109,7 +1109,12 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <translation>Anrufe sind hier nicht verfügbar.</translation>
     </message>
     <message>
-        <location line="+259"/>
+        <location line="+176"/>
+        <source>Your camera couldn&apos;t be started. The call goes on without it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+172"/>
         <source>Modern room list</source>
         <translation>Moderne Raumliste</translation>
     </message>
@@ -2760,9 +2765,77 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     </message>
 </context>
 <context>
+    <name>CallFormatMenu</name>
+    <message>
+        <location filename="../qml/CallFormatMenu.qml" line="+22"/>
+        <source>MatrixRTC</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Direct</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>not available here</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Voice call</source>
+        <translation type="unfinished">Sprachanruf</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Video call</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Call type</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Automatic (%1)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>MatrixRTC (through a call server)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Direct (1:1 peer-to-peer)</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>CallHeaderBar</name>
     <message>
-        <location filename="../qml/CallHeaderBar.qml" line="+101"/>
+        <location filename="../qml/CallHeaderBar.qml" line="+98"/>
+        <source>MatrixRTC</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Direct</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>MatrixRTC call: media goes through a call server</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Direct call (m.call): media goes straight to the other person</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
         <location line="+10"/>
         <source>Connecting…</source>
         <translation>Verbindet …</translation>
@@ -2784,7 +2857,12 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <translation>Anruf läuft …</translation>
     </message>
     <message>
-        <location line="+101"/>
+        <location line="+3"/>
+        <source>Video call</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+110"/>
         <source>Unmute microphone</source>
         <translation>Mikrofon einschalten</translation>
     </message>
@@ -2814,17 +2892,20 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <translation>Ausgabegerät auswählen</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+22"/>
+        <location line="+29"/>
         <source>Turn off camera</source>
         <translation>Kamera ausschalten</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="-28"/>
+        <location line="+29"/>
         <source>Turn on camera</source>
         <translation>Kamera einschalten</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="-21"/>
+        <location line="+30"/>
         <source>Choose camera</source>
         <translation>Kamera auswählen</translation>
     </message>
@@ -3387,7 +3468,17 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <translation>%1 Personen im Anruf</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+10"/>
+        <source>MatrixRTC</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>MatrixRTC call: media goes through a call server</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+10"/>
         <source>Reconnecting…</source>
         <translation>Verbindet neu …</translation>
     </message>
@@ -9608,6 +9699,11 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     </message>
     <message>
         <location line="+2"/>
+        <source>Video call — connecting…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
         <source>Voice call — connecting…</source>
         <translation>Sprachanruf – Verbindung wird hergestellt …</translation>
     </message>
@@ -9615,6 +9711,16 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <location line="+2"/>
         <source>Voice call</source>
         <translation>Sprachanruf</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Video call</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Incoming video call</source>
+        <translation type="unfinished">Eingehender Videoanruf</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -9648,6 +9754,16 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     </message>
     <message>
         <location line="+10"/>
+        <source>%1 is calling with video.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Incoming video call.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
         <source>%1 is calling.</source>
         <translation>%1 ruft an.</translation>
     </message>
@@ -9677,7 +9793,12 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Annehmen</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+16"/>
+        <source>Audio only</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+14"/>
         <source>Decline</source>
         <translation>Ablehnen</translation>
     </message>
@@ -10126,6 +10247,14 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <location line="+7"/>
         <source>Leave room</source>
         <translation>Raum verlassen</translation>
+    </message>
+</context>
+<context>
+    <name>LegacyCallVideo</name>
+    <message>
+        <location filename="../qml/LegacyCallVideo.qml" line="+35"/>
+        <source>Their camera is off</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -12527,14 +12656,14 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <location line="-663"/>
         <location line="+70"/>
         <location line="+590"/>
-        <location line="+4851"/>
+        <location line="+4855"/>
         <location line="+1192"/>
         <location line="+89"/>
         <source>Video</source>
         <translation>Video</translation>
     </message>
     <message>
-        <location line="-6790"/>
+        <location line="-6794"/>
         <source>Voice message</source>
         <translation>Sprachnachricht</translation>
     </message>
@@ -12547,24 +12676,24 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     <message>
         <location line="-656"/>
         <location line="+654"/>
-        <location line="+4230"/>
+        <location line="+4234"/>
         <location line="+462"/>
         <location line="+587"/>
         <source>GIF</source>
         <translation>GIF</translation>
     </message>
     <message>
-        <location line="-5933"/>
+        <location line="-5937"/>
         <location line="+66"/>
         <location line="+587"/>
-        <location line="+4853"/>
+        <location line="+4857"/>
         <source>Image</source>
         <translation>Bild</translation>
     </message>
     <message>
-        <location line="-5505"/>
+        <location line="-5509"/>
         <location line="+656"/>
-        <location line="+4962"/>
+        <location line="+4966"/>
         <location line="+1388"/>
         <location line="+4"/>
         <location line="+30"/>
@@ -12572,7 +12701,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Datei</translation>
     </message>
     <message>
-        <location line="-7039"/>
+        <location line="-7043"/>
         <source>Attachment</source>
         <translation>Anhang</translation>
     </message>
@@ -12629,12 +12758,12 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     </message>
     <message>
         <location line="+14"/>
-        <location line="+1233"/>
+        <location line="+1237"/>
         <source>Retry decryption</source>
         <translation>Entschlüsselung erneut versuchen</translation>
     </message>
     <message>
-        <location line="-1022"/>
+        <location line="-1026"/>
         <location line="+213"/>
         <source>Avatar for %1</source>
         <translation>Avatar von %1</translation>
@@ -12676,7 +12805,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Zur ursprünglichen Nachricht gehen</translation>
     </message>
     <message>
-        <location line="+102"/>
+        <location line="+106"/>
         <location line="+1007"/>
         <location line="+1318"/>
         <source>Reply</source>
@@ -13122,12 +13251,12 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Löschen</translation>
     </message>
     <message>
-        <location line="-2957"/>
+        <location line="-2961"/>
         <source>Open this thread</source>
         <translation>Diesen Thread öffnen</translation>
     </message>
     <message>
-        <location line="+2199"/>
+        <location line="+2203"/>
         <source>Delete message?</source>
         <translation>Nachricht löschen?</translation>
     </message>
@@ -13637,7 +13766,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Ältere Nachricht Nr. %1 (Seite %2)</translation>
     </message>
     <message>
-        <location line="+1580"/>
+        <location line="+1581"/>
         <source>You joined the room.</source>
         <translation>Du bist dem Raum beigetreten.</translation>
     </message>
@@ -17695,7 +17824,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Das ganze Thema anzeigen</translation>
     </message>
     <message numerus="yes">
-        <location line="+7"/>
+        <location line="+11"/>
         <source>%n member(s) (%1 invited)</source>
         <translation>
             <numerusform>%n Mitglied (%1 eingeladen)</numerusform>
@@ -25587,7 +25716,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
 <context>
     <name>SfuCallController</name>
     <message>
-        <location filename="../src/calls/SfuCallController.cpp" line="+813"/>
+        <location filename="../src/calls/SfuCallController.cpp" line="+815"/>
         <location line="+466"/>
         <location line="+131"/>
         <source>Screen sharing isn&apos;t available on this desktop.</source>
@@ -25981,7 +26110,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Gerade ist nichts zu hören.</translation>
     </message>
     <message>
-        <location line="+457"/>
+        <location line="+459"/>
         <source>The call was declined.</source>
         <translation>Der Anruf wurde abgelehnt.</translation>
     </message>
@@ -31304,7 +31433,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     </message>
     <message>
         <location line="+13"/>
-        <location filename="../qml/TimelinePane.qml" line="+8561"/>
+        <location filename="../qml/TimelinePane.qml" line="+8613"/>
         <source>Remove</source>
         <translation>Entfernen</translation>
     </message>
@@ -31348,8 +31477,8 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     </message>
     <message>
         <location line="+30"/>
-        <location filename="../qml/TimelinePane.qml" line="-7189"/>
-        <location line="+6639"/>
+        <location filename="../qml/TimelinePane.qml" line="-7241"/>
+        <location line="+6691"/>
         <source>Space</source>
         <translation>Space</translation>
     </message>
@@ -31419,7 +31548,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>%1 auswählen</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-7857"/>
+        <location filename="../qml/TimelinePane.qml" line="-7909"/>
         <source>Seen by 1 person</source>
         <translation>Von 1 Person gesehen</translation>
     </message>
@@ -31460,7 +31589,13 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Sprachanruf starten</translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+18"/>
+        <location line="+1"/>
+        <source>Call options</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+38"/>
         <location line="+2"/>
         <source>Pinned messages</source>
         <translation>Angepinnte Nachrichten</translation>
@@ -31529,12 +31664,12 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+4953"/>
+        <location line="+4970"/>
         <source>Room information</source>
         <translation>Rauminformationen</translation>
     </message>
     <message>
-        <location line="-4937"/>
+        <location line="-4954"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation>Weitere Raumaktionen</translation>
@@ -31570,7 +31705,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Zurück zum Raum</translation>
     </message>
     <message>
-        <location line="+180"/>
+        <location line="+197"/>
         <source>This room has been upgraded.</source>
         <translation>Dieser Raum wurde aktualisiert.</translation>
     </message>
@@ -32137,12 +32272,12 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Schließen</translation>
     </message>
     <message>
-        <location line="+181"/>
+        <location line="+182"/>
         <source>Drop files to attach</source>
         <translation>Dateien zum Anhängen hier ablegen</translation>
     </message>
     <message>
-        <location line="-6737"/>
+        <location line="-6738"/>
         <source>Part of %1</source>
         <translation>Teil von %1</translation>
     </message>
@@ -33658,7 +33793,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2649"/>
+        <location filename="../src/main.cpp" line="+2656"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>Nativer Qt/QML-Matrix-Client. Backend: --backend={mock,http,rust}. Standard: rust (http in Versionen ohne das Rust-SDK).</translation>
     </message>

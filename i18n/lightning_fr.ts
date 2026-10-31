@@ -920,7 +920,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+8319"/>
+        <location filename="../src/app/AppController.cpp" line="+8435"/>
         <source>Room invitation</source>
         <translation>Invitation au salon</translation>
     </message>
@@ -1041,7 +1041,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Appel entrant</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-6369"/>
+        <location filename="../src/app/AppController.cpp" line="-6477"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>La déconnexion a été annulée car le compte a changé. Rien n&apos;a été réinitialisé.</translation>
     </message>
@@ -1093,13 +1093,13 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
     <message>
         <location line="+1"/>
         <location line="+55"/>
-        <location line="+4677"/>
+        <location line="+4785"/>
         <location line="+982"/>
         <source>Not connected</source>
         <translation>Non connecté</translation>
     </message>
     <message>
-        <location line="-5711"/>
+        <location line="-5819"/>
         <source>Connecting…</source>
         <translation>Connexion…</translation>
     </message>
@@ -1160,29 +1160,29 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3279"/>
+        <location line="+3387"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning n&apos;a pas pu lire le fichier sélectionné.</translation>
     </message>
     <message>
-        <location line="-3285"/>
+        <location line="-3393"/>
         <source>A room-key import is already in progress.</source>
         <translation>Un import de clés de salon est déjà en cours.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4418"/>
+        <location line="+4526"/>
         <source>Not signed in.</source>
         <translation>Non connecté.</translation>
     </message>
     <message>
-        <location line="-4416"/>
+        <location line="-4524"/>
         <source>Room-key import failed.</source>
         <translation>L&apos;import des clés de salon a échoué.</translation>
     </message>
     <message>
-        <location line="+2508"/>
+        <location line="+2616"/>
         <source>Enter a size limit from 1 to 2000 MB.</source>
         <translation>Saisissez une limite de taille entre 1 et 2000 Mo.</translation>
     </message>
@@ -1197,13 +1197,13 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Utilisez des dates réelles au format YYYY-MM-DD, avec « Du » pas après « Au ».</translation>
     </message>
     <message>
-        <location line="-5572"/>
-        <location line="+3309"/>
+        <location line="-5685"/>
+        <location line="+3314"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-3308"/>
+        <location line="-3313"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>Ceci est une notification de test. Si vous pouvez la lire, les notifications du bureau fonctionnent.</translation>
     </message>
@@ -1213,7 +1213,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Nouvelles mentions</translation>
     </message>
     <message>
-        <location line="+673"/>
+        <location line="+678"/>
         <source>Call started</source>
         <translation>Appel lancé</translation>
     </message>
@@ -1223,17 +1223,17 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Cette notification concernait un autre compte, elle n&apos;a donc pas été envoyée. Revenez sur ce compte et réessayez.</translation>
     </message>
     <message>
-        <location line="+751"/>
+        <location line="+770"/>
         <source>Calls aren&apos;t available while this account uses a proxy.</source>
         <translation>Les appels ne sont pas disponibles tant que ce compte utilise un proxy.</translation>
     </message>
     <message>
-        <location line="+36"/>
+        <location line="+35"/>
         <source>Video calls need a MatrixRTC service, which isn&apos;t available here yet.</source>
         <translation>Les appels vidéo nécessitent un service MatrixRTC, qui n&apos;est pas encore disponible ici.</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+19"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>Cette salle est cryptée et les appels cryptés ne sont pas encore disponibles sur cette version.</translation>
     </message>
@@ -1253,7 +1253,12 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Les appels ne sont pas disponibles ici.</translation>
     </message>
     <message>
-        <location line="+259"/>
+        <location line="+176"/>
+        <source>Your camera couldn&apos;t be started. The call goes on without it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+172"/>
         <source>Modern room list</source>
         <translation>Liste de salons moderne</translation>
     </message>
@@ -2760,9 +2765,57 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
     </message>
 </context>
 <context>
+    <name>CallFormatMenu</name>
+    <message>
+        <location filename="../qml/CallFormatMenu.qml" line="+22"/>
+        <source>MatrixRTC</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Direct</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>not available here</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Voice call</source>
+        <translation type="unfinished">Appel vocal</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Video call</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Call type</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Automatic (%1)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>MatrixRTC (through a call server)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Direct (1:1 peer-to-peer)</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>CallHeaderBar</name>
     <message>
-        <location filename="../qml/CallHeaderBar.qml" line="+101"/>
+        <location filename="../qml/CallHeaderBar.qml" line="+110"/>
         <location line="+10"/>
         <source>Connecting…</source>
         <translation>Connexion…</translation>
@@ -2784,17 +2837,25 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Appel en cours…</translation>
     </message>
     <message>
-        <location line="+166"/>
+        <location line="+3"/>
+        <source>Video call</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+178"/>
+        <location line="+29"/>
         <source>Turn off camera</source>
         <translation>Éteindre la caméra</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="-28"/>
+        <location line="+29"/>
         <source>Turn on camera</source>
         <translation>Allumer la caméra</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="-21"/>
+        <location line="+30"/>
         <source>Choose camera</source>
         <translation>Choisir l&apos;appareil photo</translation>
     </message>
@@ -2880,12 +2941,32 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Détacher l&apos;appel dans une fenêtre flottante</translation>
     </message>
     <message>
-        <location line="-403"/>
+        <location line="-435"/>
         <source>Unmute microphone</source>
         <translation>Activer le microphone</translation>
     </message>
     <message>
+        <location line="-133"/>
+        <source>MatrixRTC</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location line="+1"/>
+        <source>Direct</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>MatrixRTC call: media goes through a call server</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Direct call (m.call): media goes straight to the other person</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+130"/>
         <source>Mute microphone</source>
         <translation>Couper le microphone</translation>
     </message>
@@ -2910,7 +2991,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Choisir le périphérique de sortie</translation>
     </message>
     <message>
-        <location line="+384"/>
+        <location line="+416"/>
         <source>Leave call</source>
         <translation>Quitter l&apos;appel</translation>
     </message>
@@ -3387,7 +3468,17 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>%1 personnes en appel</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+10"/>
+        <source>MatrixRTC</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>MatrixRTC call: media goes through a call server</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+10"/>
         <source>Reconnecting…</source>
         <translation>Reconnexion…</translation>
     </message>
@@ -9608,6 +9699,11 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="+2"/>
+        <source>Video call — connecting…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
         <source>Voice call — connecting…</source>
         <translation>Appel vocal — connexion…</translation>
     </message>
@@ -9615,6 +9711,16 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <location line="+2"/>
         <source>Voice call</source>
         <translation>Appel vocal</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Video call</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Incoming video call</source>
+        <translation type="unfinished">Appel vidéo entrant</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -9648,6 +9754,16 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="+10"/>
+        <source>%1 is calling with video.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Incoming video call.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
         <source>%1 is calling.</source>
         <translation>%1 vous appelle.</translation>
     </message>
@@ -9677,7 +9793,12 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Accepter</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+16"/>
+        <source>Audio only</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+14"/>
         <source>Decline</source>
         <translation>Refuser</translation>
     </message>
@@ -10126,6 +10247,14 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <location line="+7"/>
         <source>Leave room</source>
         <translation>Quitter le salon</translation>
+    </message>
+</context>
+<context>
+    <name>LegacyCallVideo</name>
+    <message>
+        <location filename="../qml/LegacyCallVideo.qml" line="+35"/>
+        <source>Their camera is off</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -12550,7 +12679,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Aller au message d&apos;origine</translation>
     </message>
     <message>
-        <location line="+102"/>
+        <location line="+106"/>
         <location line="+1007"/>
         <location line="+1318"/>
         <source>Reply</source>
@@ -12601,8 +12730,8 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>En attente des clés…</translation>
     </message>
     <message>
-        <location line="-1223"/>
-        <location line="+1233"/>
+        <location line="-1227"/>
+        <location line="+1237"/>
         <source>Retry decryption</source>
         <translation>Réessayer le déchiffrement</translation>
     </message>
@@ -12612,7 +12741,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Paramètres de sécurité</translation>
     </message>
     <message>
-        <location line="-2338"/>
+        <location line="-2342"/>
         <source>Link</source>
         <translation>Lien</translation>
     </message>
@@ -12622,7 +12751,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Ouvrir ce fil</translation>
     </message>
     <message>
-        <location line="+801"/>
+        <location line="+805"/>
         <source>Show the link preview again</source>
         <translation>Afficher à nouveau l&apos;aperçu du lien</translation>
     </message>
@@ -13007,7 +13136,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Modifier</translation>
     </message>
     <message>
-        <location line="-4546"/>
+        <location line="-4550"/>
         <source>%1 B</source>
         <translation>%1 o</translation>
     </message>
@@ -13041,22 +13170,22 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     <message>
         <location line="-656"/>
         <location line="+654"/>
-        <location line="+4230"/>
+        <location line="+4234"/>
         <location line="+462"/>
         <location line="+587"/>
         <source>GIF</source>
         <translation>GIF</translation>
     </message>
     <message>
-        <location line="-5933"/>
+        <location line="-5937"/>
         <location line="+66"/>
         <location line="+587"/>
-        <location line="+4853"/>
+        <location line="+4857"/>
         <source>Image</source>
         <translation>Image</translation>
     </message>
     <message>
-        <location line="-5504"/>
+        <location line="-5508"/>
         <source>Attachment</source>
         <translation>Pièce jointe</translation>
     </message>
@@ -13102,7 +13231,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>fil</translation>
     </message>
     <message>
-        <location line="+323"/>
+        <location line="+327"/>
         <source>Message deleted</source>
         <translation>Message supprimé</translation>
     </message>
@@ -13387,10 +13516,10 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Échec du chargement de l&apos;autocollant — cliquez pour réessayer</translation>
     </message>
     <message>
-        <location line="-6377"/>
+        <location line="-6381"/>
         <location line="+70"/>
         <location line="+590"/>
-        <location line="+4851"/>
+        <location line="+4855"/>
         <location line="+1192"/>
         <location line="+89"/>
         <source>Video</source>
@@ -13403,9 +13532,9 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>vidéo</translation>
     </message>
     <message>
-        <location line="-6804"/>
+        <location line="-6808"/>
         <location line="+656"/>
-        <location line="+4962"/>
+        <location line="+4966"/>
         <location line="+1388"/>
         <location line="+4"/>
         <location line="+30"/>
@@ -13637,7 +13766,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Message plus ancien n° %1 (page %2)</translation>
     </message>
     <message>
-        <location line="+1580"/>
+        <location line="+1581"/>
         <source>You joined the room.</source>
         <translation>Vous avez rejoint le salon.</translation>
     </message>
@@ -17624,7 +17753,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Widgets</translation>
     </message>
     <message>
-        <location line="+2420"/>
+        <location line="+2424"/>
         <source>Open</source>
         <translation>Ouvrir</translation>
     </message>
@@ -17634,7 +17763,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Exporter le salon…</translation>
     </message>
     <message>
-        <location line="-636"/>
+        <location line="-640"/>
         <source>Anyone can read this room&apos;s history without joining, even though not everyone can join it.</source>
         <translation>Tout le monde peut lire l’historique de ce salon sans le rejoindre, même si tout le monde ne peut pas le rejoindre.</translation>
     </message>
@@ -17705,7 +17834,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Afficher le sujet en entier</translation>
     </message>
     <message numerus="yes">
-        <location line="+7"/>
+        <location line="+11"/>
         <source>%n member(s) (%1 invited)</source>
         <translation>
             <numerusform>%n membre (%1 invité)</numerusform>
@@ -25587,7 +25716,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
 <context>
     <name>SfuCallController</name>
     <message>
-        <location filename="../src/calls/SfuCallController.cpp" line="+813"/>
+        <location filename="../src/calls/SfuCallController.cpp" line="+815"/>
         <location line="+466"/>
         <location line="+131"/>
         <source>Screen sharing isn&apos;t available on this desktop.</source>
@@ -25966,12 +26095,12 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Rien n&apos;est entendu en ce moment.</translation>
     </message>
     <message>
-        <location line="+457"/>
+        <location line="+459"/>
         <source>The call was declined.</source>
         <translation>L&apos;appel a été refusé.</translation>
     </message>
     <message>
-        <location line="-4620"/>
+        <location line="-4622"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>Cette salle est cryptée et les appels cryptés ne sont pas encore disponibles sur cette version.</translation>
     </message>
@@ -31310,12 +31439,12 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-558"/>
         <location filename="../qml/TimelinePane.qml" line="+388"/>
-        <location line="+6639"/>
+        <location line="+6691"/>
         <source>Space</source>
         <translation>Espace</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-6638"/>
+        <location filename="../qml/TimelinePane.qml" line="-6690"/>
         <source>Home</source>
         <translation>Accueil</translation>
     </message>
@@ -31332,7 +31461,13 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Démarrer un appel vocal</translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+18"/>
+        <location line="+1"/>
+        <source>Call options</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+38"/>
         <location line="+2"/>
         <source>Pinned messages</source>
         <translation>Messages épinglés</translation>
@@ -31401,12 +31536,12 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+4953"/>
+        <location line="+4970"/>
         <source>Room information</source>
         <translation>Informations du salon</translation>
     </message>
     <message>
-        <location line="-4937"/>
+        <location line="-4954"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation>Autres actions du salon</translation>
@@ -31442,7 +31577,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Retour au salon</translation>
     </message>
     <message>
-        <location line="+180"/>
+        <location line="+197"/>
         <source>This room has been upgraded.</source>
         <translation>Ce salon a été mis à niveau.</translation>
     </message>
@@ -32065,13 +32200,13 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Annuler</translation>
     </message>
     <message>
-        <location line="-7295"/>
+        <location line="-7347"/>
         <location line="+92"/>
         <source>View profile</source>
         <translation>Voir le profil</translation>
     </message>
     <message>
-        <location line="+6425"/>
+        <location line="+6477"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
@@ -32137,12 +32272,12 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Fermer</translation>
     </message>
     <message>
-        <location line="+181"/>
+        <location line="+182"/>
         <source>Drop files to attach</source>
         <translation>Déposez des fichiers pour les joindre</translation>
     </message>
     <message>
-        <location line="-6737"/>
+        <location line="-6738"/>
         <source>Part of %1</source>
         <translation>Fait partie de %1</translation>
     </message>
@@ -33658,7 +33793,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2649"/>
+        <location filename="../src/main.cpp" line="+2656"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>Client Matrix natif Qt/QML. Backend : --backend={mock,http,rust}. Par défaut : rust (http dans les versions sans le Rust SDK).</translation>
     </message>

@@ -912,7 +912,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+8319"/>
+        <location filename="../src/app/AppController.cpp" line="+8435"/>
         <source>Room invitation</source>
         <translation>房间邀请</translation>
     </message>
@@ -1032,7 +1032,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>来电</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-6369"/>
+        <location filename="../src/app/AppController.cpp" line="-6477"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>因账号已变更，退出登录已取消。未重置任何内容。</translation>
     </message>
@@ -1084,13 +1084,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+1"/>
         <location line="+55"/>
-        <location line="+4677"/>
+        <location line="+4785"/>
         <location line="+982"/>
         <source>Not connected</source>
         <translation>未连接</translation>
     </message>
     <message>
-        <location line="-5711"/>
+        <location line="-5819"/>
         <source>Connecting…</source>
         <translation>正在连接…</translation>
     </message>
@@ -1151,29 +1151,29 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3279"/>
+        <location line="+3387"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning 无法读取所选文件。</translation>
     </message>
     <message>
-        <location line="-3285"/>
+        <location line="-3393"/>
         <source>A room-key import is already in progress.</source>
         <translation>已有房间密钥导入正在进行中。</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4418"/>
+        <location line="+4526"/>
         <source>Not signed in.</source>
         <translation>尚未登录。</translation>
     </message>
     <message>
-        <location line="-4416"/>
+        <location line="-4524"/>
         <source>Room-key import failed.</source>
         <translation>房间密钥导入失败。</translation>
     </message>
     <message>
-        <location line="+2508"/>
+        <location line="+2616"/>
         <source>Enter a size limit from 1 to 2000 MB.</source>
         <translation>请输入 1 到 2000 MB 之间的大小限制。</translation>
     </message>
@@ -1188,13 +1188,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>请使用真实日期，格式为 YYYY-MM-DD，且“从”不能晚于“到”。</translation>
     </message>
     <message>
-        <location line="-5572"/>
-        <location line="+3309"/>
+        <location line="-5685"/>
+        <location line="+3314"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-3308"/>
+        <location line="-3313"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>这是一条测试通知。如果你能看到它，说明桌面通知可以正常工作。</translation>
     </message>
@@ -1204,7 +1204,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>新提及</translation>
     </message>
     <message>
-        <location line="+673"/>
+        <location line="+678"/>
         <source>Call started</source>
         <translation>通话已开始</translation>
     </message>
@@ -1214,17 +1214,17 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>该通知属于另一个账号，因此未发送。请切换回该账号后重试。</translation>
     </message>
     <message>
-        <location line="+751"/>
+        <location line="+770"/>
         <source>Calls aren&apos;t available while this account uses a proxy.</source>
         <translation>此账号使用代理时无法通话。</translation>
     </message>
     <message>
-        <location line="+36"/>
+        <location line="+35"/>
         <source>Video calls need a MatrixRTC service, which isn&apos;t available here yet.</source>
         <translation>视频通话需要 MatrixRTC 服务，目前尚不可用。</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+19"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>该房间已加密，并且在此版本中尚不支持加密呼叫。</translation>
     </message>
@@ -1244,7 +1244,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>这里无法打电话。</translation>
     </message>
     <message>
-        <location line="+259"/>
+        <location line="+176"/>
+        <source>Your camera couldn&apos;t be started. The call goes on without it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+172"/>
         <source>Modern room list</source>
         <translation>新版房间列表</translation>
     </message>
@@ -2746,9 +2751,57 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
 </context>
 <context>
+    <name>CallFormatMenu</name>
+    <message>
+        <location filename="../qml/CallFormatMenu.qml" line="+22"/>
+        <source>MatrixRTC</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Direct</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>not available here</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Voice call</source>
+        <translation type="unfinished">语音通话</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Video call</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Call type</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Automatic (%1)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>MatrixRTC (through a call server)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Direct (1:1 peer-to-peer)</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>CallHeaderBar</name>
     <message>
-        <location filename="../qml/CallHeaderBar.qml" line="+101"/>
+        <location filename="../qml/CallHeaderBar.qml" line="+110"/>
         <location line="+10"/>
         <source>Connecting…</source>
         <translation>正在连接…</translation>
@@ -2770,17 +2823,25 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>正在呼叫…</translation>
     </message>
     <message>
-        <location line="+166"/>
+        <location line="+3"/>
+        <source>Video call</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+178"/>
+        <location line="+29"/>
         <source>Turn off camera</source>
         <translation>关闭相机</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="-28"/>
+        <location line="+29"/>
         <source>Turn on camera</source>
         <translation>打开相机</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="-21"/>
+        <location line="+30"/>
         <source>Choose camera</source>
         <translation>选择相机</translation>
     </message>
@@ -2866,12 +2927,32 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>将通话弹出为浮动窗口</translation>
     </message>
     <message>
-        <location line="-403"/>
+        <location line="-435"/>
         <source>Unmute microphone</source>
         <translation>取消麦克风静音</translation>
     </message>
     <message>
+        <location line="-133"/>
+        <source>MatrixRTC</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location line="+1"/>
+        <source>Direct</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>MatrixRTC call: media goes through a call server</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Direct call (m.call): media goes straight to the other person</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+130"/>
         <source>Mute microphone</source>
         <translation>麦克风静音</translation>
     </message>
@@ -2896,7 +2977,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>选择输出设备</translation>
     </message>
     <message>
-        <location line="+384"/>
+        <location line="+416"/>
         <source>Leave call</source>
         <translation>留下电话</translation>
     </message>
@@ -3372,7 +3453,17 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>%1 通话中的人</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+10"/>
+        <source>MatrixRTC</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>MatrixRTC call: media goes through a call server</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+10"/>
         <source>Reconnecting…</source>
         <translation>正在重新连接...</translation>
     </message>
@@ -9577,6 +9668,11 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+2"/>
+        <source>Video call — connecting…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
         <source>Voice call — connecting…</source>
         <translation>语音通话，正在连接…</translation>
     </message>
@@ -9584,6 +9680,16 @@ Signing out and signing in again is the only fix.</source>
         <location line="+2"/>
         <source>Voice call</source>
         <translation>语音通话</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Video call</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Incoming video call</source>
+        <translation type="unfinished">视频通话来电</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -9617,6 +9723,16 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+10"/>
+        <source>%1 is calling with video.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Incoming video call.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
         <source>%1 is calling.</source>
         <translation>%1 正在呼叫你。</translation>
     </message>
@@ -9646,7 +9762,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>接听</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+16"/>
+        <source>Audio only</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+14"/>
         <source>Decline</source>
         <translation>拒接</translation>
     </message>
@@ -10094,6 +10215,14 @@ Signing out and signing in again is the only fix.</source>
         <location line="+7"/>
         <source>Leave room</source>
         <translation>离开房间</translation>
+    </message>
+</context>
+<context>
+    <name>LegacyCallVideo</name>
+    <message>
+        <location filename="../qml/LegacyCallVideo.qml" line="+35"/>
+        <source>Their camera is off</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -12510,7 +12639,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>跳转到原消息</translation>
     </message>
     <message>
-        <location line="+102"/>
+        <location line="+106"/>
         <location line="+1007"/>
         <location line="+1318"/>
         <source>Reply</source>
@@ -12560,8 +12689,8 @@ Signing out and signing in again is the only fix.</source>
         <translation>正在等待密钥…</translation>
     </message>
     <message>
-        <location line="-1223"/>
-        <location line="+1233"/>
+        <location line="-1227"/>
+        <location line="+1237"/>
         <source>Retry decryption</source>
         <translation>重试解密</translation>
     </message>
@@ -12571,7 +12700,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>安全设置</translation>
     </message>
     <message>
-        <location line="-2338"/>
+        <location line="-2342"/>
         <source>Link</source>
         <translation>链接</translation>
     </message>
@@ -12581,7 +12710,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>打开此话题</translation>
     </message>
     <message>
-        <location line="+801"/>
+        <location line="+805"/>
         <source>Show the link preview again</source>
         <translation>再次显示链接预览</translation>
     </message>
@@ -12966,7 +13095,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>编辑</translation>
     </message>
     <message>
-        <location line="-4546"/>
+        <location line="-4550"/>
         <source>%1 B</source>
         <translation>%1 B</translation>
     </message>
@@ -13000,22 +13129,22 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-656"/>
         <location line="+654"/>
-        <location line="+4230"/>
+        <location line="+4234"/>
         <location line="+462"/>
         <location line="+587"/>
         <source>GIF</source>
         <translation>GIF</translation>
     </message>
     <message>
-        <location line="-5933"/>
+        <location line="-5937"/>
         <location line="+66"/>
         <location line="+587"/>
-        <location line="+4853"/>
+        <location line="+4857"/>
         <source>Image</source>
         <translation>图片</translation>
     </message>
     <message>
-        <location line="-5504"/>
+        <location line="-5508"/>
         <source>Attachment</source>
         <translation>附件</translation>
     </message>
@@ -13059,7 +13188,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>话题</translation>
     </message>
     <message>
-        <location line="+323"/>
+        <location line="+327"/>
         <source>Message deleted</source>
         <translation>消息已删除</translation>
     </message>
@@ -13343,10 +13472,10 @@ Signing out and signing in again is the only fix.</source>
         <translation>贴纸加载失败 — 点击重试</translation>
     </message>
     <message>
-        <location line="-6377"/>
+        <location line="-6381"/>
         <location line="+70"/>
         <location line="+590"/>
-        <location line="+4851"/>
+        <location line="+4855"/>
         <location line="+1192"/>
         <location line="+89"/>
         <source>Video</source>
@@ -13359,9 +13488,9 @@ Signing out and signing in again is the only fix.</source>
         <translation>视频</translation>
     </message>
     <message>
-        <location line="-6804"/>
+        <location line="-6808"/>
         <location line="+656"/>
-        <location line="+4962"/>
+        <location line="+4966"/>
         <location line="+1388"/>
         <location line="+4"/>
         <location line="+30"/>
@@ -13590,7 +13719,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>较早的消息 #%1（第 %2 页）</translation>
     </message>
     <message>
-        <location line="+1580"/>
+        <location line="+1581"/>
         <source>You joined the room.</source>
         <translation>你加入了该房间。</translation>
     </message>
@@ -17567,7 +17696,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>小组件</translation>
     </message>
     <message>
-        <location line="+2420"/>
+        <location line="+2424"/>
         <source>Open</source>
         <translation>打开</translation>
     </message>
@@ -17577,7 +17706,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>导出房间…</translation>
     </message>
     <message>
-        <location line="-636"/>
+        <location line="-640"/>
         <source>Anyone can read this room&apos;s history without joining, even though not everyone can join it.</source>
         <translation>任何人都可以在不加入此房间的情况下阅读其历史记录，但并非所有人都能加入。</translation>
     </message>
@@ -17648,7 +17777,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>显示完整主题</translation>
     </message>
     <message numerus="yes">
-        <location line="+7"/>
+        <location line="+11"/>
         <source>%n member(s) (%1 invited)</source>
         <translation>
             <numerusform>%n 位成员（已邀请 %1 位）</numerusform>
@@ -25503,7 +25632,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SfuCallController</name>
     <message>
-        <location filename="../src/calls/SfuCallController.cpp" line="+813"/>
+        <location filename="../src/calls/SfuCallController.cpp" line="+815"/>
         <location line="+466"/>
         <location line="+131"/>
         <source>Screen sharing isn&apos;t available on this desktop.</source>
@@ -25882,12 +26011,12 @@ Note: importing keys does not verify this session.</source>
         <translation>当前没有听到任何声音。</translation>
     </message>
     <message>
-        <location line="+457"/>
+        <location line="+459"/>
         <source>The call was declined.</source>
         <translation>通话已被拒绝。</translation>
     </message>
     <message>
-        <location line="-4620"/>
+        <location line="-4622"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>该房间已加密，并且在此版本中尚不支持加密呼叫。</translation>
     </message>
@@ -31174,12 +31303,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-558"/>
         <location filename="../qml/TimelinePane.qml" line="+388"/>
-        <location line="+6639"/>
+        <location line="+6691"/>
         <source>Space</source>
         <translation>空间</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-6638"/>
+        <location filename="../qml/TimelinePane.qml" line="-6690"/>
         <source>Home</source>
         <translation>主页</translation>
     </message>
@@ -31196,7 +31325,13 @@ Note: importing keys does not verify this session.</source>
         <translation>开始语音通话</translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+18"/>
+        <location line="+1"/>
+        <source>Call options</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+38"/>
         <location line="+2"/>
         <source>Pinned messages</source>
         <translation>置顶消息</translation>
@@ -31265,12 +31400,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+4953"/>
+        <location line="+4970"/>
         <source>Room information</source>
         <translation>房间信息</translation>
     </message>
     <message>
-        <location line="-4937"/>
+        <location line="-4954"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation>更多房间操作</translation>
@@ -31306,7 +31441,7 @@ Note: importing keys does not verify this session.</source>
         <translation>返回房间</translation>
     </message>
     <message>
-        <location line="+180"/>
+        <location line="+197"/>
         <source>This room has been upgraded.</source>
         <translation>此房间已升级。</translation>
     </message>
@@ -31922,13 +32057,13 @@ Note: importing keys does not verify this session.</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location line="-7295"/>
+        <location line="-7347"/>
         <location line="+92"/>
         <source>View profile</source>
         <translation>查看个人资料</translation>
     </message>
     <message>
-        <location line="+6425"/>
+        <location line="+6477"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation>图片 (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
@@ -31994,12 +32129,12 @@ Note: importing keys does not verify this session.</source>
         <translation>关闭</translation>
     </message>
     <message>
-        <location line="+181"/>
+        <location line="+182"/>
         <source>Drop files to attach</source>
         <translation>拖放文件以添加附件</translation>
     </message>
     <message>
-        <location line="-6737"/>
+        <location line="-6738"/>
         <source>Part of %1</source>
         <translation>属于 %1</translation>
     </message>
@@ -33514,7 +33649,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2649"/>
+        <location filename="../src/main.cpp" line="+2656"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>原生 Qt/QML Matrix 客户端。后端：--backend={mock,http,rust}。默认：rust（在没有 Rust SDK 的构建中为 http）。</translation>
     </message>
