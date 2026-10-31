@@ -1623,6 +1623,15 @@ public:
         Q_UNUSED(generation); Q_UNUSED(connectionId);
         sfuAddTrack(cid, name, kind, width, height, screenShare, encrypted);
     }
+    /// Declare two codec senders as one encrypted screen-share publication.
+    virtual void sfuAddShareWithBackupFor(quint64 generation, const QString &cid,
+                                          const QString &backupCid,
+                                          int width, int height, bool encrypted)
+    {
+        Q_UNUSED(backupCid);
+        sfuAddTrackFor(generation, 0, cid, QStringLiteral("screen"), 1,
+                       width, height, true, encrypted);
+    }
     virtual void sfuMuteTrack(const QString &sid, bool muted)
     { Q_UNUSED(sid); Q_UNUSED(muted); }
     virtual void sfuMuteTrackFor(quint64 generation, int connectionId,

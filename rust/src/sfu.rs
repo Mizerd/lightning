@@ -55,6 +55,23 @@ pub(crate) fn track_encryption_for(encrypted: bool) -> i32 {
     }
 }
 
+/// One logical share, two independently encrypted RTP senders. Explicit HIGH
+/// layers prevent the server inferring three simulcast spatial layers.
+fn share_simulcast_codecs(cid: &str, backup: Option<&str>, width: u32, height: u32)
+    -> Vec<lkp::SimulcastCodec>
+{
+    let Some(backup) = backup else { return Vec::new() };
+    [("h264", cid, width, height), ("vp8", backup, 640, 360)]
+        .into_iter().map(|(codec, cid, width, height)| lkp::SimulcastCodec {
+            codec: codec.to_owned(), cid: cid.to_owned(),
+            layers: vec![lkp::VideoLayer {
+                quality: lkp::VideoQuality::High as i32, width, height,
+                ..Default::default()
+            }],
+            ..Default::default()
+        }).collect()
+}
+
 /// What a server `LeaveRequest` asks of us, as the `sfu_state` word the
 /// controller acts on: "reconnecting" (the call survives and the client
 /// connects again) or "ended" (the server is done with us).
@@ -580,6 +597,7 @@ pub(crate) enum SfuCommand {
         /// Whether this track's frames are E2EE-encrypted. Declared per track;
         /// receivers use it to decide whether to decrypt.
         encrypted: bool,
+        backup_cid: Option<String>,
     },
     /// Mute/unmute a published track at the SFU so others see the state (the
     /// valve already stopped the bytes).
@@ -946,7 +964,7 @@ async fn run_session(
                             })
                     }
                     SfuCommand::AddTrack {
-                        cid, name, kind, width, height, screen_share, encrypted,
+                        cid, name, kind, width, height, screen_share, encrypted, backup_cid,
                     } => {
                         // One explicit video layer with real dimensions, as livekit-client does
                         // (the proto: single-layer tracks should use HIGH). Without it the SFU
@@ -963,6 +981,10 @@ async fn run_session(
                         };
                         lkp::signal_request::Message::AddTrack(
                             lkp::AddTrackRequest {
+                                backup_codec_policy: if backup_cid.is_some() {
+                                    lkp::BackupCodecPolicy::Simulcast as i32
+                                } else { lkp::BackupCodecPolicy::PreferRegression as i32 },
+                                simulcast_codecs: share_simulcast_codecs(&cid, backup_cid.as_deref(), width, height),
                                 cid, name, r#type: kind,
                                 width, height, layers,
                                 source: track_source_for(kind, screen_share),
@@ -1478,11 +1500,36 @@ mod tests {
     }
 
     #[test]
+    fn hardware_share_advertises_two_cids_on_one_publication() {
+        let codecs = share_simulcast_codecs("main", Some("backup"), 1920, 1080);
+        let request = lkp::AddTrackRequest {
+            cid: "main".to_owned(), simulcast_codecs: codecs,
+            encryption: track_encryption_for(true), ..Default::default()
+        };
+        let wire = request.encode_to_vec();
+        let decoded = lkp::AddTrackRequest::decode(&wire[..]).unwrap();
+        assert_eq!(decoded.encryption, lkp::encryption::Type::Gcm as i32);
+        assert_eq!(decoded.simulcast_codecs.len(), 2);
+        for (codec, mime, cid, width, height) in [
+            (&decoded.simulcast_codecs[0], "h264", "main", 1920, 1080),
+            (&decoded.simulcast_codecs[1], "vp8", "backup", 640, 360),
+        ] {
+            assert_eq!(codec.codec, mime);
+            assert_eq!(codec.cid, cid);
+            assert_eq!(codec.layers.len(), 1);
+            assert_eq!(codec.layers[0].width, width);
+            assert_eq!(codec.layers[0].height, height);
+            assert_eq!(codec.layers[0].quality, lkp::VideoQuality::High as i32);
+        }
+        assert!(share_simulcast_codecs("main", None, 1920, 1080).is_empty());
+    }
+
+    #[test]
     fn subscriber_focus_cannot_publish_a_track() {
         let command = SfuCommand::AddTrack {
             cid: "cid".to_owned(), name: "microphone".to_owned(),
             kind: 0, width: 0, height: 0,
-            screen_share: false, encrypted: true,
+            screen_share: false, encrypted: true, backup_cid: None,
         };
         assert!(command_allowed_on(0, &command));
         assert!(!command_allowed_on(1, &command));

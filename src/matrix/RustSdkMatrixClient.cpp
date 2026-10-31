@@ -11112,6 +11112,20 @@ void RustSdkMatrixClient::sfuAddTrackFor(
         screenShare ? 1 : 0, encrypted ? 1 : 0));
 }
 
+void RustSdkMatrixClient::sfuAddShareWithBackupFor(
+    quint64 generation, const QString &cid, const QString &backupCid,
+    int width, int height, bool encrypted)
+{
+    if (!m_rustHandle || !generation || cid.isEmpty() || backupCid.isEmpty())
+        return;
+    const auto c = cid.toUtf8();
+    const auto b = backupCid.toUtf8();
+    takeRustString(mx_rust_sfu_add_share_backup_for(
+        m_rustHandle, generation, c.constData(), b.constData(),
+        static_cast<unsigned int>(qMax(0, width)),
+        static_cast<unsigned int>(qMax(0, height)), encrypted ? 1 : 0));
+}
+
 void RustSdkMatrixClient::sfuMuteTrack(const QString &sid, bool muted)
 {
     if (!m_rustHandle || sid.isEmpty())

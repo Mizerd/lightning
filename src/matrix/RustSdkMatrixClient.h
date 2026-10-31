@@ -757,6 +757,9 @@ public:
                         const QString &cid, const QString &name, int kind,
                         int width, int height, bool screenShare,
                         bool encrypted) override;
+    void sfuAddShareWithBackupFor(quint64 generation, const QString &cid,
+                                  const QString &backupCid,
+                                  int width, int height, bool encrypted) override;
     void sfuMuteTrack(const QString &sid, bool muted) override;
     void sfuMuteTrackFor(quint64 generation, int connectionId,
                          const QString &sid, bool muted) override;

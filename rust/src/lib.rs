@@ -10819,6 +10819,7 @@ pub unsafe extern "C" fn mx_rust_sfu_add_track(
             kind: if kind == 1 { 1 } else { 0 },
             screen_share: screen_share != 0,
             encrypted: encrypted != 0,
+            backup_cid: None,
         });
         Ok(String::new())
     })
@@ -10840,7 +10841,34 @@ pub unsafe extern "C" fn mx_rust_sfu_add_track_for(
                 kind: if kind == 1 { 1 } else { 0 },
                 screen_share: screen_share != 0,
                 encrypted: encrypted != 0,
+                backup_cid: None,
             });
+        Ok(String::new())
+    })
+}
+
+/// Declare a hardware share and its native encrypted VP8 backup together.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_sfu_add_share_backup_for(
+    ptr: *mut c_void, generation: u64,
+    cid: *const c_char, backup_cid: *const c_char,
+    width: u32, height: u32, encrypted: u8,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let cid = unsafe { cstr_arg(cid) }?;
+        let backup = unsafe { cstr_arg(backup_cid) }?;
+        if cid.is_empty() || cid.len() > 256 || backup.is_empty()
+            || backup.len() > 256 || cid == backup
+            || cid.chars().chain(backup.chars()).any(char::is_control)
+        {
+            return Err("invalid share codec cid".to_owned());
+        }
+        sfu::send_command_for(bridge, generation, 0, sfu::SfuCommand::AddTrack {
+            cid, name: "screen".to_owned(), kind: 1, width, height,
+            screen_share: true, encrypted: encrypted != 0,
+            backup_cid: Some(backup),
+        });
         Ok(String::new())
     })
 }

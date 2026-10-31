@@ -2080,6 +2080,11 @@ char *mx_rust_sfu_add_track_for(void *client,
                                 unsigned int width, unsigned int height,
                                 unsigned char screen_share,
                                 unsigned char encrypted);
+char *mx_rust_sfu_add_share_backup_for(void *client,
+                                       unsigned long long generation,
+                                       const char *cid, const char *backup_cid,
+                                       unsigned int width, unsigned int height,
+                                       unsigned char encrypted);
 char *mx_rust_sfu_mute_track(void *client,
                              const char *sid,
                              unsigned char muted);
