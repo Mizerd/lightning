@@ -4472,7 +4472,7 @@ private slots:
     {
         struct Lane { const char *path; int expected; };
         const QList<Lane> lanes = {
-            { SOURCE_DIR "/src/calls/SfuMediaEngine.cpp", 7 },
+            { SOURCE_DIR "/src/calls/SfuMediaEngine.cpp", 8 },
             { SOURCE_DIR "/src/calls/ShareAudioSources.cpp", 2 },
             { SOURCE_DIR "/src/calls/GstCallMediaBackend.cpp", 6 },
             // The Settings microphone test's voice playback.
@@ -6668,6 +6668,90 @@ private slots:
         }
     }
 
+    void anOfferNamesBothCodecsOfABackedUpShare()
+    {
+        // LiveKit reads the SECOND msid token and pion negotiates video from
+        // the first section alone: without both rewrites the SFU answered the
+        // backup's section as H.264 and attached no VP8.
+        const QString offer = QStringLiteral(
+            "v=0\r\n"
+            "m=audio 9 UDP/TLS/RTP/SAVPF 111\r\n"
+            "a=ssrc:10 msid:mic webrtctransceiver0\r\n"
+            "m=video 9 UDP/TLS/RTP/SAVPF 102\r\n"
+            "a=rtpmap:102 H264/90000\r\n"
+            "a=ssrc:11 msid:share webrtctransceiver1\r\n"
+            "a=msid:share webrtctransceiver1\r\n"
+            "m=video 9 UDP/TLS/RTP/SAVPF 96\r\n"
+            "a=rtpmap:96 VP8/90000\r\n"
+            "a=ssrc:22 msid:share-vp8 webrtctransceiver2\r\n");
+        const QString sent = SfuMediaEngine::offerForSfu(offer, true);
+        const QStringList sections = sent.split(QStringLiteral("m="));
+        QCOMPARE(sections.size(), 4);
+        QVERIFY(sections[1].contains(QLatin1String("msid:mic webrtctransceiver0")));
+        QVERIFY(!sections[1].contains(QLatin1String("VP8")));
+        QVERIFY2(sections[2].startsWith(QLatin1String(
+                     "video 9 UDP/TLS/RTP/SAVPF 102 96\r\n")), qPrintable(sections[2]));
+        QVERIFY(sections[2].contains(QLatin1String("a=rtpmap:96 VP8/90000\r\n")));
+        QVERIFY(sections[2].contains(QLatin1String("a=ssrc:11 msid:share share\r\n")));
+        QVERIFY(sections[2].contains(QLatin1String("a=msid:share share\r\n")));
+        QVERIFY2(sections[3].startsWith(QLatin1String(
+                     "video 9 UDP/TLS/RTP/SAVPF 96 102\r\n")), qPrintable(sections[3]));
+        QVERIFY(sections[3].contains(QLatin1String("a=rtpmap:102 H264/90000\r\n")));
+        QVERIFY(sections[3].contains(QLatin1String("a=ssrc:22 msid:share-vp8 share-vp8\r\n")));
+        QVERIFY(sent.endsWith(QLatin1String("\r\n")));
+        // The default path keeps today's offer byte for byte.
+        QCOMPARE(SfuMediaEngine::offerForSfu(offer, false), offer);
+    }
+
+    void shareBackupIsEncryptedBoundedAndRetiredWithItsPrimary()
+    {
+        SfuMediaEngine sender, receiver;
+        sender.setTestSourceMode(true);
+        receiver.setTestSourceMode(true);
+        QString failure;
+        wireLoopback(sender, receiver, this, &failure);
+        sender.start();
+        receiver.start();
+        sender.setEncryptionRequired(true);
+        receiver.setEncryptionRequired(true);
+        const QByteArray key(32, 'b');
+        sender.setOutboundKey(0, key);
+        const QString cid = QStringLiteral("backup-primary");
+        // Larger than the backup's ceiling: the primary must keep this size.
+        sender.setVideoSourceForTest(QStringLiteral(
+            "videotestsrc is-live=true ! video/x-raw,width=1280,height=720 ! identity"));
+        sender.publishVideo(cid, false, -1);
+        QVERIFY(sender.publishShareBackup(cid, sender.m_publishedBins.value(cid), false));
+        sender.renegotiatePublisher();
+        receiver.setInboundKey(cid, 0, key);
+        const QString backup = cid + QStringLiteral("-vp8");
+        // No key for the backup: encrypted bytes MUST fail closed.
+        auto received = [&](const QString &stream) {
+            for (const auto &row : receiver.streamInfoStats()) {
+                const auto map = row.toMap();
+                if (map.value("streamId").toString() == stream)
+                    return map;
+            }
+            return QVariantMap();
+        };
+        auto receivedBackup = [&] { return received(backup); };
+        QTRY_VERIFY_WITH_TIMEOUT(receivedBackup().value("dropped").toULongLong() > 0, 15000);
+        QCOMPARE(receivedBackup().value("decrypted").toULongLong(), 0ULL);
+        receiver.setInboundKey(backup, 0, key);
+        QTRY_VERIFY_WITH_TIMEOUT(receivedBackup().value("width").toInt() > 0, 15000);
+        QVERIFY(receivedBackup().value("decrypted").toULongLong() > 0);
+        QVERIFY(receivedBackup().value("width").toInt() <= 640);
+        QVERIFY(receivedBackup().value("height").toInt() <= 360);
+        QTRY_COMPARE_WITH_TIMEOUT(received(cid).value("width").toInt(), 1280, 15000);
+        QCOMPARE(sender.streamInfoStats().size(), 2);
+        QVERIFY2(failure.isEmpty(), qPrintable(failure));
+        sender.unpublish(cid);
+        QVERIFY(sender.streamInfoStats().isEmpty());
+        QVERIFY(!sender.m_shareBackups.contains(cid));
+        sender.stop();
+        receiver.stop();
+    }
+
     void aShareFallsBackToSoftwareWhenNoHardwareEncoderRuns()
     {
         if (!gst_init_check(nullptr, nullptr, nullptr))
@@ -6709,6 +6793,8 @@ private slots:
             SfuMediaEngine::h264CodecChain(standIn, false));
         QVERIFY2(description.contains(QLatin1String("encoding-name=H264")),
                  qPrintable(description));
+        QVERIFY(description.contains(QLatin1String("pt=102")));
+        QVERIFY(description.contains(QLatin1String("payload=102")));
         GError *error = nullptr;
         GstElement *bin = gst_parse_bin_from_description(
             description.toUtf8().constData(), TRUE, &error);

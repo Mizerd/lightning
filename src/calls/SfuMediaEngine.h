@@ -1135,6 +1135,8 @@ public:
     void clearKeys();
 
 Q_SIGNALS:
+    /// Emitted after the codec ladder, before the publisher offer.
+    void shareTrackReady(const QString &cid, const QString &backupCid);
     /// A retired portal capture has reached NULL and its remote fd is closed.
     void cameraPortalReleased(const QString &cid);
     /// The first-frame watchdog observed capture buffers for this camera.
@@ -1213,6 +1215,10 @@ Q_SIGNALS:
     void shareAudioRebuildWanted(const QString &cid);
 
 private:
+    friend class SfuMediaEngineTest;
+    bool publishShareBackup(const QString &cid, GstElement *primary, bool glMemory);
+    static QString offerForSfu(const QString &sdp, bool multiCodec);
+    QHash<QString, QString> m_shareBackups;
     struct Peer {
         GstElement *pipeline = nullptr;
         GstElement *webrtc = nullptr;

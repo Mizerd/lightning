@@ -5609,11 +5609,22 @@ bool SfuCallController::startScreenShare(int pipewireNodeId, int pipewireFd,
     m_screenCid = cid;
     m_publishedTrackIds.append(cid);
     m_screenSharing = true;
-    m_client->sfuAddTrackFor(m_sfuGeneration, 0, cid, QStringLiteral("screen"), 1,
-                          shareW, shareH,
-                          true, m_roomEncrypted);
+    // The encoder ladder may fall back to VP8; declare only its final choice.
+    const auto declaration = connect(m_engine, &SfuMediaEngine::shareTrackReady,
+        this, [this, cid, shareW, shareH](const QString &readyCid,
+                                       const QString &backupCid) {
+            if (readyCid != cid)
+                return;
+            if (backupCid.isEmpty())
+                m_client->sfuAddTrackFor(m_sfuGeneration, 0, cid,
+                    QStringLiteral("screen"), 1, shareW, shareH, true, m_roomEncrypted);
+            else
+                m_client->sfuAddShareWithBackupFor(m_sfuGeneration, cid,
+                    backupCid, shareW, shareH, m_roomEncrypted);
+        });
     m_engine->publishVideo(cid, /*screenShare=*/true, pipewireNodeId,
                            pipewireFd, windowHandle, captureRect);
+    disconnect(declaration);
 
     // Share audio is a separate track (LiveKit SCREEN_SHARE_AUDIO), which is
     // how Element renders it and lets it mute and stop independently. Only

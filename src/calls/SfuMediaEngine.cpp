@@ -66,6 +66,8 @@ namespace {
 /// Set once a hardware encoder has failed in a running share: the track dies
 /// with it, and the next share must not repeat that.
 std::atomic<bool> g_shareHardwareEncoderFailed{false};
+/// A share's VP8 backup track is its cid plus this.
+const QLatin1String kShareBackupSuffix("-vp8");
 
 Q_LOGGING_CATEGORY(lcSfuMedia, "lightning.calls.sfu")
 
@@ -1221,6 +1223,7 @@ void SfuMediaEngine::teardown(bool endOfCall)
                            /*force=*/true);
     m_asyncStarts.clear();
     m_publishedBins.clear();
+    m_shareBackups.clear();
     m_shareKeepAliveTimer.stop();
     for (auto it = m_publishWatch.cbegin(); it != m_publishWatch.cend(); ++it)
         releaseKeepAlive(it->state);
@@ -5531,10 +5534,10 @@ QString SfuMediaEngine::videoPipelineDescription(const QString &source,
                "! valve name=vidvalve drop=false ! %11%3 name=videoenc %12"
                // Our payloader, not rtpvp8pay; see RtpVp8Payloader.h.
                // Explicit ssrc: see nextPublishSsrc().
-               "! %6 pt=96 ssrc=%5 mtu=%10 "
+               "! %6 pt=%14 ssrc=%5 mtu=%10 "
                // The ssrc must be in the caps; see publishAudio().
                "! capsfilter caps=\"application/x-rtp,media=video,"
-               "%13payload=96,clock-rate=(int)90000,"
+               "%13payload=%14,clock-rate=(int)90000,"
                "ssrc=(uint)%5\"")
         .arg(source, limits, encoder, selfView, QString::number(ssrc),
              codec.payloader.isEmpty()
@@ -5544,7 +5547,10 @@ QString SfuMediaEngine::videoPipelineDescription(const QString &source,
         .arg(lightning::rtp::kRtpPayloadMtu)
         .arg(codec.beforeEncoder, codec.afterEncoder,
              codec.rtpCaps.isEmpty() ? QStringLiteral("encoding-name=VP8,")
-                                     : codec.rtpCaps);
+                                     : codec.rtpCaps)
+        // BUNDLE needs distinct payload types for different codecs. VP8 is
+        // also used by the camera and backup on this publisher connection.
+        .arg(codec.payloader.isEmpty() ? 96 : 102);
 }
 
 QString SfuMediaEngine::trackSidFromMsid(const QString &msid)
@@ -6005,6 +6011,7 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
             bin = nullptr;
         }
         useGpu = false;
+        dropHardwareEncoder();
         scaleStageInUse = cpuScaleStage;
         description = videoPipelineDescription(
             source, screenShare ? videoRateStage(true) : cameraRateStage(portalCamera),
@@ -6382,6 +6389,16 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
     }
     if (sinkPad)
         gst_object_unref(sinkPad);
+    ++m_publishedMedia;
+    if (screenShare) {
+        if (!hardwareFactory.isEmpty() && !publishShareBackup(cid, bin, glEncode)) {
+            // Do not leave a hardware-only publication behind silently.
+            unpublish(cid);
+            Q_EMIT publishFailed(cid, QStringLiteral("screen_share_failed"));
+            return;
+        }
+        Q_EMIT shareTrackReady(cid, m_shareBackups.value(cid));
+    }
     // A portal camera is started off this thread. pipewiresrc's start blocks
     // the thread that changes its state until PipeWire has negotiated a format
     // with the camera node (`wait_started`, bounded at 30 s), and when the
@@ -6412,7 +6429,6 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
     }
     // Now there is something to offer; the negotiation-needed fired at
     // PLAYING was ignored.
-    ++m_publishedMedia;
     m_publisherEverPublished = true;
     renegotiatePublisher();
     // A camera that opens and never delivers posts no error; see
@@ -6426,6 +6442,179 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
                                checkCameraFirstFrame(cid, generation);
                            });
     }
+}
+
+QString SfuMediaEngine::offerForSfu(const QString &sdp, bool multiCodec)
+{
+    // Two things only the text the SFU reads needs; webrtcbin keeps its own.
+    if (!multiCodec)
+        return sdp;
+    // LiveKit matches a media section to a declared cid by the msid's SECOND
+    // token, and webrtcbin writes its transceiver's name there. A lone track
+    // survives on the SFU's "first pending of this kind" fallback; a second
+    // codec of one publication does not, so these sections name their cid, as
+    // a browser's do.
+    static const QRegularExpression msid(
+        QStringLiteral("^(a=(?:ssrc:\\d+ )?msid:)(\\S+) \\S+(\\r?)$"));
+    QSet<QString> named;
+    const QStringList lines = sdp.split(QLatin1Char('\n'));
+    for (const QString &line : lines) {
+        const QString stream = msid.match(line).captured(2);
+        if (stream.endsWith(kShareBackupSuffix)) {
+            named.insert(stream);
+            named.insert(stream.chopped(kShareBackupSuffix.size()));
+        }
+    }
+    // pion fixes a session's video codecs from the FIRST video section it ever
+    // sees, and a browser lists every codec in each one. webrtcbin lists one,
+    // so anything else, here the backup's VP8 or a share's H.264 after a VP8
+    // camera, is answered with the wrong codec. Every section offers both.
+    struct Codec { QLatin1String payload; QStringList lines; };
+    const QList<Codec> codecs = {
+        {QLatin1String("96"), {QStringLiteral("a=rtpmap:96 VP8/90000"),
+            QStringLiteral("a=rtcp-fb:96 nack pli"),
+            QStringLiteral("a=rtcp-fb:96 ccm fir"),
+            QStringLiteral("a=rtcp-fb:96 transport-cc")}},
+        {QLatin1String("102"), {QStringLiteral("a=rtpmap:102 H264/90000"),
+            QStringLiteral("a=fmtp:102 packetization-mode=1;profile-level-id=%1;"
+                           "level-asymmetry-allowed=1")
+                .arg(QLatin1String(lightning::rtp::kH264ProfileLevelId)),
+            QStringLiteral("a=rtcp-fb:102 nack pli"),
+            QStringLiteral("a=rtcp-fb:102 ccm fir"),
+            QStringLiteral("a=rtcp-fb:102 transport-cc")}},
+    };
+    QStringList out;
+    QStringList section; // Attributes of the codecs a video section lacks.
+    const auto flushSection = [&] {
+        // Before the final empty element a trailing newline leaves.
+        out.append(section);
+        section.clear();
+    };
+    const bool crlf = sdp.contains(QLatin1String("\r\n"));
+    const QString eol = crlf ? QStringLiteral("\r") : QString();
+    for (QString line : lines) {
+        if (line.startsWith(QLatin1String("m=")) || line.isEmpty())
+            flushSection();
+        if (line.startsWith(QLatin1String("m=video "))) {
+            const QStringList words = QString(line).remove(QLatin1Char('\r'))
+                                          .split(QLatin1Char(' '));
+            for (const Codec &codec : codecs) {
+                if (words.mid(3).contains(codec.payload))
+                    continue;
+                line.insert(line.size() - eol.size(),
+                            QLatin1Char(' ') + codec.payload);
+                for (const QString &attribute : codec.lines)
+                    section << attribute + eol;
+            }
+        }
+        if (const auto match = msid.match(line);
+            match.hasMatch() && named.contains(match.captured(2))) {
+            line = match.captured(1) + match.captured(2) + QLatin1Char(' ')
+                + match.captured(2) + match.captured(3);
+        }
+        out << line;
+    }
+    flushSection();
+    return out.join(QLatin1Char('\n'));
+}
+
+bool SfuMediaEngine::publishShareBackup(const QString &cid, GstElement *primary,
+                                        bool glMemory)
+{
+    const QString backupCid = cid + kShareBackupSuffix;
+    // Gate before conversion/readback/encoding. The queue isolates the primary
+    // encoder even when a compatibility viewer is slow.
+    const QString scale = glMemory
+        ? QStringLiteral("glcolorconvert ! glcolorscale ! "
+            "video/x-raw(memory:GLMemory),width=(int)[1,640],height=(int)[1,360],"
+            "pixel-aspect-ratio=(fraction)1/1 ! gldownload ! videoconvert")
+        : QStringLiteral("videoscale ! videoconvert");
+    const quint32 ssrc = nextPublishSsrc();
+    const QString description = QStringLiteral(
+        "queue max-size-buffers=2 leaky=downstream "
+        "! valve name=backupvalve drop=false "
+        "! videorate drop-only=true skip-to-first=true "
+        "! %1 ! video/x-raw,format=I420,width=(int)[1,640],height=(int)[1,360],"
+        "pixel-aspect-ratio=(fraction)1/1,framerate=(fraction)10/1 "
+        "! vp8enc name=videoenc deadline=1 cpu-used=8 threads=2 "
+        "target-bitrate=350000 keyframe-max-dist=20 "
+        "! %2 pt=96 ssrc=%3 mtu=%4 "
+        "! capsfilter caps=\"application/x-rtp,media=video,encoding-name=VP8,payload=96,"
+        "clock-rate=(int)90000,ssrc=(uint)%3\"")
+        .arg(scale, QString::fromLatin1(lightning::rtp::vp8PayloaderName()))
+        .arg(ssrc).arg(lightning::rtp::kRtpPayloadMtu);
+    GError *error = nullptr;
+    GstElement *backup = gst_parse_bin_from_description(
+        description.toUtf8().constData(), TRUE, &error);
+    if (error || !backup) {
+        g_clear_error(&error);
+        if (backup) gst_object_unref(backup);
+        return false;
+    }
+    gst_element_set_name(backup, backupCid.toUtf8().constData());
+    // A scaler answers a caps query with its downstream-restricted structure
+    // first, and the tee passes that up, so the capture would fixate to the
+    // backup's ceiling and shrink the primary too. This branch takes any size.
+    if (GstPad *entry = gst_element_get_static_pad(backup, "sink")) {
+        gst_pad_add_probe(entry, GST_PAD_PROBE_TYPE_QUERY_DOWNSTREAM,
+            [](GstPad *, GstPadProbeInfo *info, gpointer) {
+                GstQuery *query = GST_PAD_PROBE_INFO_QUERY(info);
+                if (GST_QUERY_TYPE(query) != GST_QUERY_CAPS)
+                    return GST_PAD_PROBE_OK;
+                GstCaps *filter = nullptr;
+                gst_query_parse_caps(query, &filter);
+                GstCaps *any = gst_caps_new_any();
+                gst_query_set_caps_result(query, filter ? filter : any);
+                gst_caps_unref(any);
+                return GST_PAD_PROBE_HANDLED;
+            }, nullptr, nullptr);
+        gst_object_unref(entry);
+    }
+    GstElement *tee = gst_bin_get_by_name(GST_BIN(primary), "t");
+    GstPad *raw = tee ? gst_element_request_pad_simple(tee, "src_%u") : nullptr;
+    GstPad *ghost = raw ? gst_ghost_pad_new("backup_raw", raw) : nullptr;
+    if (raw) gst_object_unref(raw);
+    if (tee) gst_object_unref(tee);
+    if (!ghost || !gst_element_add_pad(primary, ghost)) {
+        if (ghost) gst_object_unref(ghost);
+        gst_object_unref(backup);
+        return false;
+    }
+    if (!gst_bin_add(GST_BIN(m_publisher.pipeline), backup))
+        return false; // gst_bin_add consumed the floating reference.
+    GstPad *rtp = gst_element_get_static_pad(backup, "src");
+    GstPad *sink = gst_element_request_pad_simple(m_publisher.webrtc, "sink_%u");
+    applyPublisherMsid(sink, backupCid);
+    const bool linked = gst_element_link_pads(primary, "backup_raw", backup, "sink")
+        && rtp && sink && gst_pad_link(rtp, sink) == GST_PAD_LINK_OK;
+    if (!linked) {
+        if (rtp) gst_object_unref(rtp);
+        releaseFailedPublishPad(sink);
+        gst_bin_remove(GST_BIN(m_publisher.pipeline), backup);
+        return false;
+    }
+    gst_object_unref(sink);
+    const auto stats = attachStreamInfo(backup);
+    stats->outgoing = true;
+    stats->screen = true;
+    stats->codec = QStringLiteral("VP8");
+    stats->encoder = QStringLiteral("vp8enc backup");
+    stats->source = QStringLiteral("shared capture");
+    stats->scaling = glMemory ? QStringLiteral("GPU") : QStringLiteral("CPU");
+    GstElement *encoder = gst_bin_get_by_name(GST_BIN(backup), "videoenc");
+    GstPad *frames = gst_element_get_static_pad(encoder, "src");
+    installEncryptProbe(frames, true);
+    instrumentStreamInfo(frames, stats, false);
+    instrumentStreamInfo(rtp, stats, true);
+    gst_object_unref(frames);
+    gst_object_unref(encoder);
+    gst_object_unref(rtp);
+    m_publishedBins.insert(backupCid, backup);
+    m_shareBackups.insert(cid, backupCid);
+    ++m_publishedMedia;
+    gst_element_sync_state_with_parent(backup);
+    qCInfo(lcSfuMedia) << "screen share VP8 backup enabled ceiling=640x360 fps=10";
+    return true;
 }
 
 namespace {
@@ -6651,6 +6840,8 @@ GstPadProbeReturn publishTeardownProbe(GstPad *pad, GstPadProbeInfo *,
 
 void SfuMediaEngine::unpublish(const QString &cid)
 {
+    if (const QString backup = m_shareBackups.take(cid); !backup.isEmpty())
+        unpublish(backup);
     // Take first: errors the bin posts on its way to NULL must not be
     // reported as a publish failure.
     GstElement *bin = m_publishedBins.take(cid);
@@ -9138,6 +9329,12 @@ void SfuMediaEngine::handlePublishError(const QString &cid,
     // destroying pipelines. Keep that order.
     if (!m_publishedBins.contains(cid))
         return;
+    // A share whose VP8 viewers lost their picture ends, and the next one is
+    // plain software VP8, which every viewer can watch.
+    if (const QString primary = m_shareBackups.key(cid); !primary.isEmpty()) {
+        handleShareEncoderFailed(primary);
+        return;
+    }
     const auto watch = m_publishWatch.constFind(cid);
     if (watch == m_publishWatch.cend() || !watch->state || watch->reported)
         return;
@@ -9329,7 +9526,8 @@ void SfuMediaEngine::onOfferCreated(GstPromise *promise, void *userData)
     auto *localCtx = promiseCtxNew(engine, webrtc, true);
     localCtx->generation = generation;
     localCtx->offer = true;
-    localCtx->sdp = QString::fromUtf8(text ? text : "");
+    localCtx->sdp = offerForSfu(QString::fromUtf8(text ? text : ""),
+                                shareHardwareEncodeRequested());
     g_free(text);
     GstPromise *local = gst_promise_new_with_change_func(
         onLocalDescriptionSet, localCtx, promiseCtxFree);
