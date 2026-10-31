@@ -1455,19 +1455,41 @@ public:
                                const QString &partyId,
                                const QString &offerType,
                                const QString &offerSdp, quint64 lifetimeMs,
-                               const QString &invitee)
+                               const QString &invitee,
+                               const QString &streamMetadataJson = QString())
     {
         Q_UNUSED(roomId); Q_UNUSED(callId); Q_UNUSED(partyId);
         Q_UNUSED(offerType); Q_UNUSED(offerSdp); Q_UNUSED(lifetimeMs);
-        Q_UNUSED(invitee); return 0;
+        Q_UNUSED(invitee); Q_UNUSED(streamMetadataJson); return 0;
     }
     virtual quint64 callAnswer(const QString &roomId, const QString &callId,
                                const QString &partyId,
                                const QString &answerType,
-                               const QString &answerSdp)
+                               const QString &answerSdp,
+                               const QString &streamMetadataJson = QString())
     {
         Q_UNUSED(roomId); Q_UNUSED(callId); Q_UNUSED(partyId);
-        Q_UNUSED(answerType); Q_UNUSED(answerSdp); return 0;
+        Q_UNUSED(answerType); Q_UNUSED(answerSdp);
+        Q_UNUSED(streamMetadataJson); return 0;
+    }
+    // m.call.negotiate on an established call; `type` is "offer" or "answer".
+    virtual quint64 callNegotiate(const QString &roomId, const QString &callId,
+                                  const QString &partyId, const QString &type,
+                                  const QString &sdp, quint64 lifetimeMs,
+                                  const QString &streamMetadataJson)
+    {
+        Q_UNUSED(roomId); Q_UNUSED(callId); Q_UNUSED(partyId); Q_UNUSED(type);
+        Q_UNUSED(sdp); Q_UNUSED(lifetimeMs); Q_UNUSED(streamMetadataJson);
+        return 0;
+    }
+    // m.call.sdp_stream_metadata_changed: a mute changed.
+    virtual quint64 callStreamMetadata(const QString &roomId,
+                                       const QString &callId,
+                                       const QString &partyId,
+                                       const QString &streamMetadataJson)
+    {
+        Q_UNUSED(roomId); Q_UNUSED(callId); Q_UNUSED(partyId);
+        Q_UNUSED(streamMetadataJson); return 0;
     }
     virtual quint64 callReject(const QString &roomId, const QString &callId,
                                const QString &partyId)

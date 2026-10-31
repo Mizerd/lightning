@@ -692,10 +692,19 @@ public:
     quint64 callInvite(const QString &roomId, const QString &callId,
                        const QString &partyId, const QString &offerType,
                        const QString &offerSdp, quint64 lifetimeMs,
-                       const QString &invitee) override;
+                       const QString &invitee,
+                       const QString &streamMetadataJson) override;
     quint64 callAnswer(const QString &roomId, const QString &callId,
                        const QString &partyId, const QString &answerType,
-                       const QString &answerSdp) override;
+                       const QString &answerSdp,
+                       const QString &streamMetadataJson) override;
+    quint64 callNegotiate(const QString &roomId, const QString &callId,
+                          const QString &partyId, const QString &type,
+                          const QString &sdp, quint64 lifetimeMs,
+                          const QString &streamMetadataJson) override;
+    quint64 callStreamMetadata(const QString &roomId, const QString &callId,
+                               const QString &partyId,
+                               const QString &streamMetadataJson) override;
     quint64 callReject(const QString &roomId, const QString &callId,
                        const QString &partyId) override;
     quint64 callHangup(const QString &roomId, const QString &callId,

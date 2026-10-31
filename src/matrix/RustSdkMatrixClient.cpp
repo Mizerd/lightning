@@ -10725,7 +10725,8 @@ quint64 RustSdkMatrixClient::callInvite(const QString &roomId,
                                         const QString &offerType,
                                         const QString &offerSdp,
                                         quint64 lifetimeMs,
-                                        const QString &invitee)
+                                        const QString &invitee,
+                                        const QString &streamMetadataJson)
 {
     if (!m_rustHandle || roomId.isEmpty() || callId.isEmpty()
         || partyId.isEmpty() || offerSdp.trimmed().isEmpty())
@@ -10737,10 +10738,11 @@ quint64 RustSdkMatrixClient::callInvite(const QString &roomId,
     const QByteArray type = offerType.toUtf8();
     const QByteArray sdp = offerSdp.toUtf8();
     const QByteArray target = invitee.toUtf8();
+    const QByteArray metadata = streamMetadataJson.toUtf8();
     const QString result = takeRustString(mx_rust_calls_invite(
         m_rustHandle, room.constData(), call.constData(), party.constData(),
         type.constData(), sdp.constData(), lifetimeMs, target.constData(),
-        opId));
+        metadata.constData(), opId));
     return result.isEmpty() ? opId : 0;
 }
 
@@ -10748,7 +10750,8 @@ quint64 RustSdkMatrixClient::callAnswer(const QString &roomId,
                                         const QString &callId,
                                         const QString &partyId,
                                         const QString &answerType,
-                                        const QString &answerSdp)
+                                        const QString &answerSdp,
+                                        const QString &streamMetadataJson)
 {
     if (!m_rustHandle || roomId.isEmpty() || callId.isEmpty()
         || partyId.isEmpty() || answerSdp.trimmed().isEmpty())
@@ -10759,9 +10762,54 @@ quint64 RustSdkMatrixClient::callAnswer(const QString &roomId,
     const QByteArray party = partyId.toUtf8();
     const QByteArray type = answerType.toUtf8();
     const QByteArray sdp = answerSdp.toUtf8();
+    const QByteArray metadata = streamMetadataJson.toUtf8();
     const QString result = takeRustString(mx_rust_calls_answer(
         m_rustHandle, room.constData(), call.constData(), party.constData(),
-        type.constData(), sdp.constData(), opId));
+        type.constData(), sdp.constData(), metadata.constData(), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::callNegotiate(const QString &roomId,
+                                           const QString &callId,
+                                           const QString &partyId,
+                                           const QString &type,
+                                           const QString &sdp,
+                                           quint64 lifetimeMs,
+                                           const QString &streamMetadataJson)
+{
+    if (!m_rustHandle || roomId.isEmpty() || callId.isEmpty()
+        || partyId.isEmpty() || sdp.trimmed().isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray call = callId.toUtf8();
+    const QByteArray party = partyId.toUtf8();
+    const QByteArray typeBytes = type.toUtf8();
+    const QByteArray sdpBytes = sdp.toUtf8();
+    const QByteArray metadata = streamMetadataJson.toUtf8();
+    const QString result = takeRustString(mx_rust_calls_negotiate(
+        m_rustHandle, room.constData(), call.constData(), party.constData(),
+        typeBytes.constData(), sdpBytes.constData(), lifetimeMs,
+        metadata.constData(), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::callStreamMetadata(const QString &roomId,
+                                                const QString &callId,
+                                                const QString &partyId,
+                                                const QString &streamMetadataJson)
+{
+    if (!m_rustHandle || roomId.isEmpty() || callId.isEmpty()
+        || partyId.isEmpty() || streamMetadataJson.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray call = callId.toUtf8();
+    const QByteArray party = partyId.toUtf8();
+    const QByteArray metadata = streamMetadataJson.toUtf8();
+    const QString result = takeRustString(mx_rust_calls_stream_metadata(
+        m_rustHandle, room.constData(), call.constData(), party.constData(),
+        metadata.constData(), opId));
     return result.isEmpty() ? opId : 0;
 }
 
@@ -12421,7 +12469,9 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         || type == QLatin1String("call_reject")
         || type == QLatin1String("call_select_answer")
         || type == QLatin1String("call_rtc_notification")
-        || type == QLatin1String("call_rtc_decline")) {
+        || type == QLatin1String("call_rtc_decline")
+        || type == QLatin1String("call_negotiate")
+        || type == QLatin1String("call_stream_metadata")) {
         CallSignal signal;
         if (type == QLatin1String("call_invite"))
             signal.kind = CallSignal::Kind::Invite;
@@ -12435,6 +12485,10 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             signal.kind = CallSignal::Kind::SelectAnswer;
         else if (type == QLatin1String("call_rtc_notification"))
             signal.kind = CallSignal::Kind::RtcNotification;
+        else if (type == QLatin1String("call_negotiate"))
+            signal.kind = CallSignal::Kind::Negotiate;
+        else if (type == QLatin1String("call_stream_metadata"))
+            signal.kind = CallSignal::Kind::StreamMetadata;
         else
             signal.kind = CallSignal::Kind::RtcDecline;
         signal.roomId = event.value(QStringLiteral("room_id")).toString();
@@ -12461,7 +12515,19 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                 event.value(QStringLiteral("answer_type")).toString();
             signal.hasDescription =
                 event.value(QStringLiteral("has_answer")).toBool();
+        } else if (signal.kind == CallSignal::Kind::Negotiate) {
+            signal.sessionType =
+                event.value(QStringLiteral("description_type")).toString();
+            signal.hasDescription =
+                event.value(QStringLiteral("has_description")).toBool();
         }
+        signal.hasVideo = event.value(QStringLiteral("has_video")).toBool();
+        signal.hasStreamMetadata =
+            event.value(QStringLiteral("has_stream_metadata")).toBool();
+        signal.remoteAudioMuted =
+            event.value(QStringLiteral("remote_audio_muted")).toBool();
+        signal.remoteVideoMuted =
+            event.value(QStringLiteral("remote_video_muted")).toBool();
         signal.reason = event.value(QStringLiteral("reason")).toString();
         signal.selectedPartyId =
             event.value(QStringLiteral("selected_party_id")).toString();
@@ -12509,6 +12575,10 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                 m_callSdpStore.insert(
                     signal.eventId,
                     event.value(QStringLiteral("answer_sdp")).toString());
+            } else if (signal.kind == CallSignal::Kind::Negotiate) {
+                m_callSdpStore.insert(
+                    signal.eventId,
+                    event.value(QStringLiteral("description_sdp")).toString());
             }
         }
         Q_EMIT callSignalReceived(signal);

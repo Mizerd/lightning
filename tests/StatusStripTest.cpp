@@ -46,7 +46,7 @@ public:
     bool supportsCallSignaling() const override { return true; }
     quint64 callInvite(const QString &, const QString &, const QString &,
                        const QString &, const QString &, quint64,
-                       const QString &) override
+                       const QString &, const QString &) override
     {
         return ++lastOpId;
     }

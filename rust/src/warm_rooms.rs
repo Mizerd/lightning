@@ -49,6 +49,24 @@ impl SubscriptionSet {
         }
     }
 
+    /// A room with a call: subscribed like a recently opened one, without
+    /// opening it. The room list's timeline limit is 1, so several `m.call.*`
+    /// events in one response would otherwise reach the client as the last one
+    /// alone; a subscription delivers them, and its first response replays the
+    /// recent ones. Never evicts the open room.
+    pub fn warm(&mut self, room: OwnedRoomId) {
+        self.recent.retain(|r| r != &room);
+        self.recent.insert(0, room);
+        if self.recent.len() > WARM_ROOM_LIMIT {
+            let active = self.active.clone();
+            if let Some(last) =
+                self.recent.iter().rposition(|r| Some(r) != active.as_ref())
+            {
+                self.recent.remove(last);
+            }
+        }
+    }
+
     /// The open room was closed. It stays warm: that is the point.
     pub fn close_active(&mut self) {
         self.active = None;
@@ -118,6 +136,21 @@ mod tests {
         set.open(room(1));
         assert_eq!(set.desired(), vec![room(1), room(3), room(2)]);
         assert_eq!(set.active(), Some(&room(1)));
+    }
+
+    #[test]
+    fn a_call_room_is_subscribed_without_being_opened_and_keeps_the_open_room() {
+        let mut set = SubscriptionSet::default();
+        set.open(room(0));
+        for n in 1..=WARM_ROOM_LIMIT {
+            set.warm(room(n));
+        }
+        assert_eq!(set.len(), WARM_ROOM_LIMIT);
+        assert_eq!(set.active(), Some(&room(0)));
+        assert!(set.desired().contains(&room(0)), "the open room stays");
+        assert_eq!(set.desired()[0], room(WARM_ROOM_LIMIT));
+        assert!(set.pending(false).is_some());
+        assert!(set.pending(false).is_none(), "unchanged is not resent");
     }
 
     #[test]

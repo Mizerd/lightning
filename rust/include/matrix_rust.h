@@ -1853,6 +1853,7 @@ char *mx_rust_calls_invite(void *client,
                            const char *offer_sdp,
                            unsigned long long lifetime_ms,
                            const char *invitee_or_empty,
+                           const char *stream_metadata_json_or_empty,
                            unsigned long long op_id);
 char *mx_rust_calls_answer(void *client,
                            const char *room_id,
@@ -1860,7 +1861,26 @@ char *mx_rust_calls_answer(void *client,
                            const char *party_id,
                            const char *answer_type,
                            const char *answer_sdp,
+                           const char *stream_metadata_json_or_empty,
                            unsigned long long op_id);
+/* m.call.negotiate on an established call: description_type is "offer" or
+ * "answer". Arrives inbound as call_negotiate; a mute change as
+ * call_stream_metadata (booleans only, stream ids stay in Rust). */
+char *mx_rust_calls_negotiate(void *client,
+                              const char *room_id,
+                              const char *call_id,
+                              const char *party_id,
+                              const char *description_type,
+                              const char *sdp,
+                              unsigned long long lifetime_ms,
+                              const char *stream_metadata_json_or_empty,
+                              unsigned long long op_id);
+char *mx_rust_calls_stream_metadata(void *client,
+                                    const char *room_id,
+                                    const char *call_id,
+                                    const char *party_id,
+                                    const char *stream_metadata_json,
+                                    unsigned long long op_id);
 char *mx_rust_calls_reject(void *client,
                            const char *room_id,
                            const char *call_id,

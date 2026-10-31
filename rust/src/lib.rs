@@ -10415,6 +10415,7 @@ pub unsafe extern "C" fn mx_rust_calls_invite(
     offer_sdp: *const c_char,
     lifetime_ms: u64,
     invitee: *const c_char,
+    stream_metadata: *const c_char,
     op_id: u64,
 ) -> *mut c_char {
     ffi_string(|| {
@@ -10425,9 +10426,10 @@ pub unsafe extern "C" fn mx_rust_calls_invite(
         let offer_type = unsafe { cstr_arg(offer_type) }?;
         let offer_sdp = unsafe { cstr_arg(offer_sdp) }?;
         let invitee = unsafe { cstr_arg(invitee) }?;
+        let stream_metadata = unsafe { cstr_arg(stream_metadata) }?;
         calls::send_invite(
             bridge, room_id, call_id, party_id, offer_type, offer_sdp,
-            lifetime_ms, invitee, op_id,
+            lifetime_ms, invitee, stream_metadata, op_id,
         )
         .map(|_| String::new())
     })
@@ -10443,6 +10445,7 @@ pub unsafe extern "C" fn mx_rust_calls_answer(
     party_id: *const c_char,
     answer_type: *const c_char,
     answer_sdp: *const c_char,
+    stream_metadata: *const c_char,
     op_id: u64,
 ) -> *mut c_char {
     ffi_string(|| {
@@ -10452,8 +10455,63 @@ pub unsafe extern "C" fn mx_rust_calls_answer(
         let party_id = unsafe { cstr_arg(party_id) }?;
         let answer_type = unsafe { cstr_arg(answer_type) }?;
         let answer_sdp = unsafe { cstr_arg(answer_sdp) }?;
+        let stream_metadata = unsafe { cstr_arg(stream_metadata) }?;
         calls::send_answer(
-            bridge, room_id, call_id, party_id, answer_type, answer_sdp, op_id,
+            bridge, room_id, call_id, party_id, answer_type, answer_sdp,
+            stream_metadata, op_id,
+        )
+        .map(|_| String::new())
+    })
+}
+
+/// Send `m.call.negotiate` on an established call. The SDP is required and
+/// opaque; it is never logged or echoed back.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_calls_negotiate(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    call_id: *const c_char,
+    party_id: *const c_char,
+    description_type: *const c_char,
+    sdp: *const c_char,
+    lifetime_ms: u64,
+    stream_metadata: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let call_id = unsafe { cstr_arg(call_id) }?;
+        let party_id = unsafe { cstr_arg(party_id) }?;
+        let description_type = unsafe { cstr_arg(description_type) }?;
+        let sdp = unsafe { cstr_arg(sdp) }?;
+        let stream_metadata = unsafe { cstr_arg(stream_metadata) }?;
+        calls::send_negotiate(
+            bridge, room_id, call_id, party_id, description_type, sdp,
+            lifetime_ms, stream_metadata, op_id,
+        )
+        .map(|_| String::new())
+    })
+}
+
+/// Send `m.call.sdp_stream_metadata_changed` (a camera or microphone mute).
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_calls_stream_metadata(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    call_id: *const c_char,
+    party_id: *const c_char,
+    stream_metadata: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let call_id = unsafe { cstr_arg(call_id) }?;
+        let party_id = unsafe { cstr_arg(party_id) }?;
+        let stream_metadata = unsafe { cstr_arg(stream_metadata) }?;
+        calls::send_stream_metadata(
+            bridge, room_id, call_id, party_id, stream_metadata, op_id,
         )
         .map(|_| String::new())
     })
@@ -13793,7 +13851,8 @@ async fn run_authoritative_sync(
     // Call-signalling handlers live as long as this sync loop; their drop
     // guards unregister them on any exit, so none fires into a later account.
     let _call_guards = background.is_none().then(|| calls::register_handlers(
-        &client, &events, &timelines, &call_media_capable));
+        &client, &events, &timelines, &call_media_capable, &active_subscription,
+        &room_list_slot));
     // MatrixRTC observation shares that lifetime; kept separate because it
     // tracks who is in a call, not who is inviting whom.
     let _rtc_guards = background

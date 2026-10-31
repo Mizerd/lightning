@@ -17,6 +17,10 @@ struct CallSignal {
         SelectAnswer,
         RtcNotification,
         RtcDecline,
+        // Legacy, on an established call: renegotiation, and a mute changing
+        // on a stream. MSC2746 / MSC3077.
+        Negotiate,
+        StreamMetadata,
     };
 
     Kind kind = Kind::Invite;
@@ -40,6 +44,14 @@ struct CallSignal {
     QString version;
     QString sessionType;
     bool hasDescription = false;
+    // Invite, answer and negotiate: the description has a live m=video
+    // section. Negotiate's description type is in sessionType.
+    bool hasVideo = false;
+    // Invite, answer, negotiate and stream metadata: the sender stated the
+    // mute of its m.usermedia stream (MSC3077). Stream ids do not cross.
+    bool hasStreamMetadata = false;
+    bool remoteAudioMuted = false;
+    bool remoteVideoMuted = false;
     // Hangup only: closed-set reason string.
     QString reason;
     // SelectAnswer only.

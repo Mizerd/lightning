@@ -15,7 +15,7 @@
 //! are sender-chosen (ruma does not validate VoipId), bounded by `wire_id`
 //! (an id failing the bound drops the event), and never logged or rendered.
 
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -40,7 +40,13 @@ use matrix_sdk::ruma::api::client::voip::get_turn_server_info;
 use matrix_sdk::ruma::events::call::candidates::{
     CallCandidatesEventContent, Candidate, OriginalSyncCallCandidatesEvent,
 };
-use matrix_sdk::ruma::events::call::SessionDescription;
+use matrix_sdk::ruma::events::call::negotiate::{
+    CallNegotiateEventContent, OriginalSyncCallNegotiateEvent,
+};
+use matrix_sdk::ruma::events::call::sdp_stream_metadata_changed::{
+    CallSdpStreamMetadataChangedEventContent, OriginalSyncCallSdpStreamMetadataChangedEvent,
+};
+use matrix_sdk::ruma::events::call::{SessionDescription, StreamMetadata, StreamPurpose};
 use matrix_sdk::ruma::events::rtc::decline::OriginalSyncRtcDeclineEvent;
 use matrix_sdk::ruma::events::rtc::notification::{
     CallIntent, OriginalSyncRtcNotificationEvent,
@@ -51,8 +57,11 @@ use matrix_sdk::config::RequestConfig;
 use matrix_sdk::{Client, Room};
 use serde_json::json;
 
+use matrix_sdk_ui::room_list_service::RoomListService;
+
 use crate::rooms::{classify_room_error, joined_room, require_client};
 use crate::timeline::TimelineRegistry;
+use crate::warm_rooms::SubscriptionSet;
 use crate::{enqueue, RustClient};
 
 /// Call sends run on the room-action pool (joined at sign-out): bounded.
@@ -108,6 +117,69 @@ fn session_type_str(session_type: &str) -> &'static str {
         "offer" => "offer",
         "answer" => "answer",
         _ => "other",
+    }
+}
+
+/// Whether a description carries video: a live `m=video` section. Port 0
+/// rejects a section, except under `a=bundle-only`, which is how a max-bundle
+/// offerer (webrtcbin) offers one; `a=inactive` declines it. Only this boolean
+/// crosses, never the SDP.
+fn sdp_offers_video(sdp: &str) -> bool {
+    let mut lines = sdp.lines();
+    while let Some(line) = lines.next() {
+        let Some(rest) = line.strip_prefix("m=video ") else {
+            continue;
+        };
+        let port_open = rest.split_whitespace().next().is_some_and(|port| port != "0");
+        let attributes: Vec<&str> = lines
+            .take_while(|attribute| !attribute.starts_with("m="))
+            .map(str::trim)
+            .collect();
+        return !attributes.contains(&"a=inactive")
+            && (port_open || attributes.contains(&"a=bundle-only"));
+    }
+    false
+}
+
+/// A sane stream metadata map names a handful of streams.
+const MAX_STREAM_METADATA_ENTRIES: usize = 8;
+
+/// The engine's `{stream id: {purpose, audio_muted, video_muted}}`, or empty
+/// for "" (an engine that names no stream, which keeps a peer's fallback for
+/// clients without metadata). Malformed input is a local bug: refused.
+fn parse_stream_metadata(json: &str) -> Result<BTreeMap<String, StreamMetadata>, String> {
+    if json.trim().is_empty() {
+        return Ok(BTreeMap::new());
+    }
+    let map: BTreeMap<String, StreamMetadata> =
+        serde_json::from_str(json).map_err(|_| "invalid stream metadata".to_owned())?;
+    if map.len() > MAX_STREAM_METADATA_ENTRIES
+        || map.keys().any(|key| wire_id(key).is_none())
+    {
+        return Err("invalid stream metadata".to_owned());
+    }
+    Ok(map)
+}
+
+/// What the peer says about its camera and microphone stream, as two closed
+/// booleans: stream ids stay on this side. Sender-chosen content, so bounded
+/// and only ever displayed as a state. `None`: the peer sent no metadata.
+fn usermedia_muted(metadata: &BTreeMap<String, StreamMetadata>) -> Option<(bool, bool)> {
+    metadata
+        .values()
+        .take(MAX_STREAM_METADATA_ENTRIES)
+        .find(|stream| stream.purpose == StreamPurpose::UserMedia)
+        .map(|stream| (stream.audio_muted, stream.video_muted))
+}
+
+fn add_stream_metadata(
+    payload: &mut serde_json::Value,
+    metadata: &BTreeMap<String, StreamMetadata>,
+) {
+    if let Some((audio_muted, video_muted)) = usermedia_muted(metadata) {
+        payload["has_stream_metadata"] = json!(true);
+        payload["remote_audio_muted"] = json!(audio_muted);
+        payload["remote_video_muted"] = json!(video_muted);
     }
 }
 
@@ -274,6 +346,39 @@ where
     });
 }
 
+/// Whether an event could belong to a call still ringing. A catch-up delivers
+/// old call events too, and each subscription change costs a member refetch
+/// across the whole set.
+fn is_fresh(origin_server_ts: matrix_sdk::ruma::MilliSecondsSinceUnixEpoch) -> bool {
+    let now = u64::from(matrix_sdk::ruma::MilliSecondsSinceUnixEpoch::now().get());
+    now.saturating_sub(u64::from(origin_server_ts.get())) <= MAX_INVITE_LIFETIME_MS
+}
+
+/// Subscribes the room a call is happening in. The room list's timeline limit
+/// is 1: an offer's candidates, or an answer's, sent within one sync response
+/// reach us as the last event only, and an encrypted room's first send, which
+/// shares a key first, bunches them exactly so. Measured: the batch holding the
+/// real candidates vanished on the first call in every encrypted DM, on both
+/// ends, and ICE never started. A new subscription's first response replays the
+/// recent events, so what was already lost comes back.
+async fn subscribe_call_room(
+    subscriptions: &Mutex<SubscriptionSet>,
+    room_list: &Mutex<Option<Arc<RoomListService>>>,
+    room_id: &matrix_sdk::ruma::RoomId,
+) {
+    let desired = subscriptions.lock().ok().and_then(|mut guard| {
+        guard.warm(room_id.to_owned());
+        guard.pending(false)
+    });
+    let Some(desired) = desired else { return };
+    let service = room_list.lock().ok().and_then(|guard| guard.clone());
+    if let Some(service) = service {
+        let refs: Vec<&matrix_sdk::ruma::RoomId> =
+            desired.iter().map(|r| r.as_ref()).collect();
+        service.subscribe_to_rooms(&refs).await;
+    }
+}
+
 /// Send `m.call.invite` (VoIP v1). The SDP is a required opaque parameter;
 /// an empty one is refused synchronously.
 #[allow(clippy::too_many_arguments)]
@@ -286,6 +391,7 @@ pub(crate) fn send_invite(
     offer_sdp: String,
     lifetime_ms: u64,
     invitee: String,
+    stream_metadata: String,
     op_id: u64,
 ) -> Result<(), String> {
     let client = require_client(bridge)?;
@@ -312,7 +418,11 @@ pub(crate) fn send_invite(
         SessionDescription::new(offer_type, offer_sdp),
     );
     content.invitee = invitee_id;
+    content.sdp_stream_metadata = parse_stream_metadata(&stream_metadata)?;
+    let subscriptions = Arc::clone(&bridge.active_room_subscription);
+    let room_list = Arc::clone(&bridge.room_list_service);
     spawn_call_send(bridge, op_id, call_id, async move {
+        subscribe_call_room(&subscriptions, &room_list, room.room_id()).await;
         room.send(content).await.map(|result| result.response.event_id)
     });
     Ok(())
@@ -326,6 +436,7 @@ pub(crate) fn send_answer(
     party_id: String,
     answer_type: String,
     answer_sdp: String,
+    stream_metadata: String,
     op_id: u64,
 ) -> Result<(), String> {
     let client = require_client(bridge)?;
@@ -336,13 +447,101 @@ pub(crate) fn send_answer(
     if !matches!(answer_type.as_str(), "answer") {
         return Err("answer session type must be \"answer\"".to_owned());
     }
-    let content = CallAnswerEventContent::version_1(
+    let mut content = CallAnswerEventContent::version_1(
         SessionDescription::new(answer_type, answer_sdp),
         call,
         party,
     );
+    content.sdp_stream_metadata = parse_stream_metadata(&stream_metadata)?;
     spawn_call_send(bridge, op_id, call_id, async move {
         room.send(content).await.map(|result| result.response.event_id)
+    });
+    Ok(())
+}
+
+/// Send `m.call.negotiate`: an offer or answer on a call already set up
+/// (voice to video, a hold). The SDP is required and opaque, as in an invite.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn send_negotiate(
+    bridge: &RustClient,
+    room_id: String,
+    call_id: String,
+    party_id: String,
+    description_type: String,
+    sdp: String,
+    lifetime_ms: u64,
+    stream_metadata: String,
+    op_id: u64,
+) -> Result<(), String> {
+    let client = require_client(bridge)?;
+    let room = joined_room(&client, &room_id)?;
+    let call = parse_voip_id(&call_id, "call id")?;
+    let party = parse_voip_id(&party_id, "party id")?;
+    require_sdp(&sdp)?;
+    if !matches!(description_type.as_str(), "offer" | "answer") {
+        return Err("negotiate session type must be offer or answer".to_owned());
+    }
+    let lifetime = lifetime_ms.clamp(MIN_INVITE_LIFETIME_MS, MAX_INVITE_LIFETIME_MS);
+    let mut content = CallNegotiateEventContent::version_1(
+        call,
+        party,
+        UInt::try_from(lifetime).map_err(|_| "invalid lifetime".to_owned())?,
+        SessionDescription::new(description_type, sdp),
+    );
+    content.sdp_stream_metadata = parse_stream_metadata(&stream_metadata)?;
+    let raw = with_explicit_metadata(&content, &stream_metadata)?;
+    spawn_call_send(bridge, op_id, call_id, async move {
+        room.send_raw("m.call.negotiate", raw)
+            .await
+            .map(|result| result.response.event_id)
+    });
+    Ok(())
+}
+
+/// `content` as JSON, with the stream metadata exactly as the engine wrote it.
+/// ruma omits a `false` mute, and matrix-js-sdk MERGES each update over what it
+/// holds, so an unmute sent through ruma's type never unmutes: Element showed
+/// Lightning muted for the rest of the call. Sent as raw content for that
+/// reason alone; `Room::send_raw` encrypts exactly as `send` does.
+fn with_explicit_metadata<T: serde::Serialize>(
+    content: &T,
+    stream_metadata: &str,
+) -> Result<serde_json::Value, String> {
+    let mut raw =
+        serde_json::to_value(content).map_err(|_| "invalid call event".to_owned())?;
+    if !stream_metadata.trim().is_empty() {
+        raw["sdp_stream_metadata"] = serde_json::from_str(stream_metadata)
+            .map_err(|_| "invalid stream metadata".to_owned())?;
+    }
+    Ok(raw)
+}
+
+/// Send `m.call.sdp_stream_metadata_changed`: a mute changed and nothing needs
+/// negotiating.
+pub(crate) fn send_stream_metadata(
+    bridge: &RustClient,
+    room_id: String,
+    call_id: String,
+    party_id: String,
+    stream_metadata: String,
+    op_id: u64,
+) -> Result<(), String> {
+    let client = require_client(bridge)?;
+    let room = joined_room(&client, &room_id)?;
+    let call = parse_voip_id(&call_id, "call id")?;
+    let party = parse_voip_id(&party_id, "party id")?;
+    let metadata = parse_stream_metadata(&stream_metadata)?;
+    if metadata.is_empty() {
+        return Err("stream metadata is required".to_owned());
+    }
+    let content = CallSdpStreamMetadataChangedEventContent::new(
+        call, party, VoipVersionId::V1, metadata,
+    );
+    let raw = with_explicit_metadata(&content, &stream_metadata)?;
+    spawn_call_send(bridge, op_id, call_id, async move {
+        room.send_raw("m.call.sdp_stream_metadata_changed", raw)
+            .await
+            .map(|result| result.response.event_id)
     });
     Ok(())
 }
@@ -625,6 +824,147 @@ fn json_error_is_empty_answer(err: &serde_json::Error) -> bool {
     err.classify() == serde_json::error::Category::Data
 }
 
+fn invite_payload(
+    ev: &OriginalSyncCallInviteEvent,
+    room: &Room,
+    own: bool,
+    timelines: &TimelineRegistry,
+    media_capable: &AtomicBool,
+) -> Option<serde_json::Value> {
+    let Some(call_id) = wire_id(ev.content.call_id.as_str())
+    else {
+        return None;
+    };
+    let Some(party_id) = optional_wire_id(
+        ev.content.party_id.as_deref().map(AsRef::as_ref))
+    else {
+        return None;
+    };
+    // SDP crosses only in media-capable mode (see carried_sdp).
+    let mut payload = json!({
+        "type": "call_invite",
+        "lifecycle": timelines.lifecycle(),
+        "room_id": room.room_id().to_string(),
+        "event_id": ev.event_id.to_string(),
+        "sender": ev.sender.to_string(),
+        "own": own,
+        "call_id": call_id,
+        "party_id": party_id,
+        "invitee": ev.content.invitee.as_ref()
+            .map(ToString::to_string).unwrap_or_default(),
+        "lifetime_ms": u64::from(ev.content.lifetime)
+            .min(MAX_INVITE_LIFETIME_MS),
+        "origin_server_ts": u64::from(ev.origin_server_ts.get()),
+        "version": voip_version_str(&ev.content.version),
+        "offer_type":
+            session_type_str(&ev.content.offer.session_type),
+        "has_offer": !ev.content.offer.sdp.trim().is_empty(),
+        "has_video": sdp_offers_video(&ev.content.offer.sdp),
+    });
+    add_stream_metadata(&mut payload, &ev.content.sdp_stream_metadata);
+    if let Some(sdp) =
+        carried_sdp(&media_capable, &ev.content.offer.sdp)
+    {
+        payload["offer_sdp"] = json!(sdp);
+    }
+    Some(payload)
+}
+
+fn answer_payload(
+    ev: &OriginalSyncCallAnswerEvent,
+    room: &Room,
+    own: bool,
+    timelines: &TimelineRegistry,
+    media_capable: &AtomicBool,
+) -> Option<serde_json::Value> {
+    let Some(call_id) = wire_id(ev.content.call_id.as_str())
+    else {
+        return None;
+    };
+    let Some(party_id) = optional_wire_id(
+        ev.content.party_id.as_deref().map(AsRef::as_ref))
+    else {
+        return None;
+    };
+    let mut payload = json!({
+        "type": "call_answer",
+        "lifecycle": timelines.lifecycle(),
+        "room_id": room.room_id().to_string(),
+        "event_id": ev.event_id.to_string(),
+        "sender": ev.sender.to_string(),
+        "own": own,
+        "call_id": call_id,
+        "party_id": party_id,
+        "answer_type":
+            session_type_str(&ev.content.answer.session_type),
+        "has_answer": !ev.content.answer.sdp.trim().is_empty(),
+        "has_video": sdp_offers_video(&ev.content.answer.sdp),
+    });
+    add_stream_metadata(&mut payload, &ev.content.sdp_stream_metadata);
+    if let Some(sdp) =
+        carried_sdp(&media_capable, &ev.content.answer.sdp)
+    {
+        payload["answer_sdp"] = json!(sdp);
+    }
+    Some(payload)
+}
+
+fn candidates_payload(
+    ev: &OriginalSyncCallCandidatesEvent,
+    room: &Room,
+    own: bool,
+    timelines: &TimelineRegistry,
+) -> Option<serde_json::Value> {
+    let Some(call_id) = wire_id(ev.content.call_id.as_str())
+    else {
+        return None;
+    };
+    let Some(party_id) = optional_wire_id(
+        ev.content.party_id.as_deref().map(AsRef::as_ref))
+    else {
+        return None;
+    };
+    let mut entries = Vec::new();
+    for candidate in
+        ev.content.candidates.iter().take(MAX_CANDIDATES_PER_EVENT)
+    {
+        let Some(line) =
+            carried_candidate_line(&candidate.candidate)
+        else {
+            continue; // hostile line: skip, keep the rest
+        };
+        let mut entry = json!({ "candidate": line });
+        if let Some(mid) = candidate
+            .sdp_mid
+            .as_deref()
+            .filter(|mid| {
+                mid.len() <= MAX_SDP_MID_LEN
+                    && !mid.chars().any(char::is_control)
+            })
+        {
+            entry["sdp_mid"] = json!(mid);
+        }
+        if let Some(index) = candidate.sdp_m_line_index {
+            entry["sdp_m_line_index"] =
+                json!(u64::from(index).min(255));
+        }
+        entries.push(entry);
+    }
+    if entries.is_empty() {
+        return None;
+    }
+    Some(json!({
+        "type": "call_candidates",
+        "lifecycle": timelines.lifecycle(),
+        "room_id": room.room_id().to_string(),
+        "event_id": ev.event_id.to_string(),
+        "sender": ev.sender.to_string(),
+        "own": own,
+        "call_id": call_id,
+        "party_id": party_id,
+        "candidates": entries,
+    }))}
+
 /// Register inbound observers for call-signalling events. They ride the
 /// normal sync dispatch (sliding and classic), independent of any open
 /// timeline; call state is fed only from here.
@@ -633,6 +973,8 @@ pub(crate) fn register_handlers(
     events: &EventQueue,
     timelines: &Arc<TimelineRegistry>,
     media_capable: &Arc<AtomicBool>,
+    subscriptions: &Arc<Mutex<SubscriptionSet>>,
+    room_list: &Arc<Mutex<Option<Arc<RoomListService>>>>,
 ) -> CallHandlerGuards {
     let mut guards = Vec::new();
 
@@ -640,50 +982,28 @@ pub(crate) fn register_handlers(
         let events = Arc::clone(events);
         let timelines = Arc::clone(timelines);
         let media_capable = Arc::clone(media_capable);
+        let subscriptions = Arc::clone(subscriptions);
+        let room_list = Arc::clone(room_list);
         let handle = client.add_event_handler(
             move |ev: OriginalSyncCallInviteEvent, room: Room, client: Client| {
                 let events = Arc::clone(&events);
                 let timelines = Arc::clone(&timelines);
                 let media_capable = Arc::clone(&media_capable);
+                let subscriptions = Arc::clone(&subscriptions);
+                let room_list = Arc::clone(&room_list);
                 async move {
                     let own = client
                         .user_id()
                         .is_some_and(|user| user == ev.sender);
-                    let Some(call_id) = wire_id(ev.content.call_id.as_str())
-                    else {
-                        return;
-                    };
-                    let Some(party_id) = optional_wire_id(
-                        ev.content.party_id.as_deref().map(AsRef::as_ref))
-                    else {
-                        return;
-                    };
-                    // SDP crosses only in media-capable mode (see carried_sdp).
-                    let mut payload = json!({
-                        "type": "call_invite",
-                        "lifecycle": timelines.lifecycle(),
-                        "room_id": room.room_id().to_string(),
-                        "event_id": ev.event_id.to_string(),
-                        "sender": ev.sender.to_string(),
-                        "own": own,
-                        "call_id": call_id,
-                        "party_id": party_id,
-                        "invitee": ev.content.invitee.as_ref()
-                            .map(ToString::to_string).unwrap_or_default(),
-                        "lifetime_ms": u64::from(ev.content.lifetime)
-                            .min(MAX_INVITE_LIFETIME_MS),
-                        "origin_server_ts": u64::from(ev.origin_server_ts.get()),
-                        "version": voip_version_str(&ev.content.version),
-                        "offer_type":
-                            session_type_str(&ev.content.offer.session_type),
-                        "has_offer": !ev.content.offer.sdp.trim().is_empty(),
-                    });
-                    if let Some(sdp) =
-                        carried_sdp(&media_capable, &ev.content.offer.sdp)
+                    if let Some(payload) =
+                        invite_payload(&ev, &room, own, &timelines, &media_capable)
                     {
-                        payload["offer_sdp"] = json!(sdp);
+                        if !own && is_fresh(ev.origin_server_ts) {
+                            subscribe_call_room(&subscriptions, &room_list, room.room_id())
+                                .await;
+                        }
+                        enqueue(&events, payload);
                     }
-                    enqueue(&events, payload);
                 }
             },
         );
@@ -703,17 +1023,40 @@ pub(crate) fn register_handlers(
                     let own = client
                         .user_id()
                         .is_some_and(|user| user == ev.sender);
+                    if let Some(payload) =
+                        answer_payload(&ev, &room, own, &timelines, &media_capable)
+                    {
+                        enqueue(&events, payload);
+                    }
+                }
+            },
+        );
+        guards.push(client.event_handler_drop_guard(handle));
+    }
+
+    {
+        let events = Arc::clone(events);
+        let timelines = Arc::clone(timelines);
+        let media_capable = Arc::clone(media_capable);
+        let handle = client.add_event_handler(
+            move |ev: OriginalSyncCallNegotiateEvent, room: Room, client: Client| {
+                let events = Arc::clone(&events);
+                let timelines = Arc::clone(&timelines);
+                let media_capable = Arc::clone(&media_capable);
+                async move {
+                    let own = client
+                        .user_id()
+                        .is_some_and(|user| user == ev.sender);
                     let Some(call_id) = wire_id(ev.content.call_id.as_str())
                     else {
                         return;
                     };
-                    let Some(party_id) = optional_wire_id(
-                        ev.content.party_id.as_deref().map(AsRef::as_ref))
+                    let Some(party_id) = wire_id(ev.content.party_id.as_str())
                     else {
                         return;
                     };
                     let mut payload = json!({
-                        "type": "call_answer",
+                        "type": "call_negotiate",
                         "lifecycle": timelines.lifecycle(),
                         "room_id": room.room_id().to_string(),
                         "event_id": ev.event_id.to_string(),
@@ -721,15 +1064,57 @@ pub(crate) fn register_handlers(
                         "own": own,
                         "call_id": call_id,
                         "party_id": party_id,
-                        "answer_type":
-                            session_type_str(&ev.content.answer.session_type),
-                        "has_answer": !ev.content.answer.sdp.trim().is_empty(),
+                        "description_type":
+                            session_type_str(&ev.content.description.session_type),
+                        "has_description":
+                            !ev.content.description.sdp.trim().is_empty(),
+                        "has_video": sdp_offers_video(&ev.content.description.sdp),
                     });
+                    add_stream_metadata(&mut payload, &ev.content.sdp_stream_metadata);
                     if let Some(sdp) =
-                        carried_sdp(&media_capable, &ev.content.answer.sdp)
+                        carried_sdp(&media_capable, &ev.content.description.sdp)
                     {
-                        payload["answer_sdp"] = json!(sdp);
+                        payload["description_sdp"] = json!(sdp);
                     }
+                    enqueue(&events, payload);
+                }
+            },
+        );
+        guards.push(client.event_handler_drop_guard(handle));
+    }
+
+    {
+        let events = Arc::clone(events);
+        let timelines = Arc::clone(timelines);
+        let handle = client.add_event_handler(
+            move |ev: OriginalSyncCallSdpStreamMetadataChangedEvent,
+                  room: Room,
+                  client: Client| {
+                let events = Arc::clone(&events);
+                let timelines = Arc::clone(&timelines);
+                async move {
+                    let own = client
+                        .user_id()
+                        .is_some_and(|user| user == ev.sender);
+                    let Some(call_id) = wire_id(ev.content.call_id.as_str())
+                    else {
+                        return;
+                    };
+                    let Some(party_id) = wire_id(ev.content.party_id.as_str())
+                    else {
+                        return;
+                    };
+                    let mut payload = json!({
+                        "type": "call_stream_metadata",
+                        "lifecycle": timelines.lifecycle(),
+                        "room_id": room.room_id().to_string(),
+                        "event_id": ev.event_id.to_string(),
+                        "sender": ev.sender.to_string(),
+                        "own": own,
+                        "call_id": call_id,
+                        "party_id": party_id,
+                    });
+                    add_stream_metadata(&mut payload, &ev.content.sdp_stream_metadata);
                     enqueue(&events, payload);
                 }
             },
@@ -858,6 +1243,8 @@ pub(crate) fn register_handlers(
         let events = Arc::clone(events);
         let timelines = Arc::clone(timelines);
         let media_capable = Arc::clone(media_capable);
+        let subscriptions = Arc::clone(subscriptions);
+        let room_list = Arc::clone(room_list);
         let handle = client.add_event_handler(
             move |ev: OriginalSyncCallCandidatesEvent,
                   room: Room,
@@ -865,6 +1252,8 @@ pub(crate) fn register_handlers(
                 let events = Arc::clone(&events);
                 let timelines = Arc::clone(&timelines);
                 let media_capable = Arc::clone(&media_capable);
+                let subscriptions = Arc::clone(&subscriptions);
+                let room_list = Arc::clone(&room_list);
                 async move {
                     // Candidates are host IPs; outside media-capable mode nothing crosses.
                     if !media_capable.load(Ordering::Relaxed) {
@@ -873,55 +1262,16 @@ pub(crate) fn register_handlers(
                     let own = client
                         .user_id()
                         .is_some_and(|user| user == ev.sender);
-                    let Some(call_id) = wire_id(ev.content.call_id.as_str())
-                    else {
-                        return;
-                    };
-                    let Some(party_id) = optional_wire_id(
-                        ev.content.party_id.as_deref().map(AsRef::as_ref))
-                    else {
-                        return;
-                    };
-                    let mut entries = Vec::new();
-                    for candidate in
-                        ev.content.candidates.iter().take(MAX_CANDIDATES_PER_EVENT)
-                    {
-                        let Some(line) =
-                            carried_candidate_line(&candidate.candidate)
-                        else {
-                            continue; // hostile line: skip, keep the rest
-                        };
-                        let mut entry = json!({ "candidate": line });
-                        if let Some(mid) = candidate
-                            .sdp_mid
-                            .as_deref()
-                            .filter(|mid| {
-                                mid.len() <= MAX_SDP_MID_LEN
-                                    && !mid.chars().any(char::is_control)
-                            })
-                        {
-                            entry["sdp_mid"] = json!(mid);
+                    // Maybe all that is left of a burst, its invite lost to the
+                    // timeline limit (measured, 1 first call in 6): the
+                    // subscription's first response brings the invite back.
+                    if let Some(payload) = candidates_payload(&ev, &room, own, &timelines) {
+                        if !own && is_fresh(ev.origin_server_ts) {
+                            subscribe_call_room(&subscriptions, &room_list, room.room_id())
+                                .await;
                         }
-                        if let Some(index) = candidate.sdp_m_line_index {
-                            entry["sdp_m_line_index"] =
-                                json!(u64::from(index).min(255));
-                        }
-                        entries.push(entry);
+                        enqueue(&events, payload);
                     }
-                    if entries.is_empty() {
-                        return;
-                    }
-                    enqueue(&events, json!({
-                        "type": "call_candidates",
-                        "lifecycle": timelines.lifecycle(),
-                        "room_id": room.room_id().to_string(),
-                        "event_id": ev.event_id.to_string(),
-                        "sender": ev.sender.to_string(),
-                        "own": own,
-                        "call_id": call_id,
-                        "party_id": party_id,
-                        "candidates": entries,
-                    }));
                 }
             },
         );
@@ -1122,6 +1472,58 @@ mod tests {
             turn_failure_category(true, false, "M_LIMIT_EXCEEDED: slow down"),
             "rate_limited"
         );
+    }
+
+    #[test]
+    fn a_rejected_video_section_is_not_a_video_offer() {
+        assert!(sdp_offers_video("v=0\r\nm=audio 9 UDP\r\nm=video 9 UDP\r\n"));
+        assert!(!sdp_offers_video("v=0\r\nm=audio 9 UDP\r\nm=video 0 UDP\r\n"));
+        assert!(!sdp_offers_video("v=0\r\nm=audio 9 UDP\r\n"));
+        assert!(sdp_offers_video(
+            "m=audio 9 UDP\r\nm=video 0 UDP\r\na=mid:1\r\na=bundle-only\r\n"
+        ));
+        assert!(!sdp_offers_video(
+            "m=video 0 UDP\r\na=mid:1\r\nm=audio 9 UDP\r\na=bundle-only\r\n"
+        ));
+        assert!(!sdp_offers_video("m=video 9 UDP\r\na=inactive\r\n"));
+    }
+
+    #[test]
+    fn stream_metadata_is_bounded_and_reaches_the_wire_shape() {
+        assert!(parse_stream_metadata("").unwrap().is_empty());
+        assert!(parse_stream_metadata("[]").is_err());
+        let map = parse_stream_metadata(
+            r#"{"s1":{"purpose":"m.usermedia","audio_muted":true,"video_muted":false}}"#,
+        )
+        .unwrap();
+        assert_eq!(usermedia_muted(&map), Some((true, false)));
+        let many: serde_json::Map<String, serde_json::Value> = (0..9)
+            .map(|n| (format!("s{n}"), json!({"purpose": "m.usermedia"})))
+            .collect();
+        assert!(parse_stream_metadata(&serde_json::Value::Object(many).to_string()).is_err());
+    }
+
+    #[test]
+    fn an_unmute_is_written_out_because_the_peer_merges() {
+        let json = r#"{"s1":{"purpose":"m.usermedia","audio_muted":false,"video_muted":false}}"#;
+        let content = CallSdpStreamMetadataChangedEventContent::new(
+            "call".into(), "party".into(), VoipVersionId::V1,
+            parse_stream_metadata(json).unwrap(),
+        );
+        let raw = with_explicit_metadata(&content, json).unwrap();
+        assert_eq!(raw["sdp_stream_metadata"]["s1"]["audio_muted"], json!(false));
+        assert_eq!(raw["sdp_stream_metadata"]["s1"]["video_muted"], json!(false));
+        assert_eq!(raw["call_id"], json!("call"));
+        assert_eq!(raw["version"], json!("1"));
+    }
+
+    #[test]
+    fn only_a_usermedia_stream_speaks_for_the_camera() {
+        let map = parse_stream_metadata(
+            r#"{"s1":{"purpose":"m.screenshare","video_muted":true}}"#,
+        )
+        .unwrap();
+        assert_eq!(usermedia_muted(&map), None);
     }
 
     #[test]
