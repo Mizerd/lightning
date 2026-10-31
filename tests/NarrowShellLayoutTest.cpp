@@ -219,6 +219,33 @@ private Q_SLOTS:
         QTest::qWait(100);
     }
 
+    // Inside the window is not enough: the row's last button has to be inside
+    // the CARD that draws the composer (the chevron used to hang off its edge).
+    void theComposerRowStaysInsideItsCardAtTheMinimumWidth()
+    {
+        m_window->resize(640, 420);
+        QTest::qWait(200);
+        auto *card = item("composerCard");
+        QVERIFY2(card, "composer card not found");
+        const QRectF cr = card->mapRectToScene(
+            QRectF(0, 0, card->width(), card->height()));
+        for (const char *name : { "composerAttachButton", "composerSendButton",
+                                  "composerSendOptionsButton" }) {
+            QQuickItem *b = item(name);
+            QVERIFY2(b, name);
+            if (!b->isVisible())
+                continue;
+            const QRectF br = b->mapRectToScene(
+                QRectF(0, 0, b->width(), b->height()));
+            QVERIFY2(cr.adjusted(-0.5, -0.5, 0.5, 0.5).contains(br),
+                     qPrintable(QStringLiteral("%1 [%2..%3] is outside the "
+                                               "composer card [%4..%5]")
+                                    .arg(QLatin1String(name))
+                                    .arg(br.left()).arg(br.right())
+                                    .arg(cr.left()).arg(cr.right())));
+        }
+    }
+
     // B032 / B054: a display name and a Space name of 300 characters at the
     // 640 px minimum. Nothing may run past the card or the pane, the name
     // elides, and the action buttons wrap instead of overflowing.

@@ -1753,8 +1753,12 @@ Item {
         visible: !root.postBlocked
         anchors {
             left: parent.left; right: parent.right; bottom: parent.bottom
-            leftMargin: AppTheme.composerInsetH
-            rightMargin: AppTheme.composerInsetH
+            // Narrower margins in a narrow bar: at the 320 px floor the 20 px
+            // insets are what left the send-options chevron outside the card.
+            leftMargin: root.compactInputRow ? AppTheme.spacing8
+                                             : AppTheme.composerInsetH
+            rightMargin: root.compactInputRow ? AppTheme.spacing8
+                                              : AppTheme.composerInsetH
             bottomMargin: AppTheme.composerInsetBottom
         }
         spacing: AppTheme.spacing6
