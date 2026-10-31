@@ -1333,6 +1333,7 @@ set(APP_QML_FILES
     qml/CallTileBadge.qml
     qml/CallParticipantTile.qml
     qml/CallSpeakerBubbles.qml
+    qml/StreamInfoOverlay.qml
     qml/CallStage.qml
     qml/CallTileGrid.qml
     qml/CallShareTile.qml
@@ -7467,6 +7468,11 @@ if(BUILD_TESTING)
 
     # Conflict refusal, reserved sequences and global-vs-editor shadowing for
     # rebindable shortcuts.
+    qt_add_executable(stream-info-stats-test tests/StreamInfoStatsTest.cpp)
+    target_include_directories(stream-info-stats-test PRIVATE src)
+    target_link_libraries(stream-info-stats-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME stream-info-stats COMMAND stream-info-stats-test)
+
     qt_add_executable(shortcut-registry-test
         tests/ShortcutRegistryTest.cpp
         src/app/ShortcutRegistry.h

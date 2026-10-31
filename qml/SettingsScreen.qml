@@ -348,6 +348,10 @@ Item {
           section: "chat", breadcrumb: qsTr("Chat · Message box"),
           anchor: "personalDictionaryHeading" },
 
+        { title: qsTr("Stream Info"),
+          keywords: qsTr("call video screen share codec encoder bitrate FPS debug overlay"),
+          section: "shortcuts", breadcrumb: qsTr("Keyboard shortcuts"),
+          anchor: "shortcutsHeading" },
         { title: qsTr("Keyboard shortcuts"),
           keywords: qsTr("keyboard shortcut shortcuts key keys binding rebind hotkey"),
           section: "shortcuts", breadcrumb: qsTr("Keyboard shortcuts"),

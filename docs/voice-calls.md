@@ -1205,3 +1205,24 @@ available to the harness.
 all black on this NVIDIA GLES context, for BGRA and RGBA, while `gltestsrc` does
 not. Test GL chains with `gltestsrc`. Whether a real SHM capture on the GPU
 branch is black the same way is NOT TESTED.
+
+## Stream Info
+
+During a MatrixRTC call, **Ctrl+F9** toggles Stream Info over the call stage,
+including full screen. Rebind “Show or hide Stream Info” in Settings → Keyboard
+shortcuts; searching Settings for “Stream Info” finds that page. The overlay
+starts off for every call and its visibility is never saved.
+
+Each outgoing camera/share and incoming video has its own row. Values are
+sampled once a second only while the overlay surface is visible. Resolution
+comes from negotiated media caps; FPS counts frames after outgoing encryption
+or at the decoded receive sink, rather than promising the display presented
+every frame. Bitrate estimates count RTP bytes, including headers, between
+samples. An em dash means no measurement yet, including the first sample after
+showing the overlay. Sender encoder/capture names are element factories, never
+device properties or paths. Scaling reports the engine's actual GPU/CPU choice.
+Received frame drops count the crypto probe's rejected frames. Existing
+background audio-health logging is independent of this overlay.
+
+This is a diagnostic view of local counters, not an interoperability or
+screen-share quality verdict. WebRTC-disabled builds return an empty list.

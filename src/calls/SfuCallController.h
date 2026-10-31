@@ -76,6 +76,9 @@ class SfuCallController : public QObject
     QML_ELEMENT
     QML_UNCREATABLE("SfuCallController is exposed via app.groupCall")
 
+    Q_PROPERTY(bool streamInfoVisible READ streamInfoVisible WRITE setStreamInfoVisible
+                   NOTIFY streamInfoChanged)
+    Q_PROPERTY(QVariantList streamInfo READ streamInfo NOTIFY streamInfoChanged)
     Q_PROPERTY(int state READ stateInt NOTIFY stateChanged)
     Q_PROPERTY(QString roomId READ roomId NOTIFY stateChanged)
     Q_PROPERTY(bool active READ active NOTIFY stateChanged)
@@ -203,6 +206,11 @@ public:
     void setRtcController(RtcController *rtc);
     /// Not owned. Absent means calling refuses honestly.
     void setMediaEngine(SfuMediaEngine *engine);
+    bool streamInfoVisible() const { return m_streamInfoVisible; }
+    void setStreamInfoVisible(bool visible);
+    QVariantList streamInfo() const { return m_streamInfo; }
+    Q_INVOKABLE void refreshStreamInfo();
+    Q_INVOKABLE void resetStreamInfoRates();
     /// Not owned. Absent means screen sharing refuses honestly.
     void setScreenCastPortal(ScreenCastPortal *portal);
     /// Not owned. Absent means the camera takes the direct route, which is
@@ -918,6 +926,7 @@ public:
     }
 
 Q_SIGNALS:
+    void streamInfoChanged();
     void stateChanged();
     /// membershipWritesPending() turned false (retracted, refused, or given
     /// up on).
@@ -1308,6 +1317,8 @@ private:
     /// Owned. Created eagerly because tiles can attach before any media
     /// exists.
     SfuVideoRouter *m_videoRouter = nullptr;
+    bool m_streamInfoVisible = false;
+    QVariantList m_streamInfo;
     QPointer<SfuMediaEngine> m_engine;
     QHash<int, QPointer<SfuMediaEngine>> m_subscriberEngines;
     QHash<int, QHash<QString, QVariantMap>> m_subscriberParticipants;

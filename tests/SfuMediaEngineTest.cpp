@@ -1896,6 +1896,70 @@ private slots:
         QVERIFY(!engine.active());
     }
 
+    void streamInfoTracksReceivedCryptoAndDecodedVideo()
+    {
+        SfuMediaEngine sender, receiver;
+        sender.setTestSourceMode(true);
+        receiver.setTestSourceMode(true);
+        QString failure;
+        wireLoopback(sender, receiver, this, &failure);
+        sender.start();
+        receiver.start();
+        sender.setEncryptionRequired(true);
+        receiver.setEncryptionRequired(true);
+        const QByteArray key(32, 's');
+        sender.setOutboundKey(0, key);
+        sender.publishVideo(QStringLiteral("stats-camera"), false, -1);
+        QTRY_COMPARE_WITH_TIMEOUT(receiver.streamInfoStats().size(), 1, 15000);
+        QTRY_VERIFY_WITH_TIMEOUT(receiver.streamInfoStats().first().toMap()
+            .value("dropped").toULongLong() > 0, 15000);
+        QCOMPARE(receiver.streamInfoStats().first().toMap()
+            .value("decrypted").toULongLong(), 0ULL);
+        receiver.setInboundKey(QStringLiteral("stats-camera"), 0, key);
+        QTRY_VERIFY_WITH_TIMEOUT(receiver.streamInfoStats().first().toMap()
+            .value("width").toInt() > 0, 15000);
+        const auto incoming = receiver.streamInfoStats().first().toMap();
+        QVERIFY(!incoming.value("outgoing").toBool());
+        QVERIFY(incoming.value("encrypted").toBool());
+        QVERIFY(incoming.value("decrypted").toULongLong() > 0);
+        QVERIFY(incoming.value("packets").toULongLong() > 0);
+        const auto outgoing = sender.streamInfoStats().first().toMap();
+        QVERIFY(outgoing.value("packets").toULongLong() > 0);
+        QVERIFY2(failure.isEmpty(), qPrintable(failure));
+        sender.resetStreamInfoBaselines();
+        sender.streamInfoStats();
+        QTest::qWait(250);
+        const auto rate = sender.streamInfoStats().first().toMap();
+        QVERIFY(rate.value("kbps").toDouble() > 0);
+        QVERIFY(rate.value("fps").toDouble() > 0);
+        sender.stop();
+        receiver.stop();
+        QVERIFY(receiver.streamInfoStats().isEmpty());
+    }
+
+    void streamInfoReadsRealVideoCapsAndClearsRetiredTracks()
+    {
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        QVERIFY(engine.streamInfoStats().isEmpty());
+        engine.start();
+        engine.publishVideo(QStringLiteral("stats-camera"), false, -1);
+        QTRY_COMPARE(engine.streamInfoStats().size(), 1);
+        QTRY_VERIFY(engine.streamInfoStats().first().toMap().value("width").toInt() > 0);
+        const auto row = engine.streamInfoStats().first().toMap();
+        QCOMPARE(row.value("codec").toString(), QStringLiteral("VP8"));
+        QCOMPARE(row.value("encoder").toString(), QStringLiteral("vp8enc"));
+        QCOMPARE(row.value("source").toString(), QStringLiteral("videotestsrc"));
+        QVERIFY(row.value("outgoing").toBool());
+        QVERIFY(!row.value("screen").toBool());
+        engine.resetStreamInfoBaselines();
+        QCOMPARE(engine.streamInfoStats().first().toMap().value("kbps").toDouble(), -1.0);
+        engine.unpublish(QStringLiteral("stats-camera"));
+        QVERIFY(engine.streamInfoStats().isEmpty());
+        engine.stop();
+        QVERIFY(engine.streamInfoStats().isEmpty());
+    }
+
     void publishingAudioAndVideoBuildsRealPipelines()
     {
         // The path pressing "call" reaches.
@@ -10577,6 +10641,24 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(
             receiver.receiveBinForTest(QStringLiteral("first")) == nullptr,
             5000);
+        QCOMPARE(receiver.receiveBinsForTest(), 1);
+        {
+            // The overlay can sample while this retained entry has no bin.
+            // Invalid GObject access used to emit a critical on this path.
+            static std::atomic<int> criticals{0};
+            criticals.store(0);
+            const guint handler = g_log_set_handler(
+                "GLib-GObject", G_LOG_LEVEL_CRITICAL,
+                [](const gchar *, GLogLevelFlags, const gchar *, gpointer data) {
+                    static_cast<std::atomic<int> *>(data)->fetch_add(1);
+                }, &criticals);
+            const auto restore = qScopeGuard([handler] {
+                g_log_remove_handler("GLib-GObject", handler);
+            });
+            QVERIFY(receiver.streamInfoStats().isEmpty());
+            receiver.resetStreamInfoBaselines();
+            QCOMPARE(criticals.load(), 0);
+        }
         QTest::qWait(300);
         QCOMPARE(receiver.retireAllReceiveBinsForTest(), 1);
         QCOMPARE(receiver.receiveBinsForTest(), 0);

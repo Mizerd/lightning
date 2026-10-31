@@ -24,6 +24,18 @@ Rectangle {
     objectName: "callStage"
     color: AppTheme.stormCanvas
 
+    StreamInfoOverlay {
+        anchors.left: parent.left
+        anchors.top: parent.top
+        anchors.margins: AppTheme.spacing12
+        width: Math.max(0, Math.min(480, parent.width - 2 * AppTheme.spacing12))
+        height: Math.max(0, Math.min(implicitHeight, parent.height - 2 * AppTheme.spacing12))
+        z: 100
+        visible: app.groupCall.streamInfoVisible && !root.fullScreenActive
+        controller: app.groupCall
+        stats: app.groupCall.streamInfo
+    }
+
     /// The participant list was requested from the dock; the host decides where
     /// it opens.
     signal participantsRequested()
@@ -1136,6 +1148,18 @@ Rectangle {
                 active: root.fullScreenActive
                 visible: active
                 sourceComponent: focusedSurface
+            }
+
+            StreamInfoOverlay {
+                anchors.left: parent.left
+                anchors.top: parent.top
+                anchors.margins: AppTheme.spacing12
+                width: Math.max(0, Math.min(480, parent.width - 2 * AppTheme.spacing12))
+                height: Math.max(0, Math.min(implicitHeight, parent.height - 2 * AppTheme.spacing12))
+                z: 100
+                visible: app.groupCall.streamInfoVisible
+                controller: app.groupCall
+                stats: app.groupCall.streamInfo
             }
 
             // Floating exit control.

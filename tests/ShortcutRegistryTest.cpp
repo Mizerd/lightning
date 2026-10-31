@@ -66,6 +66,20 @@ class ShortcutRegistryTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
+    void streamInfoCanBeRebound()
+    {
+        SettingsManager settings;
+        ShortcutRegistry registry(&settings);
+        const QString id = QStringLiteral("call.toggleStreamInfo");
+        QCOMPARE(registry.defaultSequenceFor(id), QStringLiteral("Ctrl+F9"));
+        QVERIFY(!roleFor(registry, id, ShortcutRegistry::DescriptionRole).isEmpty());
+        QCOMPARE(registry.validationError(id, QStringLiteral("Ctrl+F9")), QString());
+        QCOMPARE(registry.setBinding(id, QStringLiteral("Ctrl+Shift+F9")), QString());
+        QCOMPARE(registry.sequenceFor(id), QStringLiteral("Ctrl+Shift+F9"));
+        QVERIFY(!registry.validationError(id, QStringLiteral("Ctrl+Shift+I")).isEmpty());
+        registry.resetToDefault(id);
+    }
+
     void newNavigationActionsRefuseConflictsAndReservedKeys()
     {
         SettingsManager settings;

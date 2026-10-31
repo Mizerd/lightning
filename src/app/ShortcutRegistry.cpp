@@ -404,6 +404,9 @@ void ShortcutRegistry::buildTables()
         // Ctrl+Shift+M/D are taken here (room.markRead, and the reserved
         // screenshot-demo controls), so these use U (unmute) and H (hear).
         // Inert when no call is running.
+        { QStringLiteral("call.toggleStreamInfo"), callCat,
+          tr("Show or hide Stream Info"), QStringLiteral("Ctrl+F9"),
+          GlobalContext },
         { QStringLiteral("call.toggleMute"), callCat,
           tr("Mute or unmute the microphone"), QStringLiteral("Ctrl+Shift+U"),
           GlobalContext },

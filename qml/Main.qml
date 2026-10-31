@@ -323,6 +323,16 @@ ApplicationWindow {
     // UpdateManager apply-on-quit) still runs. ApplicationShortcut so it fires
     // while one of our native dialogs has focus.
     Shortcut {
+        objectName: "streamInfoShortcut"
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("call.toggleStreamInfo")]
+        }
+        context: Qt.ApplicationShortcut
+        onActivated: app.groupCall.streamInfoVisible = !app.groupCall.streamInfoVisible
+    }
+
+    Shortcut {
         // From ShortcutRegistry. bindingRevision is read inside the binding
         // because sequenceFor() creates no dependency.
         sequences: {

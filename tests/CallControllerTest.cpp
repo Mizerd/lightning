@@ -950,6 +950,25 @@ private:
     }
 
 private Q_SLOTS:
+    void streamInfoIsOptInAndClearedOnLeave()
+    {
+        SfuCallController controller;
+        QVERIFY(!controller.streamInfoVisible());
+        QVERIFY(controller.streamInfo().isEmpty());
+        controller.setStreamInfoVisible(true);
+        QVERIFY(!controller.streamInfoVisible());
+        controller.setCallStateForTest(SfuCallController::State::Connected);
+        controller.setStreamInfoVisible(true);
+        QVERIFY(controller.streamInfoVisible());
+        controller.setStreamInfoVisible(false);
+        QVERIFY(!controller.streamInfoVisible());
+        QVERIFY(controller.streamInfo().isEmpty());
+        controller.setStreamInfoVisible(true);
+        controller.leave();
+        QVERIFY(!controller.streamInfoVisible());
+        QVERIFY(controller.streamInfo().isEmpty());
+    }
+
     void duplicateAcrossFocusesSurvivesOneDisconnectWithoutKeyRotation()
     {
         KeyLaneCall c({QStringLiteral("ADEV")});

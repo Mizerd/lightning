@@ -19,6 +19,7 @@
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQuickItem>
+#include <QQuickWindow>
 #include <QScopeGuard>
 #include <QSignalSpy>
 #include <QDir>
@@ -80,6 +81,7 @@ constexpr const char *kComponents[] = {
     "EmojiCompletionPopup",
     // Long-standing surfaces with the same exposure. Cheap to cover, and
     // each one is a file somebody will edit without running its own suite.
+    "StreamInfoOverlay",
     "CallStage",
     "SettingsScreen",
     "RoomInfoPanel",
@@ -221,6 +223,102 @@ class QmlComponentLoadTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
+    void streamInfoPollsOnlyWhileTheSurfaceIsVisible()
+    {
+        QQmlApplicationEngine engine;
+        QQmlComponent component(&engine);
+        component.setData(R"QML(
+import QtQuick
+import MatrixClient
+Item {
+    width: 480; height: 320
+    visible: false
+    property alias requests: fake.requests
+    property alias resets: fake.resets
+    QtObject {
+        id: fake
+        property bool streamInfoVisible: true
+        property int requests: 0
+        property int resets: 0
+        function refreshStreamInfo() { ++requests }
+        function resetStreamInfoRates() { ++resets }
+    }
+    StreamInfoOverlay { anchors.fill: parent; controller: fake }
+}
+)QML", QUrl());
+        QTRY_VERIFY(component.status() != QQmlComponent::Loading);
+        QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY(root);
+        QQuickWindow window;
+        window.resize(480, 320);
+        auto *item = qobject_cast<QQuickItem *>(root.get());
+        QVERIFY(item);
+        item->setParentItem(window.contentItem());
+        window.show();
+        QTest::qWait(30);
+        QCOMPARE(root->property("requests").toInt(), 0);
+        root->setProperty("visible", true);
+        QTRY_VERIFY(root->property("requests").toInt() >= 2);
+        QCOMPARE(root->property("resets").toInt(), 1);
+        root->setProperty("visible", false);
+        const int before = root->property("requests").toInt();
+        QTest::qWait(1150);
+        QCOMPARE(root->property("requests").toInt(), before);
+        root->setProperty("visible", true);
+        QCOMPARE(root->property("resets").toInt(), 2);
+        QVERIFY(root->property("requests").toInt() > before);
+        item->setParentItem(nullptr);
+    }
+
+    void streamInfoPopulatedDelegateLoadsAsPlainText()
+    {
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &error : errors) warnings << error.toString();
+                });
+        QQmlComponent component(&engine);
+        component.loadFromModule(QStringLiteral("MatrixClient"),
+                                 QStringLiteral("StreamInfoOverlay"));
+        QTRY_VERIFY(component.status() != QQmlComponent::Loading);
+        QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+        const QVariantMap track{
+            {"participant", "<b>Alice</b>"}, {"outgoing", true}, {"screen", true},
+            {"codec", "VP8"}, {"encoder", "vp8enc"}, {"source", "pipewiresrc"},
+            {"scaling", "GPU"}, {"width", 1920}, {"height", 1080},
+            {"fps", 30.0}, {"kbps", 1200.0}, {"packets", 120},
+            {"encrypted", true}, {"decrypted", 0}, {"dropped", 0}};
+        std::unique_ptr<QObject> root(component.createWithInitialProperties(
+            {{"stats", QVariantList{track}}, {"width", 460}, {"height", 300}}));
+        QVERIFY(root);
+        QQuickWindow window;
+        window.resize(480, 320);
+        auto *item = qobject_cast<QQuickItem *>(root.get());
+        QVERIFY(item);
+        item->setParentItem(window.contentItem());
+        window.show();
+        QTest::qWait(30);
+        // Repeater delegates belong to the visual tree, which need not
+        // match QObject ownership inside ScrollView's content item.
+        auto findRow = [](auto &&self, QQuickItem *node) -> QQuickItem * {
+            if (node->objectName() == QStringLiteral("streamInfoRow")) return node;
+            for (auto *child : node->childItems())
+                if (auto *found = self(self, child)) return found;
+            return nullptr;
+        };
+        QQuickItem *row = findRow(findRow, item);
+        QVERIFY2(row, qPrintable(warnings.join('\n')));
+        const QString text = row->property("text").toString();
+        QVERIFY(text.contains(QStringLiteral("<b>Alice</b>")));
+        QVERIFY(text.contains(QStringLiteral("1920")));
+        QVERIFY(text.contains(QStringLiteral("vp8enc")));
+        QCOMPARE(row->property("textFormat").toInt(), 0); // Text.PlainText
+        QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
+        item->setParentItem(nullptr);
+    }
+
     void everyListedComponentLoads_data()
     {
         QTest::addColumn<QString>("component");

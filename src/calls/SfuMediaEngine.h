@@ -41,6 +41,7 @@
 #include <QTimer>
 #include <QVariantList>
 
+#include "calls/StreamInfoStats.h"
 #include "calls/CaptureDeviceSelection.h"
 #include "calls/ShareAudioSources.h"
 #include "calls/noise/NoiseSuppressor.h"
@@ -356,6 +357,8 @@ public:
     /// peer connections.
     void suspend();
     bool active() const { return m_active; }
+    QVariantList streamInfoStats();
+    void resetStreamInfoBaselines();
 
     /// Where received video frames go. The engine only asks it whether anyone
     /// is watching before copying a frame.
@@ -1375,7 +1378,8 @@ private:
     /// Install the DECRYPT probe on one incoming pad for `streamId`. An
     /// unknown stream id still gets a ring, so a later key lands correctly.
     void installDecryptProbe(GstPad *pad, bool video, const QString &streamId,
-                             bool h264 = false);
+                             bool h264 = false,
+                             std::shared_ptr<lightning::calls::StreamInfoStats> stats = {});
     /// Records media-section index -> stream id, mid and track sid. Takes maps
     /// rather than the SDP: GstSDPMessage cannot be forward-declared.
     void noteStreamIds(const QHash<int, QString> &byMline,

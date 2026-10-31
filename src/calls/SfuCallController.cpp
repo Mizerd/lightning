@@ -246,6 +246,9 @@ bool containsFocusUrl(const QStringList &urls, const QString &url)
 
 SfuCallController::SfuCallController(QObject *parent) : QObject(parent)
 {
+    connect(this, &SfuCallController::stateChanged, this, [this] {
+        if (!active()) setStreamInfoVisible(false);
+    });
     // The notice on screen is whatever callFailed() said last. A withdrawal
     // (an empty callFailed) clears it for everyone, so each withdrawer first
     // checks that the notice showing is still its own; see withdrawNotice().
@@ -7154,4 +7157,63 @@ void SfuCallController::setOwnIdentityForTest(const QString &identity)
 {
     m_ownIdentity = identity;
     rebuildModels();
+}
+
+void SfuCallController::setStreamInfoVisible(bool visible)
+{
+    visible = visible && active();
+    if (m_streamInfoVisible == visible) return;
+    m_streamInfoVisible = visible;
+    m_streamInfo.clear();
+    Q_EMIT streamInfoChanged();
+}
+
+void SfuCallController::resetStreamInfoRates()
+{
+#ifdef HAVE_LIGHTNING_WEBRTC
+    if (m_engine) m_engine->resetStreamInfoBaselines();
+    for (auto engine : m_subscriberEngines)
+        if (engine) engine->resetStreamInfoBaselines();
+#endif
+}
+
+void SfuCallController::refreshStreamInfo()
+{
+    if (!m_streamInfoVisible) return;
+    QVariantList rows;
+#ifdef HAVE_LIGHTNING_WEBRTC
+    if (m_engine) rows = m_engine->streamInfoStats();
+    for (auto engine : m_subscriberEngines)
+        if (engine) rows.append(engine->streamInfoStats());
+    // Resolve transport routing keys to the same display identity as tiles.
+    // Only display names cross into QML: no raw stats structures or SDP.
+    for (QVariant &value : rows) {
+        QVariantMap row = value.toMap();
+        const QString stream = row.take(QStringLiteral("streamId")).toString();
+        const QString track = row.take(QStringLiteral("trackKey")).toString();
+        QString participant = row.value(QStringLiteral("outgoing")).toBool()
+            ? tr("You") : tr("Participant");
+        for (const QVariant &entry : std::as_const(m_participants)) {
+            const QVariantMap peer = entry.toMap();
+            if (peer.value(QStringLiteral("sid")).toString() != stream) continue;
+            const QString identity = peer.value(QStringLiteral("identity")).toString();
+            const int index = m_participantModel->indexOfIdentity(identity);
+            if (index >= 0) {
+                const auto person = m_participantModel->get(index);
+                if (!row.value(QStringLiteral("outgoing")).toBool())
+                    row.insert(QStringLiteral("screen"),
+                        !track.isEmpty()
+                        && person.value(QStringLiteral("screenTrackKey")).toString() == track);
+                QString name = person.value(QStringLiteral("displayName")).toString();
+                if (name.isEmpty()) name = person.value(QStringLiteral("userId")).toString();
+                if (!name.isEmpty()) participant = name;
+            }
+            break;
+        }
+        row.insert(QStringLiteral("participant"), participant);
+        value = row;
+    }
+#endif
+    m_streamInfo = rows;
+    Q_EMIT streamInfoChanged();
 }

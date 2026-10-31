@@ -228,6 +228,80 @@ void announceBlocked(SfuMediaEngine *engine, const QString &streamId,
         Qt::QueuedConnection);
 }
 
+using StreamInfo = lightning::calls::StreamInfoStats;
+using StreamInfoPtr = std::shared_ptr<StreamInfo>;
+constexpr const char *streamInfoKey = "lightning-stream-info";
+
+StreamInfoPtr attachStreamInfo(GstElement *bin)
+{
+    auto stats = std::make_shared<StreamInfo>();
+    g_object_set_data_full(G_OBJECT(bin), streamInfoKey, new StreamInfoPtr(stats),
+        [](gpointer data) { delete static_cast<StreamInfoPtr *>(data); });
+    return stats;
+}
+
+// Fixed closed-set factory name only: never serialise source properties (a
+// portal source description can carry a file descriptor or device path).
+QString streamInfoFactory(GstElement *bin, const char *name)
+{
+    GstElement *element = gst_bin_get_by_name(GST_BIN(bin), name);
+    if (!element)
+        return {};
+    GstElementFactory *factory = gst_element_get_factory(element);
+    const QString result = factory
+        ? QString::fromUtf8(gst_plugin_feature_get_name(GST_PLUGIN_FEATURE(factory)))
+        : QString();
+    gst_object_unref(element);
+    return result;
+}
+
+void instrumentStreamInfo(GstPad *pad, const StreamInfoPtr &stats, bool rtp)
+{
+    if (!pad)
+        return;
+    struct Context { StreamInfoPtr stats; bool rtp; };
+    gst_pad_add_probe(pad,
+        GstPadProbeType(GST_PAD_PROBE_TYPE_BUFFER | GST_PAD_PROBE_TYPE_BUFFER_LIST
+                        | GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM),
+        [](GstPad *, GstPadProbeInfo *info, gpointer data) {
+            auto *ctx = static_cast<Context *>(data);
+            if (GST_PAD_PROBE_INFO_TYPE(info) & GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM) {
+                GstEvent *event = GST_PAD_PROBE_INFO_EVENT(info);
+                if (!ctx->rtp && GST_EVENT_TYPE(event) == GST_EVENT_CAPS) {
+                    GstCaps *caps = nullptr;
+                    gst_event_parse_caps(event, &caps);
+                    if (caps && gst_caps_get_size(caps)) {
+                        const GstStructure *s = gst_caps_get_structure(caps, 0);
+                        int w = 0, h = 0;
+                        gst_structure_get_int(s, "width", &w);
+                        gst_structure_get_int(s, "height", &h);
+                        ctx->stats->width = w;
+                        ctx->stats->height = h;
+                    }
+                }
+                return GST_PAD_PROBE_OK;
+            }
+            auto count = [ctx](GstBuffer *buffer) {
+                if (!buffer) return;
+                if (ctx->rtp) {
+                    ctx->stats->bytes.fetch_add(gst_buffer_get_size(buffer));
+                    ctx->stats->packets.fetch_add(1);
+                } else {
+                    ctx->stats->frames.fetch_add(1);
+                }
+            };
+            if (GST_PAD_PROBE_INFO_TYPE(info) & GST_PAD_PROBE_TYPE_BUFFER)
+                count(GST_PAD_PROBE_INFO_BUFFER(info));
+            else if (GST_PAD_PROBE_INFO_TYPE(info) & GST_PAD_PROBE_TYPE_BUFFER_LIST) {
+                GstBufferList *list = GST_PAD_PROBE_INFO_BUFFER_LIST(info);
+                for (guint i = 0; i < gst_buffer_list_length(list); ++i)
+                    count(gst_buffer_list_get(list, i));
+            }
+            return GST_PAD_PROBE_OK;
+        }, new Context{stats, rtp},
+        [](gpointer data) { delete static_cast<Context *>(data); });
+}
+
 /// Why frames in the window are failing, for the badge's reason string.
 enum class CryptoDropCause { None, NoKey, Undecryptable };
 
@@ -267,6 +341,7 @@ struct CryptoProbeCtx {
     /// Frames passed and dropped. Separates "our media never reaches the wire"
     /// from "the far end cannot use it". Owned by the single streaming thread,
     /// so no locking (as for the other per-probe fields below).
+    StreamInfoPtr streamInfo;
     quint64 passed = 0;
     quint64 dropped = 0;
     /// Once-per-track diagnosis lines (no key, failed, working).
@@ -771,6 +846,7 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
         const bool required = ctx->required && ctx->required->load();
         if (required) {
             ++ctx->dropped;
+            if (ctx->streamInfo) ctx->streamInfo->dropped.fetch_add(1);
             if (ctx->totalDropped)
                 ctx->totalDropped->fetch_add(1);
             ctx->lastCause = CryptoDropCause::NoKey;
@@ -802,6 +878,7 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
             return GST_PAD_PROBE_DROP;
         }
         ++ctx->passed;
+        if (ctx->streamInfo) ctx->streamInfo->decrypted.fetch_add(1);
         if (ctx->total)
             ctx->total->fetch_add(1);
         // A clear pass is still an outcome, or the window goes stale.
@@ -852,6 +929,7 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
         // fallback by design. On receive, a run of these means a key
         // mismatch and is otherwise indistinguishable from silence.
         ++ctx->dropped;
+        if (ctx->streamInfo) ctx->streamInfo->dropped.fetch_add(1);
         if (ctx->totalDropped)
             ctx->totalDropped->fetch_add(1);
         ctx->lastCause = CryptoDropCause::Undecryptable;
@@ -941,6 +1019,7 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
         return GST_PAD_PROBE_DROP;
     }
     ++ctx->passed;
+    if (ctx->streamInfo) ctx->streamInfo->decrypted.fetch_add(1);
     if (ctx->total)
         ctx->total->fetch_add(1);
     // Clear the badge once enough frames decrypt. The log-once flags stay
@@ -6027,6 +6106,12 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
     portalFd.release();
     // Shared by the probes below and handlePublishError(); created before the
     // bin can play.
+    const auto streamInfo = attachStreamInfo(bin);
+    streamInfo->outgoing = true;
+    streamInfo->screen = screenShare;
+    streamInfo->source = streamInfoFactory(bin, "capsrc");
+    streamInfo->encoder = streamInfoFactory(bin, "videoenc");
+    streamInfo->scaling = useGpu ? QStringLiteral("GPU") : QStringLiteral("CPU");
     auto probeState = std::make_shared<PublishProbeState>();
     // A portal camera is started off the GUI thread (below), so it can still
     // be starting when the engine goes; its engine-touching callbacks are
@@ -6237,12 +6322,14 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
                         data);
                 });
             installEncryptProbe(encoded, /*video=*/true, gate, h264Frames);
+            instrumentStreamInfo(encoded, streamInfo, false);
             gst_object_unref(encoded);
         }
         gst_object_unref(encoder);
     }
     // The link result decides whether there is anything to offer.
     GstPad *srcPad = gst_element_get_static_pad(bin, "src");
+    instrumentStreamInfo(srcPad, streamInfo, true);
     // RTP leaving the bin, as for the microphone: `frames encrypted` counts
     // only what the encoder produced.
     if (srcPad) {
@@ -8374,11 +8461,13 @@ void SfuMediaEngine::installEncryptProbe(GstPad *pad, bool video,
 }
 
 void SfuMediaEngine::installDecryptProbe(GstPad *pad, bool video,
-                                         const QString &streamId, bool h264)
+                                         const QString &streamId, bool h264,
+                                         StreamInfoPtr stats)
 {
     if (!pad)
         return;
     auto *ctx = new CryptoProbeCtx;
+    ctx->streamInfo = std::move(stats);
     ctx->engine = this;
     // The stream id, not a ring (see cryptoProbe()). The ring is created now
     // so a key arriving later has somewhere to land.
@@ -10372,13 +10461,25 @@ bool SfuMediaEngine::prepareReceiveChain(GstElement *pipeline,
         return false;
     }
     *binOut = bin;
+    const auto streamInfo = video ? attachStreamInfo(bin) : StreamInfoPtr();
+    if (streamInfo) {
+        GstPad *rtp = gst_element_get_static_pad(bin, "sink");
+        instrumentStreamInfo(rtp, streamInfo, true);
+        if (rtp) gst_object_unref(rtp);
+        if (GstElement *sink = gst_bin_get_by_name(GST_BIN(bin), "vidsink")) {
+            GstPad *decoded = gst_element_get_static_pad(sink, "sink");
+            instrumentStreamInfo(decoded, streamInfo, false);
+            if (decoded) gst_object_unref(decoded);
+            gst_object_unref(sink);
+        }
+    }
     // Decrypt on the depayloader's src pad, where the encoded frame is whole.
     // Installed before the bin plays so no frame reaches the decoder
     // unexamined.
     bool decryptProbeInstalled = false;
     if (GstElement *depay = gst_bin_get_by_name(GST_BIN(bin), "recvdepay")) {
         if (GstPad *framePad = gst_element_get_static_pad(depay, "src")) {
-            installDecryptProbe(framePad, video, streamId, h264);
+            installDecryptProbe(framePad, video, streamId, h264, streamInfo);
             decryptProbeInstalled = true;
             gst_object_unref(framePad);
         }
@@ -11140,4 +11241,43 @@ void SfuMediaEngine::swapReceiveSinks()
                        << "received track(s) to the"
                        << (binding.isEmpty() ? "default" : "chosen")
                        << "output";
+}
+
+// Called only by the controller's opt-in GUI timer. No GStreamer state waits,
+// promises, pipeline traversal or allocation of video frames on this path.
+QVariantList SfuMediaEngine::streamInfoStats()
+{
+    QVariantList rows;
+    const qint64 now = monotonicMs();
+    auto append = [&](GstElement *bin, const QString &stream, const QString &track) {
+        if (!bin) return; // Audio recovery keeps a temporarily empty entry.
+        auto *held = static_cast<StreamInfoPtr *>(
+            g_object_get_data(G_OBJECT(bin), streamInfoKey));
+        if (!held) return;
+        QVariantMap row = (*held)->sample(now);
+        row.insert(QStringLiteral("streamId"), stream);
+        row.insert(QStringLiteral("trackKey"), track);
+        row.insert(QStringLiteral("encrypted"), m_encryptionRequired.load());
+        rows.append(row);
+    };
+    for (auto it = m_publishedBins.cbegin(); it != m_publishedBins.cend(); ++it)
+        append(it.value(), QString(), it.key());
+    QMutexLocker lock(&m_receiveBinMutex);
+    for (const auto &receive : m_receiveBins)
+        append(receive.bin, m_receiveNamespace + receive.streamId,
+               m_receiveNamespace + receive.trackKey);
+    return rows;
+}
+
+void SfuMediaEngine::resetStreamInfoBaselines()
+{
+    auto reset = [](GstElement *bin) {
+        if (!bin) return;
+        auto *held = static_cast<StreamInfoPtr *>(
+            g_object_get_data(G_OBJECT(bin), streamInfoKey));
+        if (held) (*held)->lastMs = -1;
+    };
+    for (auto *bin : m_publishedBins) reset(bin);
+    QMutexLocker lock(&m_receiveBinMutex);
+    for (const auto &receive : m_receiveBins) reset(receive.bin);
 }
