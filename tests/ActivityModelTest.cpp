@@ -137,6 +137,32 @@ class ActivityModelTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
+    void searchFiltersLoadedRowsWithoutChangingBadge()
+    {
+        Harness h;
+        h.model.seed({QVariantMap{
+            {"eventId", "$search"}, {"roomId", kRoom},
+            {"threadRootId", "$root"}, {"senderId", "@bob:mock.local"},
+            {"kind", "mention"}, {"preview", "Needle in a haystack"},
+            {"timestampMs", 200}}});
+        QCOMPARE(h.model.rowCount(), 1);
+        const int badge = h.model.unseenCount();
+        h.model.setProperty("searchQuery", "absent");
+        QCOMPARE(h.model.rowCount(), 0);
+        QCOMPARE(h.model.threadActivity("all").size(), 0);
+        QCOMPARE(h.model.unseenCount(), badge);
+        h.model.setProperty("searchQuery", "  NEEDLE  ");
+        QCOMPARE(h.model.rowCount(), 1);
+        QCOMPARE(h.model.threadActivity("all").size(), 1);
+        h.model.setFilter("reactions");
+        QCOMPARE(h.model.rowCount(), 0);
+        h.model.setFilter("all");
+        h.model.setProperty("searchQuery", "bob");
+        QCOMPARE(h.model.rowCount(), 1);
+        h.model.setProperty("searchQuery", "");
+        QCOMPARE(h.model.rowCount(), 1);
+    }
+
     void threadActivityGroupsRootsAndKeepsSeenSeparateFromRead()
     {
         Harness h;

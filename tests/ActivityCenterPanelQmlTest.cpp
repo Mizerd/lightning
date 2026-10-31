@@ -71,6 +71,7 @@ QtObject {
         id: model
         property int unseenCount: 1
         property string filter: "all"
+        property string searchQuery: ""
         property bool historyUnavailable: false
         property bool activityHasMore: true
         property bool threadPageLoading: false
@@ -195,6 +196,24 @@ private Q_SLOTS:
         qputenv("XDG_CONFIG_HOME", m_configHome.path().toUtf8());
         QCoreApplication::setOrganizationName(QStringLiteral("MatrixClientTests"));
         QCoreApplication::setApplicationName(QStringLiteral("activity-keyboard-test"));
+    }
+
+    void searchFieldFitsAndForwardsEdits()
+    {
+        Fixture f;
+        QVERIFY(make(f));
+        auto *field = f.panel->findChild<QQuickItem *>(QStringLiteral("activitySearch"));
+        QVERIFY(field);
+        QVERIFY(field->width() > 100);
+        QVERIFY(field->height() > 0);
+        QVERIFY(field->width() <= f.panel->property("width").toReal());
+        field->forceActiveFocus();
+        for (const auto key : {Qt::Key_N, Qt::Key_E, Qt::Key_E, Qt::Key_D, Qt::Key_L, Qt::Key_E})
+            QTest::keyClick(qobject_cast<QQuickWindow *>(f.window), key);
+        QCOMPARE(f.activity->property("searchQuery").toString(), QStringLiteral("needle"));
+        QMetaObject::invokeMethod(f.panel, "close");
+        settle();
+        QCOMPARE(f.activity->property("searchQuery").toString(), QString());
     }
 
     void olderHighlightsCanBeLoadedFromTheMainActivityList()

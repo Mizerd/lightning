@@ -44,6 +44,8 @@ Dialog {
         }
     }
 
+    onClosed: if (activity) activity.searchQuery = ""
+
     // The keyword list is NOT edited here: it used to be a second, local list
     // that only filtered this panel and never notified or pushed. The account's
     // keywords are push rules, edited in Settings > Notifications. Nothing in
@@ -58,6 +60,8 @@ Dialog {
             ? app.shortcuts.dialogActionForKey(event.key, event.modifiers, false) : ""
     }
     function handleDialogKey(event) {
+        if (activitySearch.activeFocus && event.key !== Qt.Key_Escape)
+            return false
         const action = root.dialogAction(event)
         if (action === "dialog.close") {
             root.close()
@@ -403,6 +407,8 @@ Dialog {
             text: {
                 if (!root.activity)
                     return ""
+                if (root.activity && root.activity.searchQuery.trim().length > 0)
+                    return qsTr("No loaded activity matches your search.")
                 if (root.showingThreads)
                     return root.threadScope === "following"
                            ? qsTr("No followed threads found in recent activity.")
@@ -421,6 +427,16 @@ Dialog {
                 default: return qsTr("Nothing here yet. Mentions, replies and reactions to you will show up as they arrive.")
                 }
             }
+        }
+
+        TextField {
+            id: activitySearch
+            objectName: "activitySearch"
+            Layout.fillWidth: true
+            placeholderText: qsTr("Search loaded activity")
+            Accessible.name: placeholderText
+            text: root.activity ? root.activity.searchQuery : ""
+            onTextEdited: if (root.activity) root.activity.searchQuery = text
         }
 
         Item {

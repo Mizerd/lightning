@@ -420,6 +420,12 @@ NOT TESTED**. Automated tests named in commits do not establish live behavior.
     overrides this default in both conversation layouts when Space order is
     selected; an explicit Activity/A–Z/Unread choice still wins. The lobby
     continues to show the shared default.
+  * **Activity search** filters loaded rows in memory, intersected with the
+    selected category or thread scope. It searches room/sender names and the
+    displayed preview; it never fetches history by itself, changes badge/seen
+    counts or persists the query. Load older remains explicit; closing the
+    dialog or changing accounts clears the query. Encrypted placeholders do
+    not expose hidden previews through search.
   * **A hidden `AppMenuSeparator` now takes NO height.** QQuickMenu lays rows
     out in a ListView that honours each item's height, and a separator's height
     comes from its contentItem plus padding whether it is visible or not — so

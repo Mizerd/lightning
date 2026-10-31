@@ -375,6 +375,8 @@ bool ActivityModel::persistSeenInvites()
 void ActivityModel::clear()
 {
     beginResetModel();
+    m_searchQuery.clear();
+    Q_EMIT searchQueryChanged();
     m_entries.clear();
     m_visible.clear();
     m_ids.clear();
@@ -909,6 +911,14 @@ QVariantList ActivityModel::threadActivity(const QString &scope) const
         if (scope == QLatin1String("participating")
             && !row.value(QStringLiteral("participating")).toBool())
             continue;
+        const QString query = m_searchQuery.trimmed();
+        if (!query.isEmpty()
+            && !row.value(QStringLiteral("roomName")).toString().contains(query, Qt::CaseInsensitive)
+            && !row.value(QStringLiteral("senderName")).toString().contains(query, Qt::CaseInsensitive)
+            && !(row.value(QStringLiteral("encrypted")).toBool()
+                 ? tr("Encrypted message") : row.value(QStringLiteral("preview")).toString()).contains(query, Qt::CaseInsensitive)
+            && !row.value(QStringLiteral("rootPreview")).toString().contains(query, Qt::CaseInsensitive))
+            continue;
         filtered.append(row);
     }
     return filtered;
@@ -960,6 +970,15 @@ void ActivityModel::openThreadActivity(const QString &roomId,
 
 // ---- filter --------------------------------------------------------------
 
+void ActivityModel::setSearchQuery(const QString &query)
+{
+    if (m_searchQuery == query)
+        return;
+    m_searchQuery = query;
+    rebuildVisible();
+    Q_EMIT searchQueryChanged();
+}
+
 void ActivityModel::setFilter(const QString &filter)
 {
     static const QStringList kFilters{
@@ -977,6 +996,14 @@ void ActivityModel::setFilter(const QString &filter)
 
 bool ActivityModel::passesFilter(const Entry &e) const
 {
+    const QString query = m_searchQuery.trimmed();
+    if (!query.isEmpty()
+        && !e.roomName.contains(query, Qt::CaseInsensitive)
+        && !e.senderName.contains(query, Qt::CaseInsensitive)
+        && !e.senderId.contains(query, Qt::CaseInsensitive)
+        && !(e.encrypted ? tr("Encrypted message") : e.preview).contains(query, Qt::CaseInsensitive)
+        && !e.reactionKey.contains(query, Qt::CaseInsensitive))
+        return false;
     if (isMutedRoom(e)
         || (!m_reactionsVisible && e.kind == QLatin1String("reaction")))
         return false;

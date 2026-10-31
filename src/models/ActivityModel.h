@@ -42,6 +42,7 @@ class ActivityModel : public QAbstractListModel
     // "all" | "mentions" | "replies" | "threads" | "reactions" | "invites"
     // | "keywords"
     Q_PROPERTY(QString filter READ filter WRITE setFilter NOTIFY filterChanged)
+    Q_PROPERTY(QString searchQuery READ searchQuery WRITE setSearchQuery NOTIFY searchQueryChanged)
     // Case-insensitive whole-word highlights (bounded; see kMaxKeywords).
     Q_PROPERTY(QStringList keywords READ keywords WRITE setKeywords
                    NOTIFY keywordsChanged)
@@ -131,6 +132,8 @@ public:
 
     int count() const { return m_visible.size(); }
     int unseenCount() const;
+    QString searchQuery() const { return m_searchQuery; }
+    void setSearchQuery(const QString &query);
     QString filter() const { return m_filter; }
     void setFilter(const QString &filter);
     QStringList keywords() const { return m_keywords; }
@@ -279,6 +282,7 @@ Q_SIGNALS:
     void countChanged();
     void unseenCountChanged();
     void filterChanged();
+    void searchQueryChanged();
     void keywordsChanged();
     void historyUnavailableChanged();
     void readHorizonDaysChanged();
@@ -381,6 +385,7 @@ private:
     std::function<qint64()> m_now;
     // Cleared by notificationModesChanged() and by clear().
     mutable QHash<QString, bool> m_muteCache;
+    QString m_searchQuery;
     QString m_filter = QStringLiteral("all");
     bool m_reactionsVisible = true;
     QStringList m_keywords;
