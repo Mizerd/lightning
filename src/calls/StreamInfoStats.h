@@ -19,6 +19,11 @@ struct StreamInfoStats {
     bool screen = false;
     qint64 lastMs = -1;
     quint64 lastBytes = 0, lastFrames = 0;
+    double lastFps = -1, lastKbps = -1;
+    /// Two surfaces can poll one track in the same tick (the stage and its
+    /// full-screen window). A second sample that soon would divide one frame
+    /// by two milliseconds, or nothing by nothing, and restart the window.
+    static constexpr qint64 kMinSampleMs = 200;
 
     static double rate(quint64 current, quint64 previous, qint64 elapsedMs,
                        double multiplier)
@@ -32,6 +37,9 @@ struct StreamInfoStats {
         const auto b = bytes.load();
         const auto f = frames.load();
         const auto elapsed = lastMs < 0 ? 0 : now - lastMs;
+        const bool tooSoon = lastMs >= 0 && elapsed < kMinSampleMs;
+        const double fps = tooSoon ? lastFps : rate(f, lastFrames, elapsed, 1000);
+        const double kbps = tooSoon ? lastKbps : rate(b, lastBytes, elapsed, 8);
         QVariantMap row{
             {QStringLiteral("outgoing"), outgoing},
             {QStringLiteral("screen"), screen},
@@ -41,15 +49,19 @@ struct StreamInfoStats {
             {QStringLiteral("scaling"), scaling},
             {QStringLiteral("width"), width.load()},
             {QStringLiteral("height"), height.load()},
-            {QStringLiteral("fps"), rate(f, lastFrames, elapsed, 1000)},
-            {QStringLiteral("kbps"), rate(b, lastBytes, elapsed, 8)},
+            {QStringLiteral("fps"), fps},
+            {QStringLiteral("kbps"), kbps},
             {QStringLiteral("packets"), QVariant::fromValue(packets.load())},
             {QStringLiteral("decrypted"), QVariant::fromValue(decrypted.load())},
             {QStringLiteral("dropped"), QVariant::fromValue(dropped.load())}
         };
+        if (tooSoon)
+            return row;
         lastMs = now;
         lastBytes = b;
         lastFrames = f;
+        lastFps = fps;
+        lastKbps = kbps;
         return row;
     }
 };

@@ -1181,7 +1181,9 @@ Rectangle {
                 width: Math.max(0, Math.min(480, parent.width - 2 * AppTheme.spacing12))
                 height: Math.max(0, Math.min(implicitHeight, parent.height - 2 * AppTheme.spacing12))
                 z: 100
-                visible: app.groupCall.streamInfoVisible
+                // A hidden Window does not hide its items, and this one's timer
+                // would tick beside the stage's.
+                visible: app.groupCall.streamInfoVisible && root.fullScreenActive
                 controller: app.groupCall
                 stats: app.groupCall.streamInfo
             }
