@@ -419,6 +419,132 @@ private Q_SLOTS:
                                 .arg(type).arg(x).arg(y).arg(w).arg(h)
                                 .arg(win.width()).arg(win.height())));
     }
+
+    // The image viewer's own chrome (toolbar, arrows, close, thumbnail strip)
+    // in a window a quarter of a screen: every control inside the window.
+    void theImageViewerChromeStaysInsideTheWindowAtTheFloor()
+    {
+        m_controller->showMain();
+        m_window->resize(640, 420);
+        QCoreApplication::processEvents();
+        QTest::qWait(150);
+        QObject *viewer = m_window->findChild<QObject *>(
+            QStringLiteral("imageViewerOverlay"));
+        QVERIFY2(viewer, "image viewer not found");
+        QVariantList entries;
+        for (int i = 0; i < 6; ++i) {
+            QVariantMap e;
+            e.insert(QStringLiteral("row"), i);
+            e.insert(QStringLiteral("mediaKey"), QStringLiteral("mock-%1").arg(i));
+            e.insert(QStringLiteral("filename"), QStringLiteral("photo-%1.png").arg(i));
+            e.insert(QStringLiteral("sender"), QStringLiteral("Alice"));
+            e.insert(QStringLiteral("mime"), QStringLiteral("image/png"));
+            e.insert(QStringLiteral("httpUrl"), QString());
+            e.insert(QStringLiteral("isImage"), true);
+            e.insert(QStringLiteral("isVideo"), false);
+            e.insert(QStringLiteral("isVisual"), true);
+            e.insert(QStringLiteral("thumbAvailable"), false);
+            e.insert(QStringLiteral("size"), 1234);
+            e.insert(QStringLiteral("timestamp"), 1.7e12 + i);
+            entries.append(e);
+        }
+        QVERIFY(QMetaObject::invokeMethod(viewer, "openAt",
+                                          Q_ARG(QVariant, entries),
+                                          Q_ARG(QVariant, 2)));
+        QTest::qWait(500);
+        // Not vacuous: the chrome under test must really be on screen.
+        for (const char *name : { "viewerCloseButton", "viewerToolbar" }) {
+            QQuickItem *chrome = item(name);
+            QVERIFY2(chrome && chrome->isVisible() && chrome->width() > 0,
+                     name);
+        }
+        QStringList stray;
+        controlsOutsideBox(m_window->contentItem(),
+                           QRectF(0, 0, m_window->width(), m_window->height()),
+                           stray);
+        // Only the viewer's controls are of interest here.
+        QStringList viewerOnly;
+        for (const QString &s : stray)
+            if (s.contains(QLatin1String("viewer"), Qt::CaseInsensitive))
+                viewerOnly << s;
+        QMetaObject::invokeMethod(viewer, "close");
+        QTest::qWait(150);
+        QVERIFY2(viewerOnly.isEmpty(), qPrintable(viewerOnly.join(QStringLiteral("; "))));
+    }
+
+    // Room Information beside the room, or over it when the pane is too
+    // narrow for both: either way its controls sit inside the window.
+    void theRoomInfoPanelStaysInsideTheWindowAtTheFloor_data()
+    {
+        QTest::addColumn<QSize>("size");
+        QTest::newRow("640x420") << QSize(640, 420);
+        QTest::newRow("854x480") << QSize(854, 480);
+        QTest::newRow("960x540") << QSize(960, 540);
+    }
+
+    void theRoomInfoPanelStaysInsideTheWindowAtTheFloor()
+    {
+        QFETCH(QSize, size);
+        m_controller->showMain();
+        m_window->resize(size);
+        QCoreApplication::processEvents();
+        QTest::qWait(150);
+        QQuickItem *pane = item("timelinePane");
+        QVERIFY(pane);
+        QVERIFY(pane->setProperty("infoOpen", true));
+        QTest::qWait(500);
+        QStringList stray;
+        controlsOutsideBox(m_window->contentItem(),
+                           QRectF(0, 0, m_window->width(), m_window->height()),
+                           stray);
+        // Opening Room Information must always show it, beside the room or
+        // (in a pane too narrow for both) over it. It used to vanish below a
+        // 700 px pane: the header button did nothing in a quarter-screen window.
+        QQuickItem *panel = item("roomInfoPanel");
+        const bool shown = panel && panel->isVisible() && panel->width() > 100;
+        const qreal paneW = pane->width();
+        const qreal panelW = panel ? panel->width() : 0;
+        QQuickItem *roomColumn = item("roomColumn");
+        const bool roomHidden = roomColumn && !roomColumn->isVisible();
+        pane->setProperty("infoOpen", false);
+        QTest::qWait(150);
+        QVERIFY2(shown, qPrintable(QStringLiteral("Room Information is not "
+                                                  "shown at %1x%2")
+                                       .arg(size.width()).arg(size.height())));
+        if (paneW < 700)
+            QVERIFY2(roomHidden && qAbs(panelW - paneW) < 1.0,
+                     "a narrow pane should hand itself to Room Information");
+        QVERIFY2(stray.isEmpty(), qPrintable(stray.join(QStringLiteral("; "))));
+    }
+
+    // The sign-in screen at the floor: nothing the user must press lies
+    // outside the window.
+    void theLoginScreenStaysInsideTheWindowAtTheFloor_data()
+    {
+        QTest::addColumn<QSize>("size");
+        QTest::newRow("640x420") << QSize(640, 420);
+        QTest::newRow("854x480") << QSize(854, 480);
+    }
+
+    void theLoginScreenStaysInsideTheWindowAtTheFloor()
+    {
+        QFETCH(QSize, size);
+        m_window->resize(size);
+        m_controller->showLogin();
+        QCoreApplication::processEvents();
+        QTest::qWait(400);
+        QStringList stray;
+        controlsOutsideBox(m_window->contentItem(),
+                           QRectF(0, 0, m_window->width(), m_window->height()),
+                           stray);
+        const QSize sz = size;
+        const bool ok = m_controller->showMain();
+        QTest::qWait(200);
+        QVERIFY2(stray.isEmpty(),
+                 qPrintable(QStringLiteral("%1x%2: ").arg(sz.width()).arg(sz.height())
+                            + stray.join(QStringLiteral("; "))));
+        QVERIFY(ok);
+    }
 };
 
 QTEST_MAIN(SmallWindowQmlTest)

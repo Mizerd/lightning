@@ -465,6 +465,10 @@ Rectangle {
         if (!app.settings.memberPanelOpen || app.currentRoomId === ""
                 || !app.roomInfo.supported)
             return
+        // A remembered panel is not worth hiding the room behind it in a
+        // window too narrow to show both; opening it is an explicit act there.
+        if (root.width > 0 && !sideSurface.infoBeside)
+            return
         infoPanel.openForRoom(app.currentRoomId)
         infoPanel.section = "people"
         infoOpen = true
@@ -1214,7 +1218,8 @@ Rectangle {
         // timeline minimum cannot coexist, that surface takes the pane; the
         // room stays alive underneath.
         visible: !((root.threadSurfaceOpen && !sideSurface.threadBeside)
-                   || (root.searchOpen && !sideSurface.beside))
+                   || (root.searchOpen && !sideSurface.beside)
+                   || sideSurface.infoTakesPane)
         Layout.fillWidth: true
         Layout.fillHeight: true
         Layout.minimumWidth: 320
@@ -7277,6 +7282,12 @@ Rectangle {
             Math.max(260, Math.min(app.settings.sidePanelWidth,
                                    root.width - 420))
         readonly property bool infoBeside: root.width >= 700
+        // Below that Room Information takes the whole pane, as the thread and
+        // search surfaces do, instead of vanishing: in a window a quarter of a
+        // screen the header's Room Information button used to do nothing at
+        // all. The panel's own close button gives the room back.
+        readonly property bool infoTakesPane:
+            root.infoOpen && root.width > 0 && !infoBeside
     }
 
     // The thread and search panels' divider, also their resize grab: it
@@ -7353,7 +7364,7 @@ Rectangle {
     Item {
         id: infoResizer
         objectName: "roomInfoResizeHandle"
-        visible: root.infoOpen
+        visible: root.infoOpen && !sideSurface.infoTakesPane
         Layout.fillHeight: true
         // One pixel, not a band: a wider band has no colour that is right
         // beside panes that change colour along their height. The grab area
@@ -7402,9 +7413,13 @@ Rectangle {
         // right edge. 420 is the conversation's floor; the panel's is 260, and
         // the >= 700 gate keeps them from fighting (sideSurface.infoWidth,
         // which chatDropArea reads too).
-        Layout.preferredWidth: root.infoOpen ? sideSurface.infoWidth : 0
-        // Collapse at narrow widths instead of crushing the chat.
-        visible: root.infoOpen && sideSurface.infoBeside
+        Layout.preferredWidth: root.infoOpen
+                               ? (sideSurface.infoTakesPane ? root.width
+                                                            : sideSurface.infoWidth)
+                               : 0
+        Layout.fillWidth: sideSurface.infoTakesPane
+        // Beside the chat when there is room, over it when there is not.
+        visible: root.infoOpen
         onCloseRequested: {
             root.infoOpen = false
             root.rememberMemberPanel()
