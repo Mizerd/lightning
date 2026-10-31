@@ -150,7 +150,7 @@ private Q_SLOTS:
             createdSpy.at(0).at(0).value<QObject *>());
         QVERIFY(m_window);
         m_window->setWidth(640);
-        m_window->setHeight(420);
+        m_window->setHeight(360);
         QVERIFY(QTest::qWaitForWindowExposed(m_window));
 
         QSignalSpy loginSpy(m_controller->auth(), &AuthManager::loginSucceeded);
@@ -173,13 +173,13 @@ private Q_SLOTS:
     void theWindowFloorIsTheSizeTheCasesAssume()
     {
         QCOMPARE(m_window->minimumWidth(), 640);
-        QCOMPARE(m_window->minimumHeight(), 420);
+        QCOMPARE(m_window->minimumHeight(), 360);
     }
 
     void everySettingsSectionStaysInsideItsViewportAtTheFloor_data()
     {
         QTest::addColumn<QSize>("size");
-        QTest::newRow("640x420") << QSize(640, 420);
+        QTest::newRow("640x360") << QSize(640, 360);
         QTest::newRow("854x480") << QSize(854, 480);
     }
 
@@ -240,7 +240,7 @@ private Q_SLOTS:
         QFETCH(QString, opener);
         QFETCH(QString, popupName);
         m_controller->showMain();
-        m_window->resize(640, 420);
+        m_window->resize(640, 360);
         QCoreApplication::processEvents();
         QTest::qWait(200);
         QQuickItem *composer = item("messageComposer");
@@ -282,7 +282,7 @@ private Q_SLOTS:
     void theCallPanelNeverPushesTheComposerOutOfAShortWindow()
     {
         m_controller->showMain();
-        m_window->resize(640, 420);
+        m_window->resize(640, 360);
         QCoreApplication::processEvents();
         QTest::qWait(200);
         QQuickItem *pane = item("timelinePane");
@@ -309,7 +309,7 @@ private Q_SLOTS:
     void theFindBarKeepsEveryControlInsideItsCardAtTheFloor_data()
     {
         QTest::addColumn<QSize>("size");
-        QTest::newRow("640x420") << QSize(640, 420);
+        QTest::newRow("640x360") << QSize(640, 360);
         QTest::newRow("854x480") << QSize(854, 480);
     }
 
@@ -374,7 +374,7 @@ private Q_SLOTS:
         QFETCH(QString, type);
         QFETCH(QString, open);
         m_controller->showMain();
-        m_window->resize(640, 420);
+        m_window->resize(640, 360);
         QCoreApplication::processEvents();
         QTest::qWait(150);
         QQmlComponent component(m_engine);
@@ -425,7 +425,7 @@ private Q_SLOTS:
     void theImageViewerChromeStaysInsideTheWindowAtTheFloor()
     {
         m_controller->showMain();
-        m_window->resize(640, 420);
+        m_window->resize(640, 360);
         QCoreApplication::processEvents();
         QTest::qWait(150);
         QObject *viewer = m_window->findChild<QObject *>(
@@ -477,7 +477,7 @@ private Q_SLOTS:
     void theRoomInfoPanelStaysInsideTheWindowAtTheFloor_data()
     {
         QTest::addColumn<QSize>("size");
-        QTest::newRow("640x420") << QSize(640, 420);
+        QTest::newRow("640x360") << QSize(640, 360);
         QTest::newRow("854x480") << QSize(854, 480);
         QTest::newRow("960x540") << QSize(960, 540);
     }
@@ -522,7 +522,7 @@ private Q_SLOTS:
     void theLoginScreenStaysInsideTheWindowAtTheFloor_data()
     {
         QTest::addColumn<QSize>("size");
-        QTest::newRow("640x420") << QSize(640, 420);
+        QTest::newRow("640x360") << QSize(640, 360);
         QTest::newRow("854x480") << QSize(854, 480);
     }
 

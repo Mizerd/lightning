@@ -1,5 +1,5 @@
 // The application shell must stay usable at the smallest window size the app
-// allows (Main.qml pins minimumWidth 640 / minimumHeight 420), measured
+// allows (Main.qml pins minimumWidth 640 / minimumHeight 360), measured
 // against the real MainScreen (rail + room list + timeline + composer):
 //
 //   * at the minimum width the composer's text field must keep a usable
@@ -37,9 +37,9 @@ ApplicationWindow {
     id: win
     // The application's own floor (qml/Main.qml).
     width: 640
-    height: 420
+    height: 360
     minimumWidth: 640
-    minimumHeight: 420
+    minimumHeight: 360
     visible: true
     color: AppTheme.background
 
@@ -201,7 +201,7 @@ private Q_SLOTS:
     // the 640 floor).
     void everyControlStaysInsideTheWindowAtSmallSizes()
     {
-        const QSize sizes[] = { QSize(640, 420), QSize(640, 720),
+        const QSize sizes[] = { QSize(640, 360), QSize(640, 720),
                                 QSize(854, 480), QSize(960, 540) };
         for (const QSize &sz : sizes) {
             m_window->resize(sz);
@@ -215,7 +215,7 @@ private Q_SLOTS:
                                     .arg(sz.height())
                                 + outside.join(QStringLiteral("; "))));
         }
-        m_window->resize(640, 420);
+        m_window->resize(640, 360);
         QTest::qWait(100);
     }
 
@@ -223,7 +223,7 @@ private Q_SLOTS:
     // the CARD that draws the composer (the chevron used to hang off its edge).
     void theComposerRowStaysInsideItsCardAtTheMinimumWidth()
     {
-        m_window->resize(640, 420);
+        m_window->resize(640, 360);
         QTest::qWait(200);
         auto *card = item("composerCard");
         QVERIFY2(card, "composer card not found");
@@ -257,7 +257,7 @@ import QtQuick
 import MatrixClient
 Item {
     width: 640
-    height: 420
+    height: 360
     HomePane { objectName: "pane"; anchors.fill: parent }
 }
 )QML"), QUrl(QStringLiteral("homepane-narrow.qml")));
@@ -266,7 +266,7 @@ Item {
         auto *rootItem = qobject_cast<QQuickItem *>(owner.get());
         QVERIFY(rootItem);
         QQuickWindow win;
-        win.resize(640, 420);
+        win.resize(640, 360);
         rootItem->setParentItem(win.contentItem());
         win.show();
         QVERIFY(QTest::qWaitForWindowExposed(&win));
@@ -325,7 +325,7 @@ import QtQuick
 import MatrixClient
 Item {
     width: 640
-    height: 420
+    height: 360
     HomePane { objectName: "pane"; anchors.fill: parent }
 }
 )QML"), QUrl(QStringLiteral("homepane-filter.qml")));
@@ -334,7 +334,7 @@ Item {
         auto *rootItem = qobject_cast<QQuickItem *>(owner.get());
         QVERIFY(rootItem);
         QQuickWindow win;
-        win.resize(640, 420);
+        win.resize(640, 360);
         rootItem->setParentItem(win.contentItem());
         win.show();
         QVERIFY(QTest::qWaitForWindowExposed(&win));

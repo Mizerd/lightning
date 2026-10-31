@@ -109,7 +109,19 @@ Dialog {
         radius: AppTheme.radiusLg
     }
 
-    contentItem: ColumnLayout {
+    contentItem: Flickable {
+        id: bodyScroll
+        clip: true
+        contentWidth: width
+        contentHeight: bodyColumn.implicitHeight
+        implicitHeight: bodyColumn.implicitHeight
+        boundsBehavior: Flickable.StopAtBounds
+        // Scrolls in a window too short for the dialog (a quarter of a
+        // screen), so the buttons at the end stay reachable.
+        ScrollBar.vertical: AppScrollBar {}
+        ColumnLayout {
+            id: bodyColumn
+            width: bodyScroll.width
         spacing: AppTheme.spacing12
 
         Label {
@@ -220,5 +232,6 @@ Dialog {
                 onClicked: root.submit()
             }
         }
+    }
     }
 }

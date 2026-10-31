@@ -17,7 +17,7 @@ ApplicationWindow {
     width: hasStartupGeometry ? startupGeometry.width : 1100
     height: hasStartupGeometry ? startupGeometry.height : 720
     minimumWidth: 640
-    minimumHeight: 420
+    minimumHeight: 360
 
     // Start hidden, compute the position once, assign it imperatively, then
     // show. Bindings on x/y re-centred the window whenever screen metrics or
