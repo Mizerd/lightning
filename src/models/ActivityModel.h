@@ -199,7 +199,7 @@ public:
     // `firstPage` is the session's opening seed: rows the server already
     // marks read and that are older than readHorizonDays() are not listed
     // (an account with few recent mentions otherwise opens on two-year-old
-    // history); "Load older activity" still reaches them.
+    // history); raising the horizon brings them back.
     void seed(const QVariantList &entries, bool firstPage = false);
 
     Q_INVOKABLE void markAllSeen();

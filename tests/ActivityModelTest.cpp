@@ -377,6 +377,55 @@ private Q_SLOTS:
         Q_EMIT h.client.roomsChanged();
         QCOMPARE(h.model.unseenCount(), 0);
     }
+    // A dm row names no event, so the redaction pass cannot find it: the room's
+    // own preview is the only word on a retraction, read or not.
+    void aRetractedDirectMessageLeavesItsRowEvenWhenRead()
+    {
+        Harness h;
+        RoomInfo r;
+        r.id = QStringLiteral("!dm:mock.local");
+        r.name = QStringLiteral("Ninkasi");
+        r.isDirect = true;
+        r.directUserId = QStringLiteral("@ninkasi:mock.local");
+        r.lastMessagePreview = QStringLiteral("regrettable");
+        r.raiseActivity(QDateTime::fromMSecsSinceEpoch(5000));
+        r.unreadCount = 1;
+        h.client.roomSet = { h.fresh(r) };
+        Q_EMIT h.client.roomsChanged();
+        QCOMPARE(h.row(0).value(QStringLiteral("preview")).toString(),
+                 QStringLiteral("regrettable"));
+        r.unreadCount = 0;
+        h.client.roomSet = { h.fresh(r) };
+        Q_EMIT h.client.roomsChanged();
+        r.lastMessagePreview = QStringLiteral("Message deleted");
+        h.client.roomSet = { h.fresh(r) };
+        Q_EMIT h.client.roomsChanged();
+        QCOMPARE(h.model.count(), 1);
+        QCOMPARE(h.row(0).value(QStringLiteral("preview")).toString(),
+                 QStringLiteral("Message deleted"));
+        QCOMPARE(h.model.unseenCount(), 0);
+    }
+
+    void anUnreadDirectMessageWithNoActivityTimeStaysSeen()
+    {
+        Harness h;
+        RoomInfo r;
+        r.id = QStringLiteral("!dm:mock.local");
+        r.name = QStringLiteral("Ninkasi");
+        r.isDirect = true;
+        r.directUserId = QStringLiteral("@ninkasi:mock.local");
+        r.lastMessagePreview = QStringLiteral("hello");
+        r.unreadCount = 1;
+        h.client.roomSet = { h.fresh(r) };
+        Q_EMIT h.client.roomsChanged();
+        QCOMPARE(h.model.count(), 1);
+        h.model.open(QStringLiteral("dm:") + r.id);
+        QCOMPARE(h.model.unseenCount(), 0);
+        QTest::qWait(5);
+        Q_EMIT h.client.roomsChanged();
+        QCOMPARE(h.model.unseenCount(), 0);
+    }
+
     void directUnreadsRespectWhatExplainsThemAndWhatSilencesThem()
     {
         Harness h;

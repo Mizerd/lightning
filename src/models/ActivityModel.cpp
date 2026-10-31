@@ -646,26 +646,18 @@ void ActivityModel::syncDirectUnreads()
             || info.id.isEmpty() || info.directUserId.isEmpty())
             continue;
         const QString id = QStringLiteral("dm:") + info.id;
-        // Unread that mentions explain is already listed as those mentions.
-        const bool unread = info.unreadCount > info.highlightCount
-            && !isIgnored(info.directUserId);
-        if (!unread)
-            continue;   // a read room is settled by the read-state pass
-        const qint64 ts = info.lastActivity.isValid()
-            ? info.lastActivity.toMSecsSinceEpoch() : now();
         const QString preview =
             collapse(matrix::preview::stripReplyFallback(info.lastMessagePreview));
-        // The row already listed for this room: the same message only has its
-        // words refreshed (and a row already read stays read: the counters
-        // can lag a receipt this client just sent); a newer one replaces it
-        // and is unseen again.
-        bool sameMessage = false;
+        // The row already listed for this room always carries the room's
+        // current words, read or not: it names no event, so this is the only
+        // way a retraction reaches it (a redaction also lowers the count).
+        qint64 listedAt = -1;
         for (int i = 0; i < m_entries.size(); ++i) {
             Entry &e = m_entries[i];
             if (e.id != id)
                 continue;
-            sameMessage = ts <= e.timestampMs;
-            if (sameMessage && !e.readMark && e.preview != preview) {
+            listedAt = e.timestampMs;
+            if (e.preview != preview) {
                 e.preview = preview;
                 const int row = m_visible.indexOf(i);
                 if (row >= 0)
@@ -673,7 +665,19 @@ void ActivityModel::syncDirectUnreads()
             }
             break;
         }
-        if (sameMessage)
+        // Unread that mentions explain is already listed as those mentions.
+        const bool unread = info.unreadCount > info.highlightCount
+            && !isIgnored(info.directUserId);
+        if (!unread)
+            continue;   // a read room is settled by the read-state pass
+        // No activity time says nothing new, so it keeps the row it has.
+        const qint64 ts = info.lastActivity.isValid()
+            ? info.lastActivity.toMSecsSinceEpoch()
+            : (listedAt >= 0 ? listedAt : now());
+        // The same message stays as it is (a row already read stays read: the
+        // counters can lag a receipt this client just sent); a newer one
+        // replaces it and is unseen again.
+        if (listedAt >= 0 && ts <= listedAt)
             continue;
         removeEntries([&id](const Entry &e) { return e.id == id; });
         Entry e;
