@@ -113,6 +113,9 @@ stdenv.mkDerivation {
         # Fix qt.multimedia.symbolsresolver not loading pipewire library
         # from https://github.com/NixOS/nixpkgs/issues/409850#issuecomment-3795701197
         pipewire
+        # A host VA driver would otherwise map its own older
+        # libgstcodecparsers and stop nvcodec loading (see devShells.nix).
+        gst_all_1.gst-plugins-bad
       ]
     }"
     "--prefix GST_PLUGIN_PATH : ${lib.makeSearchPathOutput "lib" "lib/gstreamer-1.0" gst}"

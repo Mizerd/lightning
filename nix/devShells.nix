@@ -85,6 +85,12 @@
           # nix develop does not put buildInputs on the loader path; expose
           # only pipewire so Qt Multimedia can dlopen libpipewire-0.3.
           export LD_LIBRARY_PATH="${pkgs.pipewire}/lib''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          # A host VA driver (NixOS' nvidia-vaapi-driver) needs
+          # libgstcodecparsers and its RUNPATH names the host's GStreamer.
+          # libva opens it into this process, and a SONAME maps once, so an
+          # older host copy then stops nvcodec loading. This path wins over a
+          # RUNPATH, so the driver shares our copy.
+          export LD_LIBRARY_PATH="${pkgs.lib.getLib pkgs.gst_all_1.gst-plugins-bad}/lib:$LD_LIBRARY_PATH"
           # Spell checking: libhunspell is dlopen'd too, and the dictionaries
           # are the ones the package bundles; a user's own $DICPATH comes first.
           export LD_LIBRARY_PATH="${pkgs.lib.getLib pkgs.hunspell}/lib:$LD_LIBRARY_PATH"
