@@ -6816,6 +6816,25 @@ private slots:
         QCOMPARE(failed.count(), 1);
     }
 
+    void aChosenCameraIsBoundThroughTheOneResolverEveryLaneUses()
+    {
+        if (!gst_init_check(nullptr, nullptr, nullptr))
+            QSKIP("no GStreamer");
+        // An element nothing can bind: refused with a category, never empty.
+        const auto refused = SfuMediaEngine::resolveCameraBinding(
+            QStringLiteral("notacamerasrc device=x"),
+            {QStringLiteral("/dev/video7"), QStringLiteral("Cam")});
+        QVERIFY(refused.binding.refused);
+        QVERIFY(refused.refusal == QLatin1String("camera_unavailable")
+                || refused.refusal == QLatin1String("camera_list_unavailable"));
+        // No choice: the platform default, and nothing to refuse.
+        const auto none = SfuMediaEngine::resolveCameraBinding(
+            QStringLiteral("v4l2src"), {});
+        QVERIFY(none.binding.isEmpty());
+        QVERIFY(!none.binding.refused);
+        QVERIFY(none.refusal.isEmpty());
+    }
+
     void aGpuShareStaysInGlMemoryOnlyForAnEncoderThatTakesIt()
     {
         QVERIFY(!SfuMediaEngine::shareScaleStage(1080, true, true)

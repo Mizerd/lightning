@@ -4933,12 +4933,11 @@ void AppController::enableCallMediaEngine()
                     return plan;
                 }
                 if (!camera.id.isEmpty()) {
-                    plan.binding = lightning::calls::resolveDeviceBinding(
-                        lightning::calls::CaptureKind::Camera,
-                        source.section(QLatin1Char(' '), 0, 0), camera.id,
-                        camera.description, {});
+                    const auto resolved = SfuMediaEngine::resolveCameraBinding(
+                        source, {camera.id, camera.description});
+                    plan.binding = resolved.binding;
                     if (plan.binding.refused) {
-                        plan.refusal = QStringLiteral("camera_unavailable");
+                        plan.refusal = resolved.refusal;
                         return plan;
                     }
                 }

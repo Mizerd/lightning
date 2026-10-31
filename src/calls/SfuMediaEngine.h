@@ -591,6 +591,16 @@ public:
     /// build can have (no `/dev/video*` in the sandbox); -1 for direct
     /// capture. The route is chosen by SfuCallController::linuxCameraRoute().
     static QString cameraSource(int pipewireFd = -1);
+    /// A chosen camera bound against the devices GStreamer lists now, for
+    /// the element in `source`. Every lane opens a chosen camera through this,
+    /// because on Windows and macOS the bound value is an index found in that
+    /// list. `refusal` is the failure category when `binding.refused`.
+    struct CameraBinding {
+        lightning::calls::DeviceBinding binding;
+        QString refusal;
+    };
+    static CameraBinding resolveCameraBinding(const QString &source,
+                                              const DeviceChoice &camera);
     /// Stop publishing one track and renegotiate.
     void unpublish(const QString &cid);
 

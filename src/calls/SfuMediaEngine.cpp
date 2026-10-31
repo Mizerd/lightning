@@ -5678,6 +5678,31 @@ QString SfuMediaEngine::screenShareSource(int nodeId, int pipewireFd,
 #endif
 }
 
+SfuMediaEngine::CameraBinding
+SfuMediaEngine::resolveCameraBinding(const QString &source,
+                                     const DeviceChoice &camera)
+{
+    CameraBinding out;
+    bool listed = false;
+    const auto candidates = monitorCandidates("Video/Source", &listed);
+    out.binding = lightning::calls::resolveDeviceBinding(
+        // The element NAME: `source` carries pinned properties the profile
+        // lookup cannot match.
+        lightning::calls::CaptureKind::Camera,
+        source.section(QLatin1Char(' '), 0, 0), camera.id, camera.description,
+        candidates);
+    if (out.binding.refused) {
+        qCWarning(lcSfuMedia)
+            << (listed ? "the chosen camera is not among the devices "
+                         "GStreamer lists"
+                       : "the camera list could not be read")
+            << "- opening no camera rather than the default";
+        out.refusal = listed ? QStringLiteral("camera_unavailable")
+                             : QStringLiteral("camera_list_unavailable");
+    }
+    return out;
+}
+
 QString SfuMediaEngine::cameraSource(int pipewireFd)
 {
 #if !defined(Q_OS_WIN) && !defined(Q_OS_MACOS)
@@ -5801,23 +5826,10 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
             return;
         }
         if (pipewireFd < 0 && !camera.id.isEmpty()) {
-            bool listed = false;
-            const auto candidates = monitorCandidates("Video/Source", &listed);
-            cameraBinding = lightning::calls::resolveDeviceBinding(
-                // The element NAME: `source` carries pinned properties
-                // the profile lookup cannot match.
-                lightning::calls::CaptureKind::Camera,
-                source.section(QLatin1Char(' '), 0, 0), camera.id,
-                camera.description, candidates);
+            const CameraBinding resolved = resolveCameraBinding(source, camera);
+            cameraBinding = resolved.binding;
             if (cameraBinding.refused) {
-                qCWarning(lcSfuMedia)
-                    << (listed ? "the chosen camera is not among the devices "
-                                 "GStreamer lists"
-                               : "the camera list could not be read")
-                    << "- opening no camera rather than the default";
-                refuseCamera(listed
-                                 ? QStringLiteral("camera_unavailable")
-                                 : QStringLiteral("camera_list_unavailable"));
+                refuseCamera(resolved.refusal);
                 return;
             }
         }
