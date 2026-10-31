@@ -1201,10 +1201,58 @@ three runs, machine busy): today's GPU path 8.9-10.9 s of CPU, `nvh264enc`
 0.67-0.73 s, the GL source alone 0.21-0.28 s. Not a capture: no portal was
 available to the harness.
 
+### VP8 backup (2026-10-31)
+
+With the hardware path on, a share is one LiveKit publication with two codecs:
+H.264 from the encoder and a VP8 backup, 640x360 at 10 fps and 350 kbit/s, from
+the capture tee (`publishShareBackup()`), encrypted by its own probe. LiveKit
+never transcodes, so VP8 is the only way a viewer without H.264 sees the share.
+`AddTrack` carries both cids in `simulcast_codecs` with `BackupCodecPolicy
+SIMULCAST`: the default policy would drop every viewer to the backup once one
+of them needed it. Stream Info gets a row per codec. A backup that fails ends
+the share, and the next one is plain software VP8.
+
+Four things had to be right and every one of them failed silently:
+
+* **The backup's scaler must not reach the tee's negotiation.** A scaler answers
+  a caps query with its restricted structure first, so the capture fixated to
+  the backup's ceiling and the H.264 primary went out at 560x360. A probe on the
+  branch's entry answers the query with no preference.
+* **LiveKit reads the msid's SECOND token, and webrtcbin writes
+  `webrtctransceiverN` there.** A single track only ever worked through the SFU's
+  "first pending track of this kind" fallback. `offerForSfu()` names the cid for
+  a backed-up share's two sections.
+* **pion takes a session's video codecs from the first video section it sees.**
+  A browser lists every codec in each section; webrtcbin lists one. So the VP8
+  section was answered as H.264 and its packets attached as H.264. `offerForSfu()`
+  lists VP8 and H.264 in every video section while hardware encoding is requested.
+  The same rule means a VP8 camera published before an H.264 share would have
+  failed; that case is NOT TESTED, the rig has no camera.
+* **An answer is the only thing the SFU picks a codec from.** It sends a
+  publication's first codec any answer admits, and an answer from webrtcbin with
+  no preferences admits everything. The subscriber now answers VP8, plus H.264
+  only with a decoder (`receivableVideoCaps()`). `LIGHTNING_RECEIVE_VIDEO_CODEC=vp8`
+  forces the VP8-only case.
+
+**The last point is why a released client does not get the backup.** A build from
+before this answers every codec, so the SFU sends it H.264; its receive chain is
+VP8 only and the failure stops the whole subscriber pipeline, not just the share:
+live, against `2fc01443`, `nicesrc0` posted a stream error and audio and camera
+from everyone else stopped at one decrypted frame. Keep the switch off until no
+supported release predates this answer.
+
+Cost of the backup, same bench as below, real NVENC, three runs: 0.94-1.01 s
+against 0.63-0.80 s for 5 s of video, about 6% of a core; the VP8 GPU path it
+replaces was 6.56-9.95 s. So it runs for the whole share rather than on the SFU's
+`subscribedQualityUpdate`, and `backupvalve` is not driven by anything yet. A
+720p or better backup would change that sum.
+
 **Trap met while measuring:** `videotestsrc ! glupload ! gldownload` reads back
 all black on this NVIDIA GLES context, for BGRA and RGBA, while `gltestsrc` does
-not. Test GL chains with `gltestsrc`. Whether a real SHM capture on the GPU
-branch is black the same way is NOT TESTED.
+not. Test GL chains with `gltestsrc`. A real X11 SHM capture is not black the
+same way: a live `nvh264enc gpu-zero-copy` share under Xvfb reached Element Call
+and a VP8-only Lightning with the right picture. A portal capture is still NOT
+TESTED on this path.
 
 ## Stream Info
 
@@ -1213,7 +1261,8 @@ including full screen. Rebind “Show or hide Stream Info” in Settings → Key
 shortcuts; searching Settings for “Stream Info” finds that page. The overlay
 starts off for every call and its visibility is never saved.
 
-Each outgoing camera/share and incoming video has its own row. Values are
+Each outgoing camera/share (a hardware share has one row per codec) and incoming
+video has its own row. Values are
 sampled once a second only while the overlay surface is visible. Resolution
 comes from negotiated media caps; FPS counts frames after outgoing encryption
 or at the decoded receive sink, rather than promising the display presented

@@ -1631,6 +1631,24 @@ bool SfuMediaEngine::ensurePeer(Target target)
     g_object_set(webrtc, "bundle-policy", 3 /* max-bundle */, "latency", 100,
                  nullptr);
     if (target == Target::Subscriber) {
+        // The answer lists what we can decode, because it is the only thing
+        // the SFU picks a codec from: it sends a publication's first codec any
+        // answer admits. Answer everything and a share with a VP8 backup
+        // arrives as H.264 where no decoder exists, with no picture.
+        g_signal_connect(webrtc, "on-new-transceiver", G_CALLBACK(+[](
+            GstElement *, GstWebRTCRTPTransceiver *transceiver, gpointer) {
+            GstWebRTCKind kind = GST_WEBRTC_KIND_UNKNOWN;
+            g_object_get(transceiver, "kind", &kind, nullptr);
+            if (kind != GST_WEBRTC_KIND_VIDEO)
+                return;
+            const bool h264 = !h264DecoderElement().isEmpty()
+                && qEnvironmentVariable("LIGHTNING_RECEIVE_VIDEO_CODEC")
+                    != QLatin1String("vp8");
+            GstCaps *caps = gst_caps_from_string(
+                receivableVideoCaps(h264).toUtf8().constData());
+            g_object_set(transceiver, "codec-preferences", caps, nullptr);
+            gst_caps_unref(caps);
+        }), nullptr);
         // Pinned OFF: a source must never be removed on timeout. A muted
         // LiveKit track sends nothing, so rtpbin times it out ~40 s into the
         // mute; with autoremove the source goes, webrtcbin keeps its src pad
@@ -6442,6 +6460,15 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
                                checkCameraFirstFrame(cid, generation);
                            });
     }
+}
+
+QString SfuMediaEngine::receivableVideoCaps(bool h264)
+{
+    const auto codec = [](const char *name) {
+        return QStringLiteral("application/x-rtp,media=video,encoding-name=%1,"
+                              "clock-rate=90000").arg(QLatin1String(name));
+    };
+    return h264 ? codec("VP8") + QLatin1Char(';') + codec("H264") : codec("VP8");
 }
 
 QString SfuMediaEngine::offerForSfu(const QString &sdp, bool multiCodec)

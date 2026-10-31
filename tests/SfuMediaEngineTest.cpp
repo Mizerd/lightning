@@ -6668,6 +6668,23 @@ private slots:
         }
     }
 
+    void anAnswerAdmitsOnlyWhatThisBuildDecodes()
+    {
+        GstCaps *vp8 = gst_caps_from_string(
+            SfuMediaEngine::receivableVideoCaps(false).toUtf8().constData());
+        GstCaps *both = gst_caps_from_string(
+            SfuMediaEngine::receivableVideoCaps(true).toUtf8().constData());
+        QVERIFY(vp8);
+        QVERIFY(both);
+        QCOMPARE(gst_caps_get_size(vp8), 1u);
+        QCOMPARE(gst_caps_get_size(both), 2u);
+        QCOMPARE(gst_structure_get_string(gst_caps_get_structure(vp8, 0), "encoding-name"), "VP8");
+        QCOMPARE(gst_structure_get_string(gst_caps_get_structure(both, 0), "encoding-name"), "VP8");
+        QCOMPARE(gst_structure_get_string(gst_caps_get_structure(both, 1), "encoding-name"), "H264");
+        gst_caps_unref(vp8);
+        gst_caps_unref(both);
+    }
+
     void anOfferNamesBothCodecsOfABackedUpShare()
     {
         // LiveKit reads the SECOND msid token and pion negotiates video from

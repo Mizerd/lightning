@@ -1218,6 +1218,7 @@ private:
     friend class SfuMediaEngineTest;
     bool publishShareBackup(const QString &cid, GstElement *primary, bool glMemory);
     static QString offerForSfu(const QString &sdp, bool multiCodec);
+    static QString receivableVideoCaps(bool h264);
     QHash<QString, QString> m_shareBackups;
     struct Peer {
         GstElement *pipeline = nullptr;
