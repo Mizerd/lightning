@@ -1157,7 +1157,35 @@ OpenID token's expiry.
 - **Legacy 1:1 `m.call.*` signalling** plus a GStreamer/webrtcbin media
   backend behind a build-time seam, re-probed at runtime, with a
   `LIGHTNING_DISABLE_WEBRTC=1` kill switch and an honest signalling-only
-  refusal when no engine is present.
+  refusal when no engine is present. **Voice and video since 2026-10-31**:
+  VP8 both ways, one msid for both tracks, MSC3077 stream metadata in the
+  invite and answer and `m.call.sdp_stream_metadata_changed` on a mute, and
+  `m.call.negotiate` in both directions (voice to video from either end, a
+  peer's hold). The send chain stays on webrtcbin while the camera is off;
+  the camera is a front swapped in and out, so off closes the device and needs
+  no renegotiation. An offer without VP8 is answered with its video inactive.
+  Offers that cross are not repaired: webrtcbin accepts a rollback and then
+  aborts the process answering the next offer (`_create_answer_task`, measured
+  on 1.28.6), so Lightning never rolls back. The callee delays its upgrade
+  offer 1.5 s and a caller's offer arriving meanwhile serves both; a real
+  crossing leaves each camera reporting failure after the 60 s negotiate
+  lifetime, audio unaffected, and video stays unavailable on both ends for the
+  rest of that call.
+  `LIGHTNING_CALL_TEST_CAMERA` (any value) replaces this lane's camera with a
+  moving test pattern, for a machine without one.
+- **Choosing the call format.** The chevron beside the room header's call
+  button starts a voice or video call and sets `calls/format`: Automatic (the
+  only behaviour before 2026-10-31: MatrixRTC where the room can, else legacy
+  in a 1:1 DM), MatrixRTC, or Direct (legacy `m.call.*`). A format the room
+  cannot use falls back to Automatic there. Choosing MatrixRTC also stops a
+  refused membership from falling back to a legacy ring. The running format
+  is named in the call bar and the stage header (Direct or MatrixRTC). The
+  formats that exist: legacy `m.call.*` (1:1, peer to peer), MatrixRTC over
+  LiveKit, published as the `org.matrix.msc3401.call.member` state event, with
+  `multi_sfu` or `oldest_membership` focus selection (the sticky MSC4354
+  form is parsed but never sent: matrix-sdk 0.18 cannot send sticky events),
+  and a Jitsi widget, which is a room widget opened in the browser and not a
+  call this app places, so the menu does not list it.
 - **Screen sharing per platform.** Linux goes through the xdg-desktop-portal,
   which owns its own picker and hands back a PipeWire node — Lightning
   enumerates nothing there. Windows and macOS have no such broker, so
@@ -1211,7 +1239,8 @@ OpenID token's expiry.
 
 Live status, and do not inflate it: **audio, camera and screen share are
 live-confirmed** — against Element on Linux, and on a packaged Windows build
-(2026-08-27). Group-call behaviour on macOS, an ANSWERED legacy 1:1 call, and
+(2026-08-27). An answered legacy 1:1 call is scripted-live PASS against Element
+Web (`docs/live-validation.md`, 2026-10-31). Group-call behaviour on macOS and
 most failure branches are **NOT TESTED**. The full inventory is at the end of
 §16.
 

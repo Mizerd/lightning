@@ -20,7 +20,8 @@ Status, by round rather than as one word — this document is written in
 ROUNDS, and each round's own status line was true when it was written:
 
 * **Signalling (rounds 1-2):** implemented, plus the incoming-call surface.
-* **Media (round 3):** a real GStreamer `webrtcbin` engine — audio-only, 1:1.
+* **Media (round 3):** a real GStreamer `webrtcbin` engine, 1:1. Audio only
+  until 2026-10-31, when VP8 video landed (`docs/feature-contracts.md`).
   Builds without the plugins keep the honest signalling-only refusal.
 * **Live validation of the legacy lane: NOT TESTED**, still. No answered 1:1
   call has ever been placed across a network, and the incoming-call prompt's

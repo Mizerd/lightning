@@ -1,5 +1,19 @@
 # Round history
 
+## 2026-10-31 — legacy 1:1 video, and three calls that could never have worked
+
+Legacy gained VP8, `m.call.negotiate`, MSC3077 metadata and a call format
+selector. Lessons: **the room list's timeline limit of 1 eats signalling**: a
+burst of `m.call.*` arrives as its last event, so the first call in every
+encrypted DM lost its candidates, invisibly, because own echoes vanished too.
+**ruma omits a false mute and js-sdk merges**, so an unmute through the typed
+content never unmutes. **webrtcbin waits for a first buffer to offer**, so a call
+placed muted died with nothing sent; state the caps on the transceiver. **REFUTED:
+rollback for crossed offers.** webrtcbin 1.28.6 accepts it, then aborts in
+`_create_answer_task` answering the next offer, remotely triggerable. Do not
+re-propose it without a build that survives
+`offersThatCrossSettleOnTheCallersAndBothCamerasStillWork` with a real crossing.
+
 ## 2026-10-27 — waves 4–5: the small boundaries that decided the behavior
 
 - **A QML fixture's location changes how C++ sees it.** A `static constexpr`

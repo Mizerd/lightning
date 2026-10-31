@@ -1,5 +1,23 @@
 # Live validation: what Rokas has actually confirmed
 
+## 2026-10-31 — legacy 1:1 voice and video, scripted, against Element Web
+
+Not Rokas's confirmation: an agent's scripted run, recorded here so the claim
+has a source. Local homeserver, real Rust SDK and E2EE, real `CallController`
+and engine in test-tone mode (`tests/LegacyCallLivePeer.cpp`), Element Web
+1.12.21 in headless Chromium with fake devices, and a real Lightning window
+under Xvfb for the selector, the picture and the camera button. Each case ran
+in a plain and an encrypted DM.
+
+**PASS**, Lightning to Lightning and Lightning to Element: voice and video both
+ways with either side calling, decline, hangup, cancel, mute seen both ways,
+camera toggle, voice upgraded to video from either end, glare. Against Element
+also hold and a peer's screen share.
+
+**NOT TESTED**: a real camera, a real microphone and speaker on this lane, two
+machines, NAT or TURN, Nheko, Windows, macOS, the Flatpak portal camera, any
+package.
+
 ## 2026-09-30 — the overnight campaign: every Linux package, the features since 0.9.9, X11 and Wayland
 
 Private Xvfb, nested kwin_wayland 6.6.6, private buses and PipeWire; the
