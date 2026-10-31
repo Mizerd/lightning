@@ -6933,37 +6933,137 @@ private slots:
     }
 
     // Retired before its first answer: webrtcbin never gives the section up,
-    // and every answer used to bring "negotiation needed" straight back.
-    void aPublishRetiredBeforeItsFirstAnswerDoesNotRenegotiateForever()
+    // and every answer used to bring "negotiation needed" straight back. The
+    // repeat must stop, and negotiation must still work afterwards.
+    void aPublishRetiredBeforeItsAnswerStopsRepeatingAndNegotiationGoesOn_data()
+    {
+        QTest::addColumn<bool>("afterOffer");
+        QTest::newRow("before create-offer") << false;
+        QTest::newRow("after create-offer, before the answer") << true;
+    }
+    void aPublishRetiredBeforeItsAnswerStopsRepeatingAndNegotiationGoesOn()
+    {
+        QFETCH(bool, afterOffer);
+        SfuMediaEngine sender, receiver;
+        sender.setTestSourceMode(true);
+        receiver.setTestSourceMode(true);
+        const QString retired = QStringLiteral("retired-early");
+        QStringList offers;
+        QString retireOnOffer;
+        // Connected before wireLoopback: Qt calls in connection order, so this
+        // runs after create-offer and before the receiver can answer.
+        connect(&sender, &SfuMediaEngine::localDescription, this,
+                [&](int target, const QString &kind, const QString &sdp) {
+                    if (target != int(SfuMediaEngine::Target::Publisher)
+                        || kind != QLatin1String("offer"))
+                        return;
+                    offers << sdp;
+                    if (!retireOnOffer.isEmpty() && sdp.contains(retireOnOffer)) {
+                        const QString cid = std::exchange(retireOnOffer, QString());
+                        sender.unpublish(cid);
+                    }
+                });
+        QString failure;
+        wireLoopback(sender, receiver, this, &failure);
+        sender.start();
+        receiver.start();
+        sender.publishAudio(QStringLiteral("mic"));
+        QTRY_COMPARE_WITH_TIMEOUT(offers.size(), 1, 10000);
+        QTRY_VERIFY_WITH_TIMEOUT(!sender.m_publisher.answeredOffer.isEmpty(), 10000);
+
+        int settled = offers.size();
+        if (afterOffer) {
+            retireOnOffer = retired;
+            sender.publishVideo(retired, true, 0);
+            QTRY_VERIFY_WITH_TIMEOUT(retireOnOffer.isEmpty(), 10000);
+        } else {
+            sender.publishVideo(retired, true, 0);
+            sender.unpublish(retired);
+        }
+        QTest::qWait(3000);
+        qInfo() << "offers after the retire:" << offers.size() - settled
+                << "dropped:" << sender.offersDroppedForTest();
+        QVERIFY2(offers.size() - settled <= 3,
+                 qPrintable(QString::number(offers.size() - settled)));
+        QVERIFY(!sender.m_publisher.offerPending);
+
+        // A real track after that: a new offer, answered, carrying its media.
+        settled = offers.size();
+        const QString cid = QStringLiteral("after-the-drop");
+        sender.publishVideo(cid, false, -1);
+        QTRY_VERIFY_WITH_TIMEOUT(offers.size() > settled, 10000);
+        QVERIFY2(offers.last().contains(cid), qPrintable(offers.last()));
+        QTRY_VERIFY_WITH_TIMEOUT(
+            sender.m_publisher.answeredOffer.contains(cid), 10000);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            [&] {
+                for (const auto &row : receiver.streamInfoStats()) {
+                    if (row.toMap().value("streamId").toString() == cid)
+                        return row.toMap().value("width").toInt() > 0;
+                }
+                return false;
+            }(), 15000);
+        QVERIFY2(failure.isEmpty(), qPrintable(failure));
+        sender.stop();
+        receiver.stop();
+    }
+
+    // Asked for again while an offer that gets dropped was in flight: the
+    // request must not die with that offer.
+    void aRequestDuringADroppedOfferIsNotLost()
     {
         SfuMediaEngine sender, receiver;
         sender.setTestSourceMode(true);
         receiver.setTestSourceMode(true);
         QString failure;
         wireLoopback(sender, receiver, this, &failure);
-        int offers = 0;
-        connect(&sender, &SfuMediaEngine::localDescription, this,
-                [&offers](int target, const QString &kind, const QString &) {
-                    if (target == int(SfuMediaEngine::Target::Publisher)
-                        && kind == QLatin1String("offer"))
-                        ++offers;
-                });
         sender.start();
         receiver.start();
         sender.publishAudio(QStringLiteral("mic"));
-        QTRY_VERIFY_WITH_TIMEOUT(offers >= 1, 10000);
-        QTest::qWait(500);
-        const int settled = offers;
-        const QString cid = QStringLiteral("retired-early");
-        sender.publishVideo(cid, true, 0);
-        sender.unpublish(cid);
-        QTest::qWait(3000);
-        qInfo() << "offers after the retire:" << offers - settled;
-        QVERIFY2(offers - settled <= 3,
-                 qPrintable(QString::number(offers - settled)));
+        QTRY_VERIFY_WITH_TIMEOUT(!sender.m_publisher.answeredOffer.isEmpty(), 10000);
+        // The first repeat can still differ; ask until one is dropped.
+        for (int i = 0; i < 5 && sender.offersDroppedForTest() == 0; ++i) {
+            sender.renegotiatePublisher();
+            QTest::qWait(300);
+            QTRY_VERIFY_WITH_TIMEOUT(!sender.m_publisher.offerPending, 5000);
+        }
+        const int dropped = sender.offersDroppedForTest();
+        QVERIFY(dropped > 0);
+        sender.renegotiatePublisher();
+        while (!sender.m_publisher.offerPending)
+            QCoreApplication::processEvents();
+        sender.m_publisher.negotiationDirty = true;
+        QTRY_COMPARE_WITH_TIMEOUT(sender.offersDroppedForTest(), dropped + 2, 5000);
+        QVERIFY(!sender.m_publisher.offerPending);
+        QVERIFY(!sender.m_publisher.negotiationDirty);
         QVERIFY2(failure.isEmpty(), qPrintable(failure));
         sender.stop();
         receiver.stop();
+    }
+
+    void anOfferIdentityIgnoresOnlyWhatChangesWhenNothingDoes()
+    {
+        const QString offer = QStringLiteral(
+            "v=0\r\no=- 1 1 IN IP4 0.0.0.0\r\ns=-\r\n"
+            "m=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=sendonly\r\n"
+            "a=candidate:1 1 udp 1 10.0.0.1 1 typ host\r\n");
+        const auto identity = [](const QString &sdp) {
+            return SfuMediaEngine::offerIdentity(sdp);
+        };
+        QString later = offer;
+        later.replace(QStringLiteral("o=- 1 1"), QStringLiteral("o=- 1 2"));
+        later.replace(QStringLiteral("a=candidate:1 1 udp 1 10.0.0.1 1 typ host\r\n"),
+                      QStringLiteral("a=candidate:2 1 udp 2 10.0.0.2 2 typ host\r\n"
+                                     "a=end-of-candidates\r\n"));
+        QCOMPARE(identity(later), identity(offer));
+
+        QString direction = offer;
+        direction.replace(QStringLiteral("a=sendonly"), QStringLiteral("a=inactive"));
+        QVERIFY(identity(direction) != identity(offer));
+
+        const QString grown = offer
+            + QStringLiteral("m=video 9 UDP/TLS/RTP/SAVPF 96\r\na=sendonly\r\n");
+        QVERIFY(identity(grown) != identity(offer));
     }
 
     void anErrorOnTheBackupEndsTheShareOnceAndLatchesSoftware()

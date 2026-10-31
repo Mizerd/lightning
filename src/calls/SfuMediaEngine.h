@@ -846,6 +846,8 @@ public:
     void failNextPublishLinkForTest() { m_failNextPublishLink = true; }
     /// Test-only: the next share's VP8 backup fails to link.
     void failNextShareBackupForTest() { m_failNextShareBackup = true; }
+    /// Test-only: offers dropped as identical to the last one answered.
+    int offersDroppedForTest() const { return m_offersDropped; }
     /// Test-only: what the hardware probe found, and the failure latch.
     static void setShareHardwareEncoderForTest(
         const std::optional<ShareHardwareEncoder> &encoder);
@@ -1630,6 +1632,7 @@ private:
     /// Test-only fault injection; see failNextPublishLinkForTest().
     bool m_failNextPublishLink = false;
     bool m_failNextShareBackup = false;
+    int m_offersDropped = 0;
     /// Receive bins keyed by the webrtcbin src pad feeding each, so a
     /// departing track's bin can be retired. Written from streaming threads,
     /// read by stop(), hence the mutex.

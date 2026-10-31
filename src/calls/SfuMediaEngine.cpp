@@ -9545,8 +9545,9 @@ void SfuMediaEngine::onNegotiationNeeded(GstElement *webrtc, void *userData)
 void SfuMediaEngine::onOfferCreated(GstPromise *promise, void *userData)
 {
     auto *ctx = static_cast<PromiseCtx *>(userData);
-    // Held to the end: set-local-description must not start gathering on a
-    // webrtcbin that is being retired.
+    // Covers this callback only. set-local-description runs later on the GUI
+    // thread, behind tokenIsLive(), so it never starts gathering on a webrtcbin
+    // that is being retired.
     const lightning::webrtc::CallbackScope scope(ctx->webrtc);
     if (!scope.live()) {
         gst_promise_unref(promise); // frees ctx
@@ -9578,7 +9579,8 @@ void SfuMediaEngine::onOfferCreated(GstPromise *promise, void *userData)
     g_free(text);
     // On the GUI thread, which owns the peer. A transceiver retired before its
     // first answer never leaves webrtcbin, which then wants negotiation again
-    // after every answer: the same offer, five times a second, for ever.
+    // after every answer: the same offer again until the call ended, 1110 of
+    // them in 138 s on the rig and 73 in 3 s in the test.
     std::shared_ptr<GstWebRTCSessionDescription> held(
         description, gst_webrtc_session_description_free);
     std::shared_ptr<GstElement> element(
@@ -9589,6 +9591,7 @@ void SfuMediaEngine::onOfferCreated(GstPromise *promise, void *userData)
         Peer &peer = engine->m_publisher;
         const QString identity = offerIdentity(sdp);
         if (identity == peer.answeredOffer) {
+            ++engine->m_offersDropped;
             peer.offerPending = false;
             if (peer.negotiationDirty)
                 engine->renegotiatePublisher();
