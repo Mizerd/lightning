@@ -19615,6 +19615,20 @@ mod live_space_order_tests {
                 json!({"via": ["localhs.test"], "order": 7})).await.expect("invalid-order child");
             client.sync_once(matrix_sdk::config::SyncSettings::default()).await.expect("sync children");
             assert_eq!(direct_children_of(&space).await, vec![a.clone(), b.clone()]);
+            // A third room linked only by its own m.space.parent: no m.space.child
+            // event exists, so it cannot be ordered and must never be written.
+            let third = client.create_room(Request::new()).await.expect("parent-only room");
+            let c = third.room_id().to_string();
+            third.send_state_event_raw("m.space.parent", space.room_id().as_str(),
+                json!({"via": ["localhs.test"], "canonical": true})).await.expect("parent link");
+            client.sync_once(matrix_sdk::config::SyncSettings::default()).await.expect("sync parent");
+            assert_eq!(direct_children_of(&space).await, vec![a.clone(), b.clone()],
+                "a parent-only room has no m.space.child event");
+            assert!(rooms::set_space_child_order_inner(&client, space.room_id().as_str(),
+                &[b.clone(), a.clone(), c.clone()], || true).await.is_err());
+            client.sync_once(matrix_sdk::config::SyncSettings::default()).await.expect("sync refusal");
+            assert_eq!(direct_children_of(&space).await, vec![a.clone(), b.clone()],
+                "the refused save wrote nothing");
             rooms::set_space_child_order_inner(&client, space.room_id().as_str(),
                 &[b.clone(), a.clone()], || true).await.expect("save shared order");
             client.sync_once(matrix_sdk::config::SyncSettings::default()).await.expect("sync order");
@@ -19630,7 +19644,7 @@ mod live_space_order_tests {
             assert_eq!(value["content"]["org.example.keep"], "preserved");
             assert!(rooms::set_space_child_order_inner(&client, space.room_id().as_str(),
                 &["!not-a-child:localhs.test".into()], || true).await.is_err());
-            for room in [first, second, space] { room.leave().await.expect("leave test room"); }
+            for room in [first, second, third, space] { room.leave().await.expect("leave test room"); }
             client.matrix_auth().logout().await.expect("logout test device");
         });
     }
