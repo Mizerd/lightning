@@ -1520,6 +1520,10 @@ Item {
         auto *row = qvariant_cast<QQuickItem *>(scene->property("row"));
         QVERIFY(row);
         row->setWidth(328); // 352 popover - 2 x 12 padding
+        // The preceding scene parks the pointer at the same outside point.
+        // Move it first so this new HoverHandler receives a fresh event.
+        QTest::mouseMove(m_window, QPoint(m_window->width() - 3,
+                                          m_window->height() - 3));
         QTest::mouseMove(m_window, QPoint(m_window->width() - 2,
                                           m_window->height() - 2));
         QTRY_VERIFY(!row->property("pointerWithin").toBool());
