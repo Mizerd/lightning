@@ -484,6 +484,8 @@ Item {
 )QML", 400, 300));
         auto *menu = f.item->property("menu").value<QObject *>();
         QVERIFY(menu);
+        auto *explanation = menu->findChild<QObject *>(QStringLiteral("roomSortExplanation"));
+        QVERIFY(explanation);
         auto checked = [&](const char *name) {
             auto *entry = menu->findChild<QObject *>(QString::fromLatin1(name));
             return entry && entry->property("radioSelected").toBool();
@@ -511,6 +513,9 @@ Item {
 
         f.controller->roomList()->setSortMode(1);
         QVERIFY(checked("roomSortNameItem"));
+        QVERIFY(explanation->property("text").toString().contains(QStringLiteral("alphabetical")));
+        f.controller->roomList()->setSortMode(3);
+        QVERIFY(explanation->property("text").toString().contains(QStringLiteral("unread rooms first")));
     }
 
     void theHeaderButtonsOpenOnEnterAndTheMenuKeyAndGiveTheRingBack()
