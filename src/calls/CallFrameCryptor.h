@@ -22,6 +22,11 @@
 //   header size    : audio (Opus TOC byte)      = 1
 //                    video VP8 keyframe         = 10
 //                    video VP8 delta frame      = 3
+//                    video H.264                = up to and including two
+//                                                 bytes of the first slice
+//                                                 NAL unit; everything after
+//                                                 is then RBSP-escaped so no
+//                                                 start code can appear in it
 //                    Left in the clear so the SFU can route and detect
 //                    keyframes without reading the media.
 //
@@ -55,7 +60,13 @@ public:
         Audio,        ///< Opus: 1 cleartext byte (the TOC).
         VideoKey,     ///< VP8 keyframe: 10 cleartext bytes.
         VideoDelta,   ///< VP8 delta frame: 3 cleartext bytes.
+        VideoH264,    ///< H.264 Annex B: see h264ClearBytes().
     };
+
+    /// Cleartext bytes of an H.264 frame (ciphertext or not): the first slice
+    /// NAL's offset plus two, or -1 when the frame has no slice. Ciphertext
+    /// cannot confuse the scan: it is RBSP-escaped and follows that slice.
+    static int h264ClearBytes(const char *frame, qsizetype size);
 
     /// Number of cleartext header bytes for a frame kind.
     static int headerBytes(FrameKind kind);

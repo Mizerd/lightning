@@ -18,6 +18,7 @@
 #include "calls/CaptureClock.h"
 #include "calls/CaptureDeviceSelection.h"
 #include "calls/GstBootstrap.h"
+#include "calls/RtpH264Payloader.h"
 #include "calls/RtpVp8Payloader.h"
 #include "calls/SerialSinkSwap.h"
 #include "calls/WindowCaptureSrc.h"
@@ -62,6 +63,10 @@
 #include <gst/webrtc/webrtc.h>
 
 namespace {
+/// Set once a hardware encoder has failed in a running share: the track dies
+/// with it, and the next share must not repeat that.
+std::atomic<bool> g_shareHardwareEncoderFailed{false};
+
 Q_LOGGING_CATEGORY(lcSfuMedia, "lightning.calls.sfu")
 
 // GStreamer calls back on its own threads, so a marshalled lambda must never
@@ -244,6 +249,8 @@ struct CryptoProbeCtx {
     bool encrypting = false;
     /// Video uses VP8's cleartext-header rule; audio uses Opus's.
     bool video = false;
+    /// Video in H.264, whose cleartext header depends on the frame.
+    bool h264 = false;
     /// Read on the streaming thread.
     const std::atomic<bool> *required = nullptr;
     const std::atomic<bool> *keyReady = nullptr;
@@ -723,6 +730,8 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
         kind = GST_BUFFER_FLAG_IS_SET(buffer, GST_BUFFER_FLAG_DELTA_UNIT)
             ? CallFrameCryptor::FrameKind::VideoDelta
             : CallFrameCryptor::FrameKind::VideoKey;
+        if (ctx->h264)
+            kind = CallFrameCryptor::FrameKind::VideoH264;
     }
 
     // Server-injected frames first, before any key lookup, as livekit-client
@@ -996,6 +1005,7 @@ bool SfuMediaEngine::runtimeAvailable(QString *whyNot)
 
     // Our own elements must be registered before any pipeline names them.
     lightning::rtp::registerVp8Payloader();
+    lightning::rtp::registerH264Payloader();
     lightning::wincap::registerWindowCaptureSrc();
     // The microphone's noise suppressor stage. Not in the required list
     // below: without it the chain simply has no neural suppressor.
@@ -1075,6 +1085,8 @@ void SfuMediaEngine::start()
     // Bump first so callbacks from the previous session are already stale.
     m_generation.fetch_add(1);
     m_active = true;
+    if (shareHardwareEncodeRequested())
+        probeShareHardwareEncoder();
     m_framesEncrypted.store(0);
     m_framesDecrypted.store(0);
     m_framesDropped.store(0);
@@ -1134,6 +1146,9 @@ void SfuMediaEngine::teardown(bool endOfCall)
     for (auto it = m_publishWatch.cbegin(); it != m_publishWatch.cend(); ++it)
         releaseKeepAlive(it->state);
     m_publishWatch.clear();
+    m_shareEncoderCid.clear();
+    m_shareEncoderInUse.clear();
+    m_shareGlEncode = false;
     m_pendingTrackVolume.clear();
     m_volumeMissWarned.clear();
     m_volumeAppliedLog.clear();
@@ -1309,10 +1324,21 @@ GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
             });
         }
     }
+    bool hardwareEncoderFailed = false;
     if (type == GST_MESSAGE_ERROR) {
         qCWarning(lcSfuMedia) << "pipeline error element=" << element
                               << "code=" << (error ? error->code : 0)
                               << "reason=" << reason;
+        // The share dies with its encoder (the track's codec is fixed by now),
+        // but it must not die the same way twice.
+        GstElementFactory *failedFactory =
+            element == QLatin1String("videoenc") && GST_IS_ELEMENT(GST_MESSAGE_SRC(message))
+            ? gst_element_get_factory(GST_ELEMENT(GST_MESSAGE_SRC(message)))
+            : nullptr;
+        hardwareEncoderFailed = failedFactory
+            && g_strcmp0(gst_plugin_feature_get_name(
+                             GST_PLUGIN_FEATURE(failedFactory)),
+                         "vp8enc") != 0;
         // rtpvp8pay parses the VP8 bitstream to build its payload descriptor,
         // so fed an encrypted frame it posts "Failed to parse VP8 frame" and
         // the share stops after one frame. libwebrtc's packetizer takes that
@@ -1413,6 +1439,13 @@ GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
             }
             gst_object_unref(walk);
             walk = parent;
+        }
+        // Capture keeps running under a dead encoder, so nothing else would
+        // say so: the preview stays live while viewers freeze.
+        if (hardwareEncoderFailed && !publishCid.isEmpty()) {
+            marshal(engine, [engine, publishCid] {
+                engine->handleShareEncoderFailed(publishCid);
+            });
         }
         if (!publishCid.isEmpty()) {
             // `micsrc` and anything autoaudiosrc names under it
@@ -2281,6 +2314,22 @@ bool SfuMediaEngine::echoProbeLive() const
     return false;
 }
 
+void SfuMediaEngine::handleShareEncoderFailed(const QString &cid)
+{
+    // As handlePublishError(): an error queued from an old bin, or posted while
+    // one came down, says nothing about the share there is now.
+    if (!m_active || cid != m_shareEncoderCid || !m_publishedBins.contains(cid))
+        return;
+    g_shareHardwareEncoderFailed.store(true);
+    const auto watch = m_publishWatch.constFind(cid);
+    if (watch == m_publishWatch.cend() || !watch->state || watch->reported)
+        return;
+    m_publishWatch[cid].reported = true;
+    qCWarning(lcSfuMedia) << "screen share hardware encoder failed; the share "
+                             "ends and the next one uses software";
+    Q_EMIT publishFailed(cid, QStringLiteral("screen_share_failed"));
+}
+
 void SfuMediaEngine::engageEchoCancellation()
 {
     if (!m_active || !m_echoCancel.load() || m_micCid.isEmpty())
@@ -2335,8 +2384,9 @@ bool SfuMediaEngine::applyShareQualityLive(const QString &cid)
         gst_object_unref(filter);
         return ok;
     };
-    applied = retarget("publimits", shareLimitsCaps(m_shareMaxHeight,
-                                                    m_shareFps));
+    applied = retarget("publimits",
+                       shareLimitsCaps(m_shareMaxHeight, m_shareFps,
+                                       m_shareGlEncode));
     if (!applied)
         return false;
     {
@@ -2364,6 +2414,14 @@ bool SfuMediaEngine::applyShareQualityLive(const QString &cid)
         if (dist.hasMatch() && g_object_class_find_property(
                 G_OBJECT_GET_CLASS(enc), "keyframe-max-dist"))
             g_object_set(enc, "keyframe-max-dist", dist.captured(1).toInt(),
+                         nullptr);
+        // Hardware encoders: kbit/s, and a keyframe interval that cannot
+        // change on a running session.
+        if (bitrate.hasMatch()
+            && !g_object_class_find_property(G_OBJECT_GET_CLASS(enc),
+                                             "target-bitrate")
+            && g_object_class_find_property(G_OBJECT_GET_CLASS(enc), "bitrate"))
+            g_object_set(enc, "bitrate", bitrate.captured(1).toInt() / 1000,
                          nullptr);
         gst_object_unref(enc);
     }
@@ -3922,7 +3980,7 @@ void SfuMediaEngine::publishAudio(const QString &cid)
     const bool echoCancel = m_echoCancel.load() && echoProbeLive();
     if (m_echoCancel.load() && !echoCancel) {
         qCInfo(lcSfuMedia)
-            << "echo cancellation requested but no playback probe exists yet:"
+            << "echo cancellation requested but no playback probe exists yet: "
                "the microphone starts without it and takes it up at the first "
                "remote audio track";
     }
@@ -4680,7 +4738,7 @@ QString SfuMediaEngine::cameraPublishErrorCategory(bool screenShare,
                          : QStringLiteral("camera_failed");
 }
 
-QString SfuMediaEngine::shareScaleStage(int maxHeight, bool gpu)
+QString SfuMediaEngine::shareScaleStage(int maxHeight, bool gpu, bool keepOnGpu)
 {
     // The flag is a parameter so both branches are testable.
     if (!gpu) {
@@ -4706,24 +4764,239 @@ QString SfuMediaEngine::shareScaleStage(int maxHeight, bool gpu)
                           // (applyShareQualityLive()).
                           "! capsfilter name=sharegl caps=\""
                           "video/x-raw(memory:GLMemory),"
-                          "width=(int)[1,%1],height=(int)[1,%2]\" "
-                          "! gldownload ! videoconvert")
-        .arg(QString::number(w), QString::number(h));
+                          "width=(int)[1,%1],height=(int)[1,%2]\"%3")
+        .arg(QString::number(w), QString::number(h),
+             keepOnGpu ? QString()
+                       : QStringLiteral(" ! gldownload ! videoconvert"));
 }
 
-QString SfuMediaEngine::shareLimitsCaps(int maxHeight, int fps)
+QString SfuMediaEngine::shareLimitsCaps(int maxHeight, int fps, bool glMemory)
 {
     // 16:9 width, both as ranges so nothing is upscaled. PAR fixed at 1/1
     // (an unfixated PAR overflows videoscale). A fixed 60/1 behind videorate
     // negotiates fine against the portal's max-framerate=59/1.
     const int shareH = maxHeight;
     const int shareW = (shareH * 16) / 9;
-    return QStringLiteral("video/x-raw,width=(int)[1,%1],"
+    return QStringLiteral("video/x-raw%4,width=(int)[1,%1],"
                           "height=(int)[1,%2],"
                           "framerate=(fraction)%3/1,"
                           "pixel-aspect-ratio=(fraction)1/1")
         .arg(QString::number(shareW), QString::number(shareH),
-             QString::number(fps));
+             QString::number(fps),
+             glMemory ? QStringLiteral("(memory:GLMemory)") : QString());
+}
+
+namespace {
+/// Bitrate scales with the picture; bits per second.
+int shareBitrateFor(int maxHeight, int fps, int bitrateCapKbps)
+{
+    const int shareH = maxHeight;
+    const int shareW = (shareH * 16) / 9;
+    const double shareScale = (double(shareW) * shareH * fps)
+                            / (1920.0 * 1080.0 * 30.0);
+    const int shareBitrate =
+        std::clamp(int(3000000.0 * shareScale), 800000, 6000000);
+    // A cap only lowers: Auto is the picture-derived rate above.
+    return bitrateCapKbps > 0 ? std::min(shareBitrate, bitrateCapKbps * 1000)
+                              : shareBitrate;
+}
+} // namespace
+
+QList<SfuMediaEngine::ShareEncoderCandidate>
+SfuMediaEngine::shareEncoderCandidates()
+{
+    // Rate control, no B-frames, a closed keyframe interval: what a call needs
+    // from each. A property a version lacks fails the probe, not the share.
+    QList<ShareEncoderCandidate> list;
+#if defined(Q_OS_MACOS)
+    list << ShareEncoderCandidate{
+        "vtenc_h264_hw",
+        "realtime=true allow-frame-reordering=false bitrate=%1 "
+        "max-keyframe-interval=%2",
+        "baseline", false};
+#else
+    list << ShareEncoderCandidate{
+        "nvh264enc",
+        "preset=low-latency-hq rc-mode=cbr bitrate=%1 gop-size=%2 bframes=0 "
+        "zerolatency=true",
+        "constrained-baseline", true};
+#if defined(Q_OS_WIN)
+    list << ShareEncoderCandidate{"nvd3d11h264enc",
+                                  "preset=p1 tune=ultra-low-latency rc-mode=cbr "
+                                  "bitrate=%1 gop-size=%2 bframes=0",
+                                  "constrained-baseline", false}
+         << ShareEncoderCandidate{"amfh264enc",
+                                  "usage=ultra-low-latency rate-control=cbr "
+                                  "bitrate=%1 gop-size=%2",
+                                  "constrained-baseline", false}
+         << ShareEncoderCandidate{"qsvh264enc",
+                                  "rate-control=cbr bitrate=%1 gop-size=%2 "
+                                  "b-frames=0",
+                                  "constrained-baseline", false}
+         << ShareEncoderCandidate{"mfh264enc",
+                                  "low-latency=true rc-mode=cbr bitrate=%1 "
+                                  "gop-size=%2 bframes=0",
+                                  "constrained-baseline", false};
+#else
+    list << ShareEncoderCandidate{"vah264lpenc",
+                                  "rate-control=cbr bitrate=%1 key-int-max=%2 "
+                                  "b-frames=0 target-usage=7",
+                                  "constrained-baseline", false}
+         << ShareEncoderCandidate{"vah264enc",
+                                  "rate-control=cbr bitrate=%1 key-int-max=%2 "
+                                  "b-frames=0 target-usage=7",
+                                  "constrained-baseline", false};
+#endif
+#endif
+    return list;
+}
+
+bool SfuMediaEngine::shareHardwareEncodeRequested()
+{
+    return qEnvironmentVariable("LIGHTNING_SHARE_ENCODER")
+        == QLatin1String("hardware");
+}
+
+QString SfuMediaEngine::shareEncoderStage(const ShareEncoderCandidate &candidate,
+                                          int maxHeight, int fps,
+                                          int bitrateCapKbps)
+{
+    return QStringLiteral("%1 %2")
+        .arg(QLatin1String(candidate.factory),
+             QString::fromLatin1(candidate.stage)
+                 .arg(shareBitrateFor(maxHeight, fps, bitrateCapKbps) / 1000)
+                 .arg(2 * fps));
+}
+
+SfuMediaEngine::VideoCodecChain
+SfuMediaEngine::h264CodecChain(const ShareEncoderCandidate &candidate,
+                               bool zeroCopy)
+{
+    VideoCodecChain chain;
+    if (!zeroCopy) {
+        chain.beforeEncoder = QStringLiteral("videoconvert ! ");
+    }
+    // config-interval=-1: every keyframe carries its SPS and PPS, because a
+    // viewer who joins late gets them from nowhere else. The parser is the
+    // last element before encryption.
+    chain.afterEncoder = QStringLiteral(
+        "! video/x-h264,profile=%1,stream-format=byte-stream,alignment=au "
+        "! h264parse name=videoframes config-interval=-1 ")
+                             .arg(QLatin1String(candidate.profile));
+    chain.payloader = QLatin1String(lightning::rtp::h264PayloaderName());
+    chain.rtpCaps = QStringLiteral(
+        "encoding-name=H264,packetization-mode=(string)1,"
+        "profile-level-id=(string)%1,level-asymmetry-allowed=(string)1,")
+                        .arg(QLatin1String(lightning::rtp::kH264ProfileLevelId));
+    return chain;
+}
+
+namespace {
+/// Whether `description` reaches EOS: the encoder really opened a session and
+/// delivered. Bounded: a hanging driver counts as not working.
+bool encoderRunsHere(const QString &description, QString *why)
+{
+    GError *error = nullptr;
+    GstElement *pipeline =
+        gst_parse_launch(description.toUtf8().constData(), &error);
+    if (error || !pipeline) {
+        *why = QString::fromUtf8(error && error->message ? error->message : "?");
+        if (error)
+            g_error_free(error);
+        if (pipeline)
+            gst_object_unref(pipeline);
+        return false;
+    }
+    bool ok = gst_element_set_state(pipeline, GST_STATE_PLAYING)
+        != GST_STATE_CHANGE_FAILURE;
+    if (ok) {
+        GstBus *bus = gst_element_get_bus(pipeline);
+        GstMessage *message = gst_bus_timed_pop_filtered(
+            bus, 3 * GST_SECOND,
+            GstMessageType(GST_MESSAGE_ERROR | GST_MESSAGE_EOS));
+        ok = message && GST_MESSAGE_TYPE(message) == GST_MESSAGE_EOS;
+        if (message && !ok) {
+            GError *failure = nullptr;
+            gst_message_parse_error(message, &failure, nullptr);
+            *why = QString::fromUtf8(failure ? failure->message : "?");
+            if (failure)
+                g_error_free(failure);
+        } else if (!message) {
+            *why = QStringLiteral("no answer in 3 s");
+        }
+        if (message)
+            gst_message_unref(message);
+        gst_object_unref(bus);
+    }
+    gst_element_set_state(pipeline, GST_STATE_NULL);
+    gst_object_unref(pipeline);
+    return ok;
+}
+} // namespace
+
+std::optional<SfuMediaEngine::ShareHardwareEncoder>
+SfuMediaEngine::firstWorkingShareEncoder(
+    const QList<ShareEncoderCandidate> &candidates, bool glUsable)
+{
+    for (const ShareEncoderCandidate &candidate : candidates) {
+        if (!firstMissingElement({QByteArray(candidate.factory)}).isEmpty())
+            continue;
+        const QString encode = shareEncoderStage(candidate, 720, 30, 0);
+        const QString tail = QStringLiteral(" ! video/x-h264,profile=%1 "
+                                            "! fakesink")
+                                 .arg(QLatin1String(candidate.profile));
+        QString why;
+        if (glUsable && candidate.glInput
+            && encoderRunsHere(
+                QStringLiteral("videotestsrc num-buffers=3 ! ")
+                    + shareScaleStage(720, true, true)
+                    + QStringLiteral(" ! ") + encode + tail,
+                &why))
+            return ShareHardwareEncoder{candidate, true};
+        if (encoderRunsHere(
+                QStringLiteral("videotestsrc num-buffers=3 "
+                               "! video/x-raw,format=NV12,width=1280,height=720 "
+                               "! videoconvert ! ") + encode + tail,
+                &why))
+            return ShareHardwareEncoder{candidate, false};
+        qCInfo(lcSfuMedia) << "hardware encoder" << candidate.factory
+                           << "cannot run here:" << why;
+    }
+    return std::nullopt;
+}
+
+namespace {
+std::atomic<int> g_shareEncoderProbe{0}; // 0 unasked, 1 running, 2 answered
+std::optional<SfuMediaEngine::ShareHardwareEncoder> g_shareEncoder;
+} // namespace
+
+void SfuMediaEngine::probeShareHardwareEncoder()
+{
+    int unasked = 0;
+    if (!g_shareEncoderProbe.compare_exchange_strong(unasked, 1))
+        return;
+    std::thread([] {
+        g_shareEncoder = firstWorkingShareEncoder(
+            shareEncoderCandidates(),
+            shareGpuScalingRequested()
+                && missingGpuShareElement().isEmpty() && gpuShareChainUsable());
+        g_shareEncoderProbe.store(2);
+    }).detach();
+}
+
+std::optional<SfuMediaEngine::ShareHardwareEncoder>
+SfuMediaEngine::shareHardwareEncoder()
+{
+    return g_shareEncoderProbe.load() == 2 ? g_shareEncoder : std::nullopt;
+}
+
+QString SfuMediaEngine::h264DecoderElement()
+{
+    for (const char *name : {"avdec_h264", "openh264dec"}) {
+        if (firstMissingElement({QByteArray(name)}).isEmpty())
+            return QLatin1String(name);
+    }
+    return {};
 }
 
 /// The share's encoder stage: bitrate scales with the picture, keyframe
@@ -4731,15 +5004,7 @@ QString SfuMediaEngine::shareLimitsCaps(int maxHeight, int fps)
 QString SfuMediaEngine::shareEncoderStage(int maxHeight, int fps,
                                           int bitrateCapKbps)
 {
-    const int shareH = maxHeight;
-    const int shareW = (shareH * 16) / 9;
-    const double shareScale = (double(shareW) * shareH * fps)
-                            / (1920.0 * 1080.0 * 30.0);
-    int shareBitrate =
-        std::clamp(int(3000000.0 * shareScale), 800000, 6000000);
-    // A cap only lowers: Auto is the picture-derived rate above.
-    if (bitrateCapKbps > 0)
-        shareBitrate = std::min(shareBitrate, bitrateCapKbps * 1000);
+    const int shareBitrate = shareBitrateFor(maxHeight, fps, bitrateCapKbps);
     return QStringLiteral("vp8enc deadline=1 lag-in-frames=0 threads=4 "
                           "cpu-used=4 static-threshold=100 "
                           "keyframe-max-dist=%2 "
@@ -5129,7 +5394,7 @@ bool SfuMediaEngine::BlockedRunPolicy::note(bool failed, bool *raise)
     return false;
 }
 
-QString SfuMediaEngine::selfViewBranch()
+QString SfuMediaEngine::selfViewBranch(bool glMemory)
 {
     // Tee'd after the scaler so it costs one convert of the downscaled frame.
     // For a share it is the only way to see what is sent; for a camera, our
@@ -5142,10 +5407,11 @@ QString SfuMediaEngine::selfViewBranch()
     // held the whole pipeline in PAUSED, and every bin published after it (a
     // share, share audio, the microphone again) produced nothing. It does
     // not sync, so it needs no latency either.
-    return QStringLiteral("t. ! queue max-size-buffers=2 leaky=downstream "
+    return QStringLiteral("t. ! queue max-size-buffers=2 leaky=downstream %1"
                           "! videoconvert ! video/x-raw,format=RGBA "
                           "! appsink name=selfvidsink emit-signals=true "
-                          "sync=false async=false max-buffers=1 drop=true ");
+                          "sync=false async=false max-buffers=1 drop=true ")
+        .arg(glMemory ? QStringLiteral("! gldownload ") : QString());
 }
 
 QString SfuMediaEngine::videoPipelineDescription(const QString &source,
@@ -5155,7 +5421,8 @@ QString SfuMediaEngine::videoPipelineDescription(const QString &source,
                                                 const QString &selfView,
                                                 quint32 ssrc,
                                                 const QString &scaleStage,
-                                                const QString &entryFilter)
+                                                const QString &entryFilter,
+                                                const VideoCodecChain &codec)
 {
     return QStringLiteral(
                // `capsrc` is named so the capture can be counted separately
@@ -5182,18 +5449,23 @@ QString SfuMediaEngine::videoPipelineDescription(const QString &source,
                // the tee, the capture and the self-view.
                "t. ! queue max-size-buffers=0 max-size-bytes=0 "
                "max-size-time=100000000 leaky=downstream "
-               "! valve name=vidvalve drop=false ! %3 name=videoenc "
+               "! valve name=vidvalve drop=false ! %11%3 name=videoenc %12"
                // Our payloader, not rtpvp8pay; see RtpVp8Payloader.h.
                // Explicit ssrc: see nextPublishSsrc().
                "! %6 pt=96 ssrc=%5 mtu=%10 "
                // The ssrc must be in the caps; see publishAudio().
                "! capsfilter caps=\"application/x-rtp,media=video,"
-               "encoding-name=VP8,payload=96,clock-rate=(int)90000,"
+               "%13payload=96,clock-rate=(int)90000,"
                "ssrc=(uint)%5\"")
         .arg(source, limits, encoder, selfView, QString::number(ssrc),
-             QLatin1String(lightning::rtp::vp8PayloaderName()), rateStage, scaleStage,
-             entryFilter)
-        .arg(lightning::rtp::kRtpPayloadMtu);
+             codec.payloader.isEmpty()
+                 ? QString::fromLatin1(lightning::rtp::vp8PayloaderName())
+                 : codec.payloader,
+             rateStage, scaleStage, entryFilter)
+        .arg(lightning::rtp::kRtpPayloadMtu)
+        .arg(codec.beforeEncoder, codec.afterEncoder,
+             codec.rtpCaps.isEmpty() ? QStringLiteral("encoding-name=VP8,")
+                                     : codec.rtpCaps);
 }
 
 QString SfuMediaEngine::trackSidFromMsid(const QString &msid)
@@ -5486,15 +5758,15 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
     //
     // A portal camera uses its own entry; see portalCameraEntry().
     const bool portalCamera = !screenShare && pipewireFd >= 0;
-    const QString limits = screenShare
+    QString limits = screenShare
         ? shareLimitsCaps(m_shareMaxHeight, m_shareFps)
         : cameraLimitsCaps(portalCamera, m_cameraMaxHeight);
-    const QString encoder = screenShare
+    QString encoder = screenShare
         ? shareEncoderStage(m_shareMaxHeight, m_shareFps,
                             m_shareBitrateCapKbps)
         : cameraEncoderStage(m_cameraMaxHeight);
-    const QString selfView =
-        (!m_testSources || m_testSelfView) ? selfViewBranch() : QString();
+    const bool wantSelfView = !m_testSources || m_testSelfView;
+    QString selfView = wantSelfView ? selfViewBranch() : QString();
     const QString scaleStage = screenShare
         ? shareScaleStage(m_shareMaxHeight, shareGpuScalingRequested())
         : QStringLiteral("videoconvert ! videoscale");
@@ -5526,6 +5798,48 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
 
     QString scaleStageInUse = useGpu ? scaleStage : cpuScaleStage;
 
+    // Hardware encoding, tried on top of the rung above and falling back the
+    // same way. Software stays the floor: an encoder missing or unable to run
+    // here never reaches a description.
+    VideoCodecChain codec;
+    QString hardwareFactory;
+    bool glEncode = false;
+    if (screenShare && shareHardwareEncodeRequested()) {
+        const auto hardware = g_shareHardwareEncoderFailed.load()
+            ? std::nullopt
+            : shareHardwareEncoder();
+        if (hardware) {
+            hardwareFactory = QLatin1String(hardware->candidate.factory);
+            glEncode = useGpu && hardware->zeroCopy;
+            codec = h264CodecChain(hardware->candidate, glEncode);
+            encoder = shareEncoderStage(hardware->candidate, m_shareMaxHeight,
+                                        m_shareFps, m_shareBitrateCapKbps);
+            if (glEncode) {
+                // Stays in GL memory up to the encoder: the 4K BGRA->I420
+                // conversion and the readback do not exist on this path.
+                scaleStageInUse =
+                    shareScaleStage(m_shareMaxHeight, true, true);
+                limits = shareLimitsCaps(m_shareMaxHeight, m_shareFps, true);
+                if (wantSelfView)
+                    selfView = selfViewBranch(true);
+            }
+        } else {
+            qCInfo(lcSfuMedia)
+                << "screen share encoding in software: no hardware encoder "
+                   "works here, or the probe has not finished";
+        }
+    }
+    const auto dropHardwareEncoder = [&] {
+        hardwareFactory.clear();
+        glEncode = false;
+        codec = {};
+        encoder = shareEncoderStage(m_shareMaxHeight, m_shareFps,
+                                    m_shareBitrateCapKbps);
+        limits = shareLimitsCaps(m_shareMaxHeight, m_shareFps);
+        if (wantSelfView)
+            selfView = selfViewBranch();
+    };
+
     // Cameras try MJPG first: raw YUY2 at 720p30 exceeds USB 2.0 and
     // negotiates down to ~10 fps. Falls back to raw when the description
     // fails to parse.
@@ -5544,7 +5858,7 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
     QString description = videoPipelineDescription(
         source, screenShare ? videoRateStage(true) : cameraRateStage(portalCamera),
             limits, encoder, selfView,
-        nextPublishSsrc(), scaleStageInUse, entryInUse);
+        nextPublishSsrc(), scaleStageInUse, entryInUse, codec);
 
     GError *error = nullptr;
     GstElement *bin =
@@ -5565,6 +5879,25 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
         description = videoPipelineDescription(
             source, screenShare ? videoRateStage(true) : cameraRateStage(portalCamera),
             limits, encoder, selfView,
+            nextPublishSsrc(), scaleStageInUse, entryInUse);
+        bin = gst_parse_bin_from_description(description.toUtf8().constData(),
+                                             TRUE, &error);
+    }
+    if (error && !hardwareFactory.isEmpty()) {
+        // Hardware encode did not build; the rung below is the plain share.
+        qCWarning(lcSfuMedia)
+            << "screen share hardware encoder pipeline failed to build, "
+               "falling back to software:"
+            << (error->message ? error->message : "?");
+        g_clear_error(&error);
+        if (bin) {
+            gst_object_unref(bin);
+            bin = nullptr;
+        }
+        dropHardwareEncoder();
+        scaleStageInUse = useGpu ? scaleStage : cpuScaleStage;
+        description = videoPipelineDescription(
+            source, videoRateStage(true), limits, encoder, selfView,
             nextPublishSsrc(), scaleStageInUse, entryInUse);
         bin = gst_parse_bin_from_description(description.toUtf8().constData(),
                                              TRUE, &error);
@@ -5603,6 +5936,16 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
         // Logged after the ladder so it reports the outcome, not the intent.
         qCInfo(lcSfuMedia) << "screen share scaling on"
                            << (useGpu ? "the GPU" : "the CPU");
+        m_shareGlEncode = glEncode;
+        m_shareEncoderCid = cid;
+        const QString path = glEncode ? QStringLiteral("gpu-zero-copy")
+            : useGpu ? QStringLiteral("gpu-readback")
+                     : QStringLiteral("cpu");
+        m_shareEncoderInUse =
+            (hardwareFactory.isEmpty() ? QStringLiteral("vp8enc")
+                                       : hardwareFactory)
+            + QLatin1Char(' ') + path;
+        qCInfo(lcSfuMedia) << "screen share encoder=" << m_shareEncoderInUse;
     }
     // The user's camera choice, resolved above, applied before the bin joins
     // the pipeline. Unset, v4l2src/ksvideosrc/avfvideosrc would open the
@@ -5693,6 +6036,7 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
         asyncStart ? std::make_shared<ProbeGate>() : nullptr;
     probeState->startedMs = monotonicMs();
     probeState->screenShare = screenShare;
+    probeState->keepByReference = m_shareGlEncode && screenShare;
     m_publishWatch.insert(cid, PublishWatch{probeState, false});
     // Count what the capture itself produces: everything else is downstream
     // of the rate stage, which manufactures frames. handlePublishError() also
@@ -5782,7 +6126,8 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
     }
     // Sample what reaches `videorate` so the keep-alive timer has something
     // to re-push. Probed on its upstream peer (a src pad), after scaling and
-    // after any DMABuf download, so a copy is small and holds no pool buffer.
+    // after any DMABuf download, so a copy is small and holds no pool buffer;
+    // in GL memory it is a reference instead (keepByReference).
     // Screen share only: a camera delivers on a clock.
     if (screenShare) {
         {
@@ -5812,7 +6157,9 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
                                 return GST_PAD_PROBE_OK;
                             // Deep copy: a shallow copy would hold the
                             // source's pool memory, which stalls the capture.
-                            GstBuffer *kept = gst_buffer_copy_deep(buffer);
+                            GstBuffer *kept = state->keepByReference
+                                ? gst_buffer_ref(buffer)
+                                : gst_buffer_copy_deep(buffer);
                             if (!kept)
                                 return GST_PAD_PROBE_OK;
                             state->lastSampleMs.store(now);
@@ -5857,7 +6204,13 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
                               videoSinkCtxFree, GConnectFlags(0));
         gst_object_unref(selfSink);
     }
-    if (GstElement *encoder = gst_bin_get_by_name(GST_BIN(bin), "videoenc")) {
+    // The parser's output when there is one: it comes after the encoder, and
+    // nothing may read the frame between encryption and the payloader.
+    GstElement *frames = gst_bin_get_by_name(GST_BIN(bin), "videoframes");
+    const bool h264Frames = frames != nullptr;
+    if (GstElement *encoder = frames ? frames
+                                     : gst_bin_get_by_name(GST_BIN(bin),
+                                                           "videoenc")) {
         if (GstPad *encoded = gst_element_get_static_pad(encoder, "src")) {
             // Time from first captured to first encoded frame: what the rate
             // stage held at share start. One-shot; the probe removes itself.
@@ -5883,7 +6236,7 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
                     delete static_cast<std::shared_ptr<PublishProbeState> *>(
                         data);
                 });
-            installEncryptProbe(encoded, /*video=*/true, gate);
+            installEncryptProbe(encoded, /*video=*/true, gate, h264Frames);
             gst_object_unref(encoded);
         }
         gst_object_unref(encoder);
@@ -6204,6 +6557,11 @@ void SfuMediaEngine::unpublish(const QString &cid)
         releaseKeepAlive(dead.state);
     }
     updateShareKeepAliveTimer();
+    if (cid == m_shareEncoderCid) {
+        m_shareEncoderCid.clear();
+        m_shareEncoderInUse.clear();
+        m_shareGlEncode = false;
+    }
     if (cid == m_micCid) {
         forgetMicrophoneSwap();
         m_micStartPending.reset();
@@ -7990,7 +8348,8 @@ void SfuMediaEngine::noteStreamIds(const QHash<int, QString> &byMline,
 }
 
 void SfuMediaEngine::installEncryptProbe(GstPad *pad, bool video,
-                                         std::shared_ptr<ProbeGate> gate)
+                                         std::shared_ptr<ProbeGate> gate,
+                                         bool h264)
 {
     if (!pad)
         return;
@@ -8003,6 +8362,7 @@ void SfuMediaEngine::installEncryptProbe(GstPad *pad, bool video,
                                                      [](CallFrameCryptor *) {});
     ctx->encrypting = true;
     ctx->video = video;
+    ctx->h264 = h264;
     ctx->required = &m_encryptionRequired;
     ctx->keyReady = &m_sendKeyReady;
     ctx->total = &m_framesEncrypted;
@@ -8014,7 +8374,7 @@ void SfuMediaEngine::installEncryptProbe(GstPad *pad, bool video,
 }
 
 void SfuMediaEngine::installDecryptProbe(GstPad *pad, bool video,
-                                         const QString &streamId)
+                                         const QString &streamId, bool h264)
 {
     if (!pad)
         return;
@@ -8026,6 +8386,7 @@ void SfuMediaEngine::installDecryptProbe(GstPad *pad, bool video,
     recvCryptorFor(streamId);
     ctx->encrypting = false;
     ctx->video = video;
+    ctx->h264 = h264;
     ctx->required = &m_encryptionRequired;
     // Not consulted on receive (cryptoProbe() asks the ring, since any
     // sender's key sets this flag); assigned only to keep both contexts the
@@ -9840,7 +10201,7 @@ GstElement *SfuMediaEngine::buildReceiveBin(bool video,
                                             bool testSink, QString *error,
                                             const QString &pulseClientName,
                                             const OutputSink *speaker,
-                                            bool echoProbe)
+                                            bool echoProbe, bool h264)
 {
     // Audio volume elements keep the `outvol` prefix (deafen matches it) and a
     // per-track suffix (per-participant volume).
@@ -9856,10 +10217,21 @@ GstElement *SfuMediaEngine::buildReceiveBin(bool video,
         // appsink's drop=true instead.
         ? QStringLiteral("queue max-size-buffers=0 max-size-bytes=0 "
                          "max-size-time=200000000 "
-                         "! rtpvp8depay name=recvdepay ! vp8dec "
+                         "! rtp%1depay name=recvdepay %2"
                          "! videoconvert ! video/x-raw,format=RGBA "
                          "! appsink name=vidsink emit-signals=true "
                          "sync=false max-buffers=1 drop=true")
+              .arg(h264 ? QStringLiteral("h264") : QStringLiteral("vp8"),
+                   // recvdepay's src pad holds the whole frame, as for VP8;
+                   // decrypted there, so the parser and decoder only ever see
+                   // the clear stream.
+                   h264 ? QStringLiteral(
+                              "! video/x-h264,stream-format=byte-stream,"
+                              "alignment=au ! h264parse ! %1 ")
+                              .arg(h264DecoderElement().isEmpty()
+                                       ? QStringLiteral("avdec_h264")
+                                       : h264DecoderElement())
+                        : QStringLiteral("! vp8dec "))
         : (testSink
                // Leaky is safe for audio: Opus frames are independent and the
                // decoder conceals a loss.
@@ -9948,10 +10320,11 @@ bool SfuMediaEngine::attachReceiveChain(GstElement *pipeline, GstPad *srcPad,
                                         const QString &trackKey,
                                         const QString &mediaKind,
                                         GstElement **binOut, QString *why,
-                                        const QString &pulseClientName)
+                                        const QString &pulseClientName,
+                                        bool h264)
 {
     return prepareReceiveChain(pipeline, streamId, trackKey, mediaKind,
-                               binOut, why, pulseClientName)
+                               binOut, why, pulseClientName, h264)
         && startReceiveChain(srcPad, *binOut, why);
 }
 
@@ -9960,7 +10333,8 @@ bool SfuMediaEngine::prepareReceiveChain(GstElement *pipeline,
                                          const QString &trackKey,
                                          const QString &mediaKind,
                                          GstElement **binOut, QString *why,
-                                         const QString &pulseClientName)
+                                         const QString &pulseClientName,
+                                         bool h264)
 {
     *binOut = nullptr;
     const bool video = mediaKind == QLatin1String("video");
@@ -9988,7 +10362,7 @@ bool SfuMediaEngine::prepareReceiveChain(GstElement *pipeline,
     QString buildError;
     GstElement *bin =
         buildReceiveBin(video, volumeName, testSourceMode(), &buildError,
-                        client, speakerPtr, m_echoCancel.load());
+                        client, speakerPtr, m_echoCancel.load(), h264);
     if (!bin) {
         *why = QStringLiteral("could not be BUILT: %1").arg(buildError);
         return false;
@@ -10004,7 +10378,7 @@ bool SfuMediaEngine::prepareReceiveChain(GstElement *pipeline,
     bool decryptProbeInstalled = false;
     if (GstElement *depay = gst_bin_get_by_name(GST_BIN(bin), "recvdepay")) {
         if (GstPad *framePad = gst_element_get_static_pad(depay, "src")) {
-            installDecryptProbe(framePad, video, streamId);
+            installDecryptProbe(framePad, video, streamId, h264);
             decryptProbeInstalled = true;
             gst_object_unref(framePad);
         }
@@ -10127,11 +10501,21 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
     if (!caps)
         caps = gst_pad_query_caps(srcPad, nullptr);
     QString mediaKind;
+    bool h264 = false;
     if (caps) {
         const GstStructure *structure = gst_caps_get_structure(caps, 0);
         const gchar *media =
             structure ? gst_structure_get_string(structure, "media") : nullptr;
         mediaKind = QString::fromUtf8(media ? media : "");
+        // Every structure: without current caps this is a query, and its first
+        // structure is not the track's.
+        h264 = gst_caps_get_size(caps) > 0;
+        for (guint i = 0; i < gst_caps_get_size(caps); ++i) {
+            const gchar *encoding = gst_structure_get_string(
+                gst_caps_get_structure(caps, i), "encoding-name");
+            h264 = h264 && encoding
+                && g_ascii_strcasecmp(encoding, "H264") == 0;
+        }
         gst_caps_unref(caps);
     }
     if (mediaKind.isEmpty()) {
@@ -10147,7 +10531,8 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
     GstElement *bin = nullptr;
     QString why;
     const bool attached = engine->attachReceiveChain(
-        pipeline, srcPad, streamId, trackMid, mediaKind, &bin, &why);
+        pipeline, srcPad, streamId, trackMid, mediaKind, &bin, &why, QString(),
+        h264);
     gst_object_unref(pipeline);
     if (!attached) {
         // GStreamer's message names the element that failed.

@@ -72,8 +72,12 @@ gboolean setCaps(GstRTPBasePayload *payload, GstCaps *caps)
     return gst_rtp_base_payload_set_outcaps(payload, nullptr);
 }
 
-gsize headerExtensionBudget(GstRTPBasePayload *payload, GstBuffer *buffer)
+} // namespace
+
+unsigned long lightning::rtp::rtpHeaderExtensionBudget(GstElement *element,
+                                                       GstBuffer *buffer)
 {
+    auto *payload = GST_RTP_BASE_PAYLOAD(element);
     // GstRTPBasePayload adds extensions in push_list(), AFTER we fragment.
     // Reserve the four-byte extension prefix, each extension's worst-case
     // two-byte element header and data, rounded to a four-byte word boundary.
@@ -105,6 +109,8 @@ gsize headerExtensionBudget(GstRTPBasePayload *payload, GstBuffer *buffer)
     return bytes ? 4 + ((bytes + 3) & ~gsize(3)) : 0;
 }
 
+namespace {
+
 GstFlowReturn handleBuffer(GstRTPBasePayload *payload, GstBuffer *buffer)
 {
     GstMapInfo map;
@@ -118,7 +124,8 @@ GstFlowReturn handleBuffer(GstRTPBasePayload *payload, GstBuffer *buffer)
     // authentication trailer) is already the input and is fragmented here.
     const guint mtu = GST_RTP_BASE_PAYLOAD_MTU(payload);
     const gsize overhead = gst_rtp_buffer_calc_header_len(0)
-        + kDescriptorBytes + headerExtensionBudget(payload, buffer);
+        + kDescriptorBytes
+        + lightning::rtp::rtpHeaderExtensionBudget(GST_ELEMENT(payload), buffer);
     if (mtu <= overhead) {
         gst_buffer_unmap(buffer, &map);
         gst_buffer_unref(buffer);

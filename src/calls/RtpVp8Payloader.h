@@ -11,6 +11,7 @@
 // MTU without reading the payload. The RTP marker bit ends the frame.
 #pragma once
 
+typedef struct _GstBuffer GstBuffer;
 typedef struct _GstElement GstElement;
 
 namespace lightning::rtp {
@@ -30,5 +31,9 @@ void registerVp8Payloader();
 
 /// The element name to use in a pipeline description.
 const char *vp8PayloaderName();
+
+/// Bytes a video payloader (a GstRTPBasePayload) must keep free in each packet
+/// for the header extensions added after it fragments.
+unsigned long rtpHeaderExtensionBudget(GstElement *payloader, GstBuffer *buffer);
 
 } // namespace lightning::rtp

@@ -56,6 +56,86 @@ private Q_SLOTS:
                      CallFrameCryptor::FrameKind::VideoDelta), 3);
     }
 
+    void anH264FrameKeepsItsHeadersAndHidesItsSlice()
+    {
+        // livekit-client 2.22 processNALUsForEncryption(): everything up to
+        // two bytes into the first slice stays clear; writeRbsp() then keeps
+        // a start code out of what follows.
+        const QByteArray sps = QByteArray::fromHex("0000000167428028");
+        const QByteArray pps = QByteArray::fromHex("0000000168ce3c80");
+        QByteArray slice = QByteArray::fromHex("000000016588");
+        // Zero runs are what escaping exists for: the ciphertext of a known
+        // key still has to survive them in the plaintext.
+        slice += QByteArray(4000, char(0));
+        const QByteArray frame = sps + pps + slice;
+        const int clear = frame.indexOf(slice) + 6;
+        QCOMPARE(CallFrameCryptor::h264ClearBytes(frame.constData(), frame.size()),
+                 clear);
+
+        CallFrameCryptor cryptor;
+        QVERIFY(cryptor.setKey(0, QByteArray(16, 'k')));
+        // Enough frames that the tag, IV and trailer meet zeros at the seams.
+        for (int i = 0; i < 2000; ++i) {
+            const QByteArray wire = cryptor.encryptFrame(
+                frame, CallFrameCryptor::FrameKind::VideoH264, 7, 1000 + i);
+            QVERIFY(!wire.isEmpty());
+            QCOMPARE(wire.first(clear), frame.first(clear));
+            const QByteArray body = wire.sliced(clear);
+            QVERIFY2(!body.contains(QByteArray::fromHex("000001")),
+                     "a start code in the ciphertext would split the frame");
+            QVERIFY(!body.contains(QByteArray::fromHex("000000")));
+            QCOMPARE(CallFrameCryptor::h264ClearBytes(wire.constData(),
+                                                      wire.size()),
+                     clear);
+            CallFrameCryptor::DecryptDiagnosis why;
+            QCOMPARE(cryptor.decryptFrame(
+                         wire, CallFrameCryptor::FrameKind::VideoH264, &why),
+                     frame);
+        }
+
+        // A receiver rebuilds the frame with four-byte start codes, so a
+        // three-byte one in the authenticated header must not survive.
+        const QByteArray shortCodes = QByteArray::fromHex("00000167428028")
+            + QByteArray::fromHex("00000168ce3c80")
+            + QByteArray::fromHex("00000165880102030405060708");
+        const QByteArray widened = cryptor.encryptFrame(
+            shortCodes, CallFrameCryptor::FrameKind::VideoH264, 7, 9);
+        QVERIFY(widened.startsWith(
+            QByteArray::fromHex("0000000167428028" "0000000168ce3c80"
+                                "000000016588")));
+
+        // An SPS with no bitstream restriction would be rewritten by a
+        // receiving libwebrtc before the decryptor sees it. Baseline, POC 2,
+        // 1280x720; the old VUI holds `00 00 EA`, legal there and not an end
+        // of NAL unit. Expected bytes written by an independent bit writer.
+        const QByteArray rewritten = cryptor.encryptFrame(
+            QByteArray::fromHex("00000001" "6742c01fda014016e840" "0000ea6021"
+                                "000000000001" "68ce3c80"
+                                "000000000001" "6588aabbccddeeff"),
+            CallFrameCryptor::FrameKind::VideoH264, 7, 10);
+        QVERIFY(rewritten.startsWith(QByteArray::fromHex(
+            "00000001" "6742c01fda014016e807844235"
+            "00000001" "68ce3c80" "00000001" "6588")));
+
+        // The clear headers are authenticated.
+        QByteArray wire = cryptor.encryptFrame(
+            frame, CallFrameCryptor::FrameKind::VideoH264, 7, 5);
+        wire[5] = char(wire.at(5) ^ 1);
+        QVERIFY(cryptor
+                    .decryptFrame(wire, CallFrameCryptor::FrameKind::VideoH264,
+                                  nullptr)
+                    .isEmpty());
+        // No slice, no cleartext rule: refused, never sent as it is.
+        QVERIFY(cryptor
+                    .encryptFrame(sps + pps,
+                                  CallFrameCryptor::FrameKind::VideoH264, 7, 6)
+                    .isEmpty());
+        QVERIFY(cryptor
+                    .decryptFrame(sps + pps,
+                                  CallFrameCryptor::FrameKind::VideoH264, nullptr)
+                    .isEmpty());
+    }
+
     void keyDerivationIsStableAndKeyDependent()
     {
         const QByteArray a = CallFrameCryptor::deriveKey(rawKey('a'));

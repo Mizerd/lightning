@@ -120,7 +120,9 @@ public:
 
     /// The share's caps ceiling for a chosen height and rate. Static and pure
     /// so the caps strings are testable without a live peer.
-    static QString shareLimitsCaps(int maxHeight, int fps);
+    /// `glMemory`: the share stays on the GPU up to a hardware encoder.
+    static QString shareLimitsCaps(int maxHeight, int fps,
+                                   bool glMemory = false);
     /// Test-only: sets `property` on a fresh `factory` element the way a
     /// device binding is applied, and reads it back serialised; empty when
     /// the element refused it. avfvideosrc's `device-index` is an int, so the
@@ -129,7 +131,63 @@ public:
                                               const QString &property,
                                               const QString &value);
     /// Convert-and-scale stage for a share, CPU or GPU.
-    static QString shareScaleStage(int maxHeight, bool gpu);
+    /// `keepOnGpu` ends the GPU branch in GL memory, for an encoder that takes
+    /// it: the frame is never read back and never converted on the CPU.
+    static QString shareScaleStage(int maxHeight, bool gpu,
+                                   bool keepOnGpu = false);
+    /// How a video track is encoded and packetised, in a description's terms.
+    /// Default constructed: libvpx VP8 and our own VP8 payloader.
+    struct VideoCodecChain {
+        QString beforeEncoder; ///< What the encoder's input needs.
+        QString afterEncoder;  ///< Ends in the `videoframes` element, if any.
+        QString payloader;     ///< Empty: VP8.
+        QString rtpCaps;       ///< Empty: VP8.
+    };
+    /// One hardware encoder a share may use. `stage` holds %1 for kbit/s and
+    /// %2 for the keyframe interval.
+    struct ShareEncoderCandidate {
+        const char *factory = nullptr;
+        const char *stage = nullptr;
+        const char *profile = nullptr;
+        /// Takes GL memory, so a GPU share needs no readback at all.
+        bool glInput = false;
+    };
+    /// What a share will actually use.
+    struct ShareHardwareEncoder {
+        ShareEncoderCandidate candidate;
+        bool zeroCopy = false;
+    };
+    /// Hardware encoders for this platform, best first. NVENC and the rest
+    /// offer no VP8 (VA-API's is Intel-only and gone from current hardware),
+    /// so all of these are H.264.
+    static QList<ShareEncoderCandidate> shareEncoderCandidates();
+    /// Whether a share should try hardware. Off unless
+    /// `LIGHTNING_SHARE_ENCODER=hardware`: a viewer without an H.264 receive
+    /// chain, which is every release so far, would see nothing.
+    static bool shareHardwareEncodeRequested();
+    /// The first of `candidates` that encodes a frame here: the element
+    /// existing says nothing about the driver, a free session or a GPU.
+    /// Bounded, and may take seconds on a bad driver.
+    static std::optional<ShareHardwareEncoder>
+    firstWorkingShareEncoder(const QList<ShareEncoderCandidate> &candidates,
+                             bool glUsable);
+    /// Starts the once-per-process probe on its own thread: it can take
+    /// seconds, and a driver can hang it, so it must not run on the GUI thread.
+    static void probeShareHardwareEncoder();
+    /// The probe's answer, or nothing while it has none yet: that share goes
+    /// out in software.
+    static std::optional<ShareHardwareEncoder> shareHardwareEncoder();
+    static QString shareEncoderStage(const ShareEncoderCandidate &candidate,
+                                     int maxHeight, int fps, int bitrateCapKbps);
+    /// The H.264 chain around `candidate`.
+    static VideoCodecChain h264CodecChain(const ShareEncoderCandidate &candidate,
+                                          bool zeroCopy);
+    /// The H.264 decoder this build can use, or empty.
+    static QString h264DecoderElement();
+    /// What the current share encodes with, for diagnostics: the element's
+    /// factory name and "gpu-zero-copy", "gpu-readback" or "cpu". Empty
+    /// when no share is up.
+    QString shareEncoderInUse() const { return m_shareEncoderInUse; }
     /// The capsfilter between the capture and the rest. Pins PAR either way;
     /// the GPU form also admits a linear DMA-BUF.
     static QString captureEntryFilter(bool gpu);
@@ -420,10 +478,11 @@ public:
                                             const QString &selfView,
                                             quint32 ssrc,
                                             const QString &scaleStage,
-                                            const QString &entryFilter);
+                                            const QString &entryFilter,
+                                            const VideoCodecChain &codec = {});
     /// The self-view branch a camera or share publish tees off (not in
     /// test-source mode). Its appsink never waits for a preroll frame.
-    static QString selfViewBranch();
+    static QString selfViewBranch(bool glMemory = false);
     /// The rate stage: `videorate` pinning the output to a fixed rate. A
     /// desktop capture delivers on damage and videorate needs a second input
     /// buffer to emit anything; see the definition.
@@ -457,7 +516,8 @@ public:
                                        bool testSink, QString *error,
                                        const QString &pulseClientName = QString(),
                                        const OutputSink *speaker = nullptr,
-                                       bool echoProbe = false);
+                                       bool echoProbe = false,
+                                       bool h264 = false);
     /// The sink part of an audio receive bin's description, for tests.
     /// Resolves the chosen speaker on a worker thread and caches it. Called
     /// when the choice changes and when a call starts; never from a
@@ -980,6 +1040,8 @@ public:
     /// exists. webrtcdsp cancels against ONE probe, so only the first
     /// participant it finds is cancelled.
     void engageEchoCancellation();
+    /// GUI thread: a hardware encoder died under a running share.
+    void handleShareEncoderFailed(const QString &cid);
     int echoEngageAttemptsForTest() const { return m_echoEngageAttempts; }
     /// Local playback mute for every remote track.
     void setOutputMuted(bool muted);
@@ -1298,7 +1360,8 @@ private:
     /// Install the ENCRYPT probe on one outgoing pad. With `gate`, the probe
     /// does nothing once the gate is closed; see ProbeGate.
     void installEncryptProbe(GstPad *pad, bool video,
-                             std::shared_ptr<ProbeGate> gate = {});
+                             std::shared_ptr<ProbeGate> gate = {},
+                             bool h264 = false);
     /// A portal camera started off the GUI thread (see publishVideo()): closes
     /// its gate, and when its start is still in progress, or `force`, detaches
     /// the bin from the publisher now and finishes it (NULL, then its
@@ -1311,7 +1374,8 @@ private:
                             bool force = false);
     /// Install the DECRYPT probe on one incoming pad for `streamId`. An
     /// unknown stream id still gets a ring, so a later key lands correctly.
-    void installDecryptProbe(GstPad *pad, bool video, const QString &streamId);
+    void installDecryptProbe(GstPad *pad, bool video, const QString &streamId,
+                             bool h264 = false);
     /// Records media-section index -> stream id, mid and track sid. Takes maps
     /// rather than the SDP: GstSDPMessage cannot be forward-declared.
     void noteStreamIds(const QHash<int, QString> &byMline,
@@ -1337,6 +1401,11 @@ private:
     /// 0 = Auto (the height/rate-derived bitrate).
     int m_shareBitrateCapKbps = 0;
     int m_cameraMaxHeight = kCameraHeight;
+    /// The share in progress feeds its encoder from GL memory.
+    bool m_shareGlEncode = false;
+    /// See shareEncoderInUse().
+    QString m_shareEncoderInUse;
+    QString m_shareEncoderCid;
     std::atomic<bool> m_echoCancel{false};
     /// Remote audio arrived during the microphone's start.
     bool m_micEchoAfterStart = false;
@@ -1404,6 +1473,9 @@ private:
     /// long the rate stage held the opening picture.
     struct PublishProbeState {
         std::atomic<quint64> captured{0};
+        /// Frames stay in GL memory: the keep-alive holds a reference, because
+        /// a deep copy is a GL readback on every sample.
+        bool keepByReference = false;
         /// Monotonic ms since the publish was dispatched; -1 means "not yet".
         std::atomic<qint64> firstCaptureMs{-1};
         std::atomic<qint64> firstEncodedMs{-1};
@@ -1596,13 +1668,15 @@ private:
                             const QString &streamId, const QString &trackKey,
                             const QString &mediaKind, GstElement **binOut,
                             QString *why,
-                            const QString &pulseClientName = QString());
+                            const QString &pulseClientName = QString(),
+                            bool h264 = false);
     /// The engine-side half of attachReceiveChain: build, add, probes, volume.
     /// Quick; never waits on a device.
     bool prepareReceiveChain(GstElement *pipeline, const QString &streamId,
                              const QString &trackKey, const QString &mediaKind,
                              GstElement **binOut, QString *why,
-                             const QString &pulseClientName = QString());
+                             const QString &pulseClientName = QString(),
+                             bool h264 = false);
     /// The other half: start the bin and link it. May block on the device;
     /// touches no engine state.
     static bool startReceiveChain(GstPad *srcPad, GstElement *bin,

@@ -5,6 +5,7 @@
 #include "calls/CaptureClock.h"
 
 #include "calls/CallFrameCryptor.h"
+#include "calls/RtpH264Payloader.h"
 #include "calls/RtpVp8Payloader.h"
 #include "calls/ShareAudioSources.h"
 #include "calls/SfuVideoRouter.h"
@@ -4449,7 +4450,8 @@ private slots:
                 // Exempt: a queue feeding a video depayloader holds RTP, and
                 // leaking there corrupts the bitstream downstream of webrtcbin
                 // (no PLI). The appsink's `drop=true` bounds its latency.
-                if (next.contains(QStringLiteral("rtpvp8depay")))
+                if (next.contains(QStringLiteral("rtpvp8depay"))
+                    || next.contains(QStringLiteral("rtp%1depay")))
                     continue;
                 QVERIFY2(props.contains(QStringLiteral("leaky=downstream")),
                          qPrintable(QStringLiteral(
@@ -6529,6 +6531,237 @@ private slots:
         gst_object_unref(bus);
         gst_object_unref(pipeline);
         QVERIFY(!errored);
+    }
+
+    void h264PayloaderKeepsTheByteTheKeyIndexLivesIn()
+    {
+        if (!gst_init_check(nullptr, nullptr, nullptr)
+            || !SfuMediaEngine::firstMissingElement(
+                    {QByteArrayLiteral("rtph264depay")}).isEmpty())
+            QSKIP("rtph264depay not available");
+        SfuMediaEngine engine; // registers the payloader
+        // An encrypted frame's last byte is the key index, usually 0, and
+        // H.264 forbids a trailing zero.
+        const QByteArray frame =
+            QByteArray::fromHex("0000000167428028" "0000000168ce3c80"
+                                "0000016588")
+            + QByteArray(5000, char(0x55)) + QByteArray::fromHex("0c00");
+
+        const auto through = [&](const char *payloader) {
+            const QString desc = QStringLiteral(
+                "appsrc name=in format=time caps=\"video/x-h264,"
+                "stream-format=byte-stream,alignment=au\" "
+                "! %1 pt=96 mtu=1200 ! rtph264depay "
+                "! video/x-h264,stream-format=byte-stream,alignment=au "
+                "! appsink name=out sync=false")
+                .arg(QLatin1String(payloader));
+            GError *error = nullptr;
+            GstElement *pipeline =
+                gst_parse_launch(desc.toUtf8().constData(), &error);
+            if (error)
+                g_error_free(error);
+            if (!pipeline)
+                return QByteArray();
+            GstElement *in = gst_bin_get_by_name(GST_BIN(pipeline), "in");
+            GstElement *out = gst_bin_get_by_name(GST_BIN(pipeline), "out");
+            gst_element_set_state(pipeline, GST_STATE_PLAYING);
+            GstBuffer *buffer = gst_buffer_new_memdup(frame.constData(),
+                                                      frame.size());
+            GST_BUFFER_PTS(buffer) = 0;
+            GstFlowReturn flow = GST_FLOW_OK;
+            g_signal_emit_by_name(in, "push-buffer", buffer, &flow);
+            gst_buffer_unref(buffer);
+            g_signal_emit_by_name(in, "end-of-stream", &flow);
+            QByteArray result;
+            GstSample *sample = nullptr;
+            g_signal_emit_by_name(out, "try-pull-sample", 3 * GST_SECOND,
+                                  &sample);
+            if (sample) {
+                GstMapInfo map;
+                GstBuffer *got = gst_sample_get_buffer(sample);
+                if (gst_buffer_map(got, &map, GST_MAP_READ)) {
+                    result = QByteArray(
+                        reinterpret_cast<const char *>(map.data), map.size);
+                    gst_buffer_unmap(got, &map);
+                }
+                gst_sample_unref(sample);
+            }
+            gst_element_set_state(pipeline, GST_STATE_NULL);
+            gst_object_unref(in);
+            gst_object_unref(out);
+            gst_object_unref(pipeline);
+            return result;
+        };
+        const QByteArray ours =
+            through(lightning::rtp::h264PayloaderName());
+        QVERIFY2(ours.endsWith(QByteArray::fromHex("0c00")),
+                 qPrintable(ours.right(4).toHex()));
+        QCOMPARE(ours.right(5002), frame.right(5002));
+        // Why this element exists; if GStreamer stops stripping, it can go.
+        if (SfuMediaEngine::firstMissingElement(
+                {QByteArrayLiteral("rtph264pay")}).isEmpty()) {
+            QVERIFY(!through("rtph264pay").endsWith(QByteArray::fromHex("0c00")));
+        }
+    }
+
+    void aShareFallsBackToSoftwareWhenNoHardwareEncoderRuns()
+    {
+        if (!gst_init_check(nullptr, nullptr, nullptr))
+            QSKIP("no GStreamer");
+        SfuMediaEngine engine;
+        qunsetenv("LIGHTNING_SHARE_ENCODER");
+        QVERIFY(!SfuMediaEngine::shareHardwareEncodeRequested());
+        // Missing outright, and present with a stage that cannot run.
+        const SfuMediaEngine::ShareEncoderCandidate missing{
+            "lightningnosuchencoder", "bitrate=%1 gop=%2",
+            "constrained-baseline", true};
+        const SfuMediaEngine::ShareEncoderCandidate broken{
+            "vp8enc", "target-bitrate=%1 keyframe-max-dist=%2",
+            "constrained-baseline", false};
+        QVERIFY(!SfuMediaEngine::firstWorkingShareEncoder({missing, broken},
+                                                          false));
+        // Any H.264 encoder shows the ladder stops at the first that works,
+        // and that the description production builds around it parses.
+        if (!SfuMediaEngine::firstMissingElement(
+                {QByteArrayLiteral("openh264enc"),
+                 QByteArrayLiteral("h264parse")}).isEmpty())
+            QSKIP("no software H.264 encoder to stand in for the hardware");
+        const SfuMediaEngine::ShareEncoderCandidate standIn{
+            "openh264enc", "bitrate=%1 gop-size=%2",
+            "constrained-baseline", false};
+        const auto chosen = SfuMediaEngine::firstWorkingShareEncoder(
+            {missing, broken, standIn}, false);
+        QVERIFY(chosen);
+        QCOMPARE(QLatin1String(chosen->candidate.factory),
+                 QLatin1String("openh264enc"));
+        QVERIFY(!chosen->zeroCopy);
+        const QString description = SfuMediaEngine::videoPipelineDescription(
+            QStringLiteral("videotestsrc is-live=true"),
+            SfuMediaEngine::videoRateStage(true),
+            SfuMediaEngine::shareLimitsCaps(1080, 30),
+            SfuMediaEngine::shareEncoderStage(standIn, 1080, 30, 0), QString(),
+            1234u, SfuMediaEngine::shareScaleStage(1080, false),
+            SfuMediaEngine::captureEntryFilter(false),
+            SfuMediaEngine::h264CodecChain(standIn, false));
+        QVERIFY2(description.contains(QLatin1String("encoding-name=H264")),
+                 qPrintable(description));
+        GError *error = nullptr;
+        GstElement *bin = gst_parse_bin_from_description(
+            description.toUtf8().constData(), TRUE, &error);
+        QVERIFY2(bin && !error, error ? error->message : "no bin");
+        gst_object_unref(bin);
+    }
+
+    void aZeroCopyShareRunsTheDescriptionProductionBuilds()
+    {
+        // Needs NVENC and a GL context, so it runs on a developer machine
+        // only; the caps contract it checks is invisible to everything else.
+        if (!gst_init_check(nullptr, nullptr, nullptr))
+            QSKIP("no GStreamer");
+        SfuMediaEngine engine;
+        const auto candidates = SfuMediaEngine::shareEncoderCandidates();
+        const auto chosen = SfuMediaEngine::firstWorkingShareEncoder(
+            candidates, SfuMediaEngine::gpuShareChainUsable());
+        if (!chosen || !chosen->zeroCopy)
+            QSKIP("no encoder here takes GL memory");
+        const QString description = SfuMediaEngine::videoPipelineDescription(
+            QStringLiteral("gltestsrc is-live=true pattern=snow"),
+            SfuMediaEngine::videoRateStage(true),
+            SfuMediaEngine::shareLimitsCaps(1080, 30, true),
+            SfuMediaEngine::shareEncoderStage(chosen->candidate, 1080, 30, 0),
+            SfuMediaEngine::selfViewBranch(true), 1234u,
+            SfuMediaEngine::shareScaleStage(1080, true, true),
+            QStringLiteral("capsfilter caps=\"video/x-raw(memory:GLMemory),"
+                           "format=RGBA,width=3840,height=2160,"
+                           "framerate=30/1,texture-target=2D,"
+                           "pixel-aspect-ratio=(fraction)1/1\""),
+            SfuMediaEngine::h264CodecChain(chosen->candidate, true));
+        // A running share's elements, with fakesinks where webrtcbin sits.
+        GError *error = nullptr;
+        GstElement *pipeline = gst_parse_launch(
+            (description + QStringLiteral(" ! fakesink name=rtp")).toUtf8()
+                .constData(),
+            &error);
+        QVERIFY2(pipeline && !error, error ? error->message : "no pipeline");
+        std::atomic<int> packets{0};
+        std::atomic<int> previews{0};
+        GstElement *rtp = gst_bin_get_by_name(GST_BIN(pipeline), "rtp");
+        GstPad *pad = gst_element_get_static_pad(rtp, "sink");
+        const auto count = [](GstPad *, GstPadProbeInfo *, gpointer data) {
+            static_cast<std::atomic<int> *>(data)->fetch_add(1);
+            return GST_PAD_PROBE_OK;
+        };
+        gst_pad_add_probe(pad, GST_PAD_PROBE_TYPE_BUFFER, count, &packets,
+                          nullptr);
+        GstElement *self = gst_bin_get_by_name(GST_BIN(pipeline), "selfvidsink");
+        GstPad *selfPad = gst_element_get_static_pad(self, "sink");
+        gst_pad_add_probe(selfPad, GST_PAD_PROBE_TYPE_BUFFER, count, &previews,
+                          nullptr);
+        GstBus *bus = gst_element_get_bus(pipeline);
+        gst_element_set_state(pipeline, GST_STATE_PLAYING);
+        QTest::qWaitFor(
+            [&] {
+                return packets.load() > 20 && previews.load() > 5;
+            },
+            8000);
+        GstMessage *message = gst_bus_pop_filtered(bus, GST_MESSAGE_ERROR);
+        QString failure;
+        if (message) {
+            GError *why = nullptr;
+            gst_message_parse_error(message, &why, nullptr);
+            failure = QString::fromUtf8(why ? why->message : "?");
+            if (why)
+                g_error_free(why);
+            gst_message_unref(message);
+        }
+        const int sent = packets.load();
+        const int shown = previews.load();
+        gst_element_set_state(pipeline, GST_STATE_NULL);
+        gst_object_unref(pad);
+        gst_object_unref(selfPad);
+        gst_object_unref(rtp);
+        gst_object_unref(self);
+        gst_object_unref(bus);
+        gst_object_unref(pipeline);
+        QVERIFY2(failure.isEmpty(), qPrintable(failure));
+        QVERIFY2(sent > 20 && shown > 5,
+                 qPrintable(QStringLiteral("%1 packets, %2 previews")
+                                .arg(sent).arg(shown)));
+    }
+
+    void aFailedHardwareEncoderEndsOnlyTheShareItBelongsTo()
+    {
+        if (!gst_init_check(nullptr, nullptr, nullptr))
+            QSKIP("no GStreamer");
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        QSignalSpy failed(&engine, &SfuMediaEngine::publishFailed);
+        engine.start();
+        const QString cid = QStringLiteral("cid-share");
+        engine.publishVideo(cid, true, -1);
+        QCOMPARE(engine.shareEncoderInUse().section(QLatin1Char(' '), 0, 0),
+                 QStringLiteral("vp8enc"));
+        // A late report from a bin that is gone.
+        engine.handleShareEncoderFailed(QStringLiteral("cid-old-share"));
+        QCOMPARE(failed.count(), 0);
+        engine.handleShareEncoderFailed(cid);
+        QCOMPARE(failed.count(), 1);
+        QCOMPARE(failed.at(0).at(0).toString(), cid);
+        // Once only.
+        engine.handleShareEncoderFailed(cid);
+        QCOMPARE(failed.count(), 1);
+    }
+
+    void aGpuShareStaysInGlMemoryOnlyForAnEncoderThatTakesIt()
+    {
+        QVERIFY(!SfuMediaEngine::shareScaleStage(1080, true, true)
+                     .contains(QLatin1String("gldownload")));
+        QVERIFY(SfuMediaEngine::shareScaleStage(1080, true)
+                    .contains(QLatin1String("gldownload")));
+        QVERIFY(SfuMediaEngine::shareLimitsCaps(1080, 30, true)
+                    .contains(QLatin1String("(memory:GLMemory)")));
+        QVERIFY(SfuMediaEngine::selfViewBranch(true)
+                    .contains(QLatin1String("gldownload")));
     }
 
     void shareAudioIsOfferedOnlyWhenSomethingCanActuallyCaptureIt()

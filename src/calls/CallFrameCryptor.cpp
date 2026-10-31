@@ -1,5 +1,7 @@
 #include "calls/CallFrameCryptor.h"
 
+#include <atomic>
+
 #include <QRandomGenerator>
 #include <cstring>
 
@@ -58,9 +60,229 @@ int CallFrameCryptor::headerBytes(FrameKind kind)
     case FrameKind::Audio:      return 1;
     case FrameKind::VideoKey:   return 10;
     case FrameKind::VideoDelta: return 3;
+    case FrameKind::VideoH264:  return 5; // the shortest start code + 2
     }
     return 1;
 }
+
+int CallFrameCryptor::h264ClearBytes(const char *frame, qsizetype size)
+{
+    if (!frame)
+        return -1;
+    const auto *data = reinterpret_cast<const unsigned char *>(frame);
+    for (qsizetype i = 0; i + 3 < size; ++i) {
+        if (data[i] != 0 || data[i + 1] != 0 || data[i + 2] != 1)
+            continue;
+        const int type = data[i + 3] & 0x1f;
+        if (type == 1 || type == 5)
+            return i + 3 + 2 <= size ? static_cast<int>(i + 3 + 2) : -1;
+    }
+    return -1;
+}
+
+namespace {
+QByteArray writeRbsp(const QByteArray &in);
+QByteArray parseRbsp(const QByteArray &in);
+
+struct BitReader {
+    const QByteArray &data;
+    qsizetype bit = 0;
+    bool ok = true;
+    unsigned u1()
+    {
+        if (bit >= data.size() * 8) {
+            ok = false;
+            return 0;
+        }
+        const unsigned value =
+            (static_cast<unsigned char>(data.at(bit / 8)) >> (7 - bit % 8)) & 1;
+        ++bit;
+        return value;
+    }
+    unsigned ue()
+    {
+        int zeros = 0;
+        while (ok && zeros < 32 && u1() == 0)
+            ++zeros;
+        unsigned value = 0;
+        for (int i = 0; i < zeros; ++i)
+            value = (value << 1) | u1();
+        return (zeros < 32 ? (1u << zeros) - 1 : 0) + value;
+    }
+};
+
+struct BitWriter {
+    QByteArray out;
+    int bits = 0;
+    void u1(unsigned value)
+    {
+        if (bits % 8 == 0)
+            out.append(char(0));
+        if (value)
+            out[out.size() - 1] = char(static_cast<unsigned char>(out.back())
+                                       | (0x80 >> (bits % 8)));
+        ++bits;
+    }
+    void ue(unsigned value)
+    {
+        const unsigned code = value + 1;
+        int width = 0;
+        while ((code >> (width + 1)) != 0)
+            ++width;
+        for (int i = 0; i < width; ++i)
+            u1(0);
+        for (int i = width; i >= 0; --i)
+            u1((code >> i) & 1);
+    }
+};
+
+/// `sps` (NAL header included) with its VUI replaced by the one libwebrtc would
+/// write, or `sps` as it is when it cannot be read.
+///
+/// A receiving libwebrtc rewrites any SPS without a bitstream restriction, to
+/// stop the decoder buffering, BEFORE the frame reaches the decryptor
+/// (SpsVuiRewriter, Direction::kIncoming). The SPS is inside the authenticated
+/// header, so the rewrite fails every tag. A browser's own sender has already
+/// rewritten it (Direction::kOutgoing); this is that step. The other VUI fields
+/// are dropped rather than parsed: timing means nothing to a call, and a
+/// full-range signal would be lost, which the ladder's encoders do not send
+/// for the limited-range NV12 and RGBA input they get.
+QByteArray spsWithBitstreamRestriction(const QByteArray &sps)
+{
+    if (sps.size() < 4)
+        return sps;
+    const QByteArray rbsp = parseRbsp(sps.sliced(1));
+    BitReader in{rbsp};
+    in.bit = 24; // profile_idc, constraints, level_idc
+    const int profile = static_cast<unsigned char>(rbsp.at(0));
+    in.ue(); // seq_parameter_set_id
+    // Only what a Constrained Baseline encoder can produce.
+    if (profile != 66 && profile != 77)
+        return sps;
+    in.ue(); // log2_max_frame_num_minus4
+    const unsigned pocType = in.ue();
+    if (pocType == 0)
+        in.ue();
+    else if (pocType != 2)
+        return sps;
+    const unsigned maxRefFrames = in.ue();
+    in.u1(); // gaps_in_frame_num_value_allowed_flag
+    in.ue(); // pic_width_in_mbs_minus1
+    in.ue(); // pic_height_in_map_units_minus1
+    if (in.u1() == 0) // frame_mbs_only_flag
+        in.u1();
+    in.u1(); // direct_8x8_inference_flag
+    if (in.u1()) { // frame_cropping_flag
+        for (int i = 0; i < 4; ++i)
+            in.ue();
+    }
+    if (!in.ok)
+        return sps;
+    BitWriter out;
+    BitReader copy{rbsp};
+    for (qsizetype i = 0; i < in.bit; ++i)
+        out.u1(copy.u1());
+    out.u1(1); // vui_parameters_present_flag
+    for (int i = 0; i < 4; ++i)
+        out.u1(0); // aspect ratio, overscan, video signal, chroma location
+    for (int i = 0; i < 4; ++i)
+        out.u1(0); // timing, NAL HRD, VCL HRD, pic_struct
+    out.u1(1);     // bitstream_restriction_flag
+    out.u1(1);     // motion_vectors_over_pic_boundaries_flag
+    out.ue(0);     // max_bytes_per_pic_denom
+    out.ue(0);     // max_bits_per_mb_denom
+    out.ue(16);    // log2_max_mv_length_horizontal
+    out.ue(16);    // log2_max_mv_length_vertical
+    out.ue(0);     // max_num_reorder_frames
+    out.ue(maxRefFrames); // max_dec_frame_buffering
+    out.u1(1);     // rbsp_stop_one_bit
+    return sps.first(1) + writeRbsp(out.out);
+}
+
+/// The frame as a receiver will rebuild it, up to `clear`: four-byte start
+/// codes, because a depacketizer writes those, and an SPS it would not rewrite.
+/// The clear header is authenticated, so any difference fails every tag.
+QByteArray withReceiverHeader(const QByteArray &frame, int clear)
+{
+    const auto byteAt = [&frame](int at) {
+        return static_cast<unsigned char>(frame.at(at));
+    };
+    QByteArray out;
+    out.reserve(frame.size() + 32);
+    int i = 0;
+    while (i < clear) {
+        // Any run of two or more zeros before a 1 is a start code; the extra
+        // zeros are `trailing_zero_8bits`, which no packetizer carries.
+        int one = i;
+        while (one < clear && byteAt(one) == 0)
+            ++one;
+        if (one + 1 >= clear || one - i < 2 || byteAt(one) != 1) {
+            out.append(frame.at(i));
+            ++i;
+            continue;
+        }
+        out.append(QByteArray::fromRawData("\0\0\0\1", 4));
+        const int nal = one + 1;
+        if ((byteAt(nal) & 0x1f) != 7) {
+            i = nal;
+            continue;
+        }
+        int end = nal;
+        while (end + 2 < clear
+               && !(byteAt(end) == 0 && byteAt(end + 1) == 0
+                    && byteAt(end + 2) <= 1))
+            ++end;
+        const QByteArray sps = frame.sliced(nal, end - nal);
+        const QByteArray rewritten = spsWithBitstreamRestriction(sps);
+        static std::atomic_flag warned = ATOMIC_FLAG_INIT;
+        if (rewritten == sps && !warned.test_and_set()) {
+            qWarning("call media: an H.264 SPS could not be rewritten; a "
+                     "browser will fail to decrypt this stream's keyframes");
+        }
+        out.append(rewritten);
+        i = end;
+    }
+    out.append(frame.constData() + clear, frame.size() - clear);
+    return out;
+}
+
+// libwebrtc's and livekit-client's writeRbsp()/parseRbsp(), byte for byte.
+QByteArray writeRbsp(const QByteArray &in)
+{
+    QByteArray out;
+    out.reserve(in.size() + in.size() / 64 + 4);
+    int zeros = 0;
+    for (const char c : in) {
+        const auto byte = static_cast<unsigned char>(c);
+        if (byte <= 3 && zeros >= 2) {
+            out.append(char(3));
+            zeros = 0;
+        }
+        out.append(c);
+        zeros = byte == 0 ? zeros + 1 : 0;
+    }
+    return out;
+}
+
+QByteArray parseRbsp(const QByteArray &in)
+{
+    QByteArray out;
+    out.reserve(in.size());
+    const qsizetype size = in.size();
+    for (qsizetype i = 0; i < size;) {
+        if (size - i >= 3 && in.at(i) == 0 && in.at(i + 1) == 0
+            && in.at(i + 2) == 3) {
+            out.append(in.at(i));
+            out.append(in.at(i + 1));
+            i += 3;
+        } else {
+            out.append(in.at(i));
+            ++i;
+        }
+    }
+    return out;
+}
+} // namespace
 
 bool CallFrameCryptor::looksEncrypted(const char *wire, qsizetype size,
                                       FrameKind kind)
@@ -280,7 +502,7 @@ void CallFrameCryptor::setSendCounterForTest(quint32 ssrc, quint32 value)
     m_sendCounts.insert(ssrc, value);
 }
 
-QByteArray CallFrameCryptor::encryptFrame(const QByteArray &payload,
+QByteArray CallFrameCryptor::encryptFrame(const QByteArray &frame,
                                           FrameKind kind, quint32 ssrc,
                                           quint32 rtpTimestamp)
 {
@@ -288,9 +510,14 @@ QByteArray CallFrameCryptor::encryptFrame(const QByteArray &payload,
     // index and using the key; nested hasKey()/ivFor() re-enter the recursive
     // mutex.
     QMutexLocker lock(&m_mutex);
-    const int header = headerBytes(kind);
-    if (payload.size() < header)
-        return {}; // too short for its header: refuse
+    const bool h264 = kind == FrameKind::VideoH264;
+    const int clear = h264 ? h264ClearBytes(frame.constData(), frame.size())
+                           : headerBytes(kind);
+    if (clear < 0 || frame.size() < clear)
+        return {}; // no slice, or too short for its header: refuse
+    const QByteArray payload = h264 ? withReceiverHeader(frame, clear) : frame;
+    const int header = h264 ? h264ClearBytes(payload.constData(), payload.size())
+                            : clear;
     if (!hasKey(m_currentIndex))
         return {}; // no key: the caller drops, never sends cleartext
 
@@ -359,6 +586,17 @@ QByteArray CallFrameCryptor::encryptFrame(const QByteArray &payload,
     // [header][ciphertext][tag][iv][trailer]
     out.reserve(header + cipher.size() + kTagBytes + kIvBytes + kTrailerBytes);
     out.append(payload.constData(), header);
+    if (h264) {
+        QByteArray body;
+        body.reserve(cipher.size() + kTagBytes + kIvBytes + kTrailerBytes);
+        body.append(cipher);
+        body.append(tag);
+        body.append(iv);
+        body.append(static_cast<char>(kIvBytes));
+        body.append(static_cast<char>(m_currentIndex));
+        out.append(writeRbsp(body));
+        return out;
+    }
     out.append(cipher);
     out.append(tag);
     out.append(iv);
@@ -381,7 +619,7 @@ const char *CallFrameCryptor::decryptFailureName(DecryptFailure reason)
     return "?";
 }
 
-QByteArray CallFrameCryptor::decryptFrame(const QByteArray &wire,
+QByteArray CallFrameCryptor::decryptFrame(const QByteArray &received,
                                           FrameKind kind,
                                           DecryptDiagnosis *why)
 {
@@ -398,7 +636,16 @@ QByteArray CallFrameCryptor::decryptFrame(const QByteArray &wire,
         *why = diag;
 
     QMutexLocker lock(&m_mutex);
-    const int header = headerBytes(kind);
+    const bool h264 = kind == FrameKind::VideoH264;
+    const int header = h264
+        ? h264ClearBytes(received.constData(), received.size())
+        : headerBytes(kind);
+    if (header < 0)
+        return fail(DecryptFailure::ShortWire);
+    // Everything below reads the frame as it was before RBSP escaping.
+    const QByteArray wire = h264
+        ? received.first(header) + parseRbsp(received.sliced(header))
+        : received;
     if (wire.size() < header + kTagBytes + kIvBytes + kTrailerBytes)
         return fail(DecryptFailure::ShortWire);
 

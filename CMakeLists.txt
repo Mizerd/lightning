@@ -1083,6 +1083,8 @@ if(HAVE_LIGHTNING_WEBRTC)
         src/calls/CaptureDeviceSelection.cpp
         src/calls/RtpVp8Payloader.h
         src/calls/RtpVp8Payloader.cpp
+        src/calls/RtpH264Payloader.h
+        src/calls/RtpH264Payloader.cpp
         # Windows window capture: the shipped GStreamer has no usable element
         # that takes a window handle. Compiles to nothing off Windows.
         src/calls/WindowCaptureSrc.h
@@ -4921,6 +4923,8 @@ if(BUILD_TESTING)
             src/calls/CaptureDeviceSelection.cpp
             src/calls/RtpVp8Payloader.h
             src/calls/RtpVp8Payloader.cpp
+            src/calls/RtpH264Payloader.h
+            src/calls/RtpH264Payloader.cpp
             src/calls/WindowCaptureSrc.h
             src/calls/WindowCaptureSrc.cpp
             src/calls/CallFrameCryptor.h

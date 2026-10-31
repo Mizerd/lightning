@@ -1153,3 +1153,55 @@ where Discord and OBS use DXGI Desktop Duplication (`d3d11screencapturesrc`,
 currently blocked here by the mingw-w64 UCRT/msvcrt break recorded above).
 That is a hypothesis, NOT a measurement — the numbers in this block are Linux
 `videotestsrc` and say nothing about either capture element.
+
+## Hardware share encoding (2026-10-31)
+
+**Opt-in: `LIGHTNING_SHARE_ENCODER=hardware`. Software VP8 stays the default**,
+because a viewer needs an H.264 receive chain and no release before this one has
+it: such a viewer gets a track that never shows a picture. LiveKit forwards, it
+does not transcode.
+
+NVENC has no VP8 at all (an RTX 3080 offers H.264 and HEVC) and VA-API on NVIDIA
+is decode only, so a hardware share is H.264. That is why this is more than an
+encoder swap:
+
+* **`CallFrameCryptor::FrameKind::VideoH264`**, from livekit-client 2.22.3's
+  worker: clear up to two bytes into the first slice NAL unit, then RBSP escaping
+  over ciphertext, tag, IV and trailer.
+* **`lightningrtph264pay`, not `rtph264pay`.** The stock element strips trailing
+  zeros from a NAL unit, and an encrypted frame's last byte is the key index.
+* **`videoframes` (`h264parse config-interval=-1`) is the last element before
+  encryption**, so every keyframe carries SPS and PPS in the clear. The encrypt
+  probe sits on its src pad, not on `videoenc`'s.
+* The receive chain follows the pad's `encoding-name`.
+
+**The path that matters is `gpu-zero-copy`:** `nvh264enc` takes GL memory, so
+`publimits` and the tee stay in GL memory and the BGRA->I420 conversion and the
+readback do not exist. Only the self-view reads back, after a `gldownload` in its
+own branch. Every other encoder takes system memory through a `videoconvert`.
+
+The ladder: `shareEncoderCandidates()`, first one that really encodes three
+frames here (`firstWorkingShareEncoder()`, once per process on its own thread
+from the call's start; a share that outruns it goes out in software), else VP8.
+An encoder that fails in a running share raises `publishFailed`, because the
+track's codec is fixed and capture would otherwise carry on under a live preview;
+`g_shareHardwareEncoderFailed` keeps the next one on software.
+
+**A browser rewrites the authenticated header unless the sender did first.** A
+receiving libwebrtc rebuilds every start code as four bytes and rewrites an SPS
+with no bitstream restriction, before the decryptor runs, and the SPS is inside
+the AAD. Every keyframe failed its tag at Element until `withReceiverHeader()`
+did both on the send side.
+
+`shareEncoderInUse()` (for the Stream Info overlay; no caller yet) and the
+`screen share encoder=` log line name the factory and the path.
+
+Measured on an RTX 3080 (5 s of 1080p30, `gltestsrc` 4K through the real stages,
+three runs, machine busy): today's GPU path 8.9-10.9 s of CPU, `nvh264enc`
+0.67-0.73 s, the GL source alone 0.21-0.28 s. Not a capture: no portal was
+available to the harness.
+
+**Trap met while measuring:** `videotestsrc ! glupload ! gldownload` reads back
+all black on this NVIDIA GLES context, for BGRA and RGBA, while `gltestsrc` does
+not. Test GL chains with `gltestsrc`. Whether a real SHM capture on the GPU
+branch is black the same way is NOT TESTED.
