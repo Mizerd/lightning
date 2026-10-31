@@ -9950,6 +9950,17 @@ quint64 RustSdkMatrixClient::requestAccountDataListing(const QString &roomId)
     return result.isEmpty() ? opId : 0;
 }
 
+quint64 RustSdkMatrixClient::requestUserClients(const QString &userId)
+{
+    if (!m_rustHandle || userId.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray user = userId.toUtf8();
+    const QString result = takeRustString(mx_rust_user_clients(
+        m_rustHandle, user.constData(), static_cast<unsigned long long>(opId)));
+    return result.isEmpty() ? opId : 0;
+}
+
 quint64 RustSdkMatrixClient::requestServerAdminStatus()
 {
     if (!m_rustHandle)
@@ -14355,6 +14366,22 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         }
         listing.insert(QStringLiteral("entries"), entries);
         Q_EMIT accountDataListed(opId(), listing);
+        return true;
+    }
+
+    if (type == QLatin1String("user_clients")) {
+        QVariantList devices;
+        for (const QJsonValue &v : event.value(QStringLiteral("devices")).toArray()) {
+            const QJsonObject d = v.toObject();
+            devices.append(QVariantMap{
+                {QStringLiteral("deviceId"), d.value(QStringLiteral("device_id")).toString()},
+                {QStringLiteral("name"), d.value(QStringLiteral("name")).toString()}});
+        }
+        Q_EMIT userClientsListed(
+            opId(), QVariantMap{
+                {QStringLiteral("ok"), event.value(QStringLiteral("ok")).toBool()},
+                {QStringLiteral("userId"), event.value(QStringLiteral("user_id")).toString()},
+                {QStringLiteral("devices"), devices}});
         return true;
     }
 

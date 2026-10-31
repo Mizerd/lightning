@@ -529,6 +529,9 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // account switches never disturb a check or download.
     m_updateManager = std::make_unique<lightning::update::UpdateManager>(this);
     m_about->setPackageKind(m_updateManager->installTypeLabel());
+#ifdef HAVE_LIGHTNING_WEBRTC
+    m_about->setGstreamerVersion(lightning::gst::versionString());
+#endif
     // The automatic check is delayed so it never stands between the user and
     // a usable app (the privacy notes promise nothing in the first 30 s).
     // maybeCheckAutomatically() enforces the preference and the 24 h rate

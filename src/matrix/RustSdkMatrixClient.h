@@ -601,6 +601,7 @@ public:
     bool reportsCacheCompaction() const override { return true; }
     quint64 requestHomeserverInfo() override;
     quint64 requestAccountDataListing(const QString &roomId) override;
+    quint64 requestUserClients(const QString &userId) override;
     QString mediaKeepState() const override { return m_mediaKeepState; }
     quint64 searchIndexStats() override;
     quint64 sweepSearchIndex() override;

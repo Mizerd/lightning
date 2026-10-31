@@ -597,6 +597,8 @@ public:
     quint64 clearEventCache() override;
     quint64 requestHomeserverInfo() override;
     quint64 requestAccountDataListing(const QString &roomId) override;
+    quint64 requestUserClients(const QString &userId) override;
+    QStringList userClientRequests;
     int eventCacheClears = 0;
     int homeserverInfoRequests = 0;
     QStringList accountDataRequests;

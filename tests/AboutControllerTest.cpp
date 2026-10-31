@@ -125,6 +125,39 @@ private Q_SLOTS:
         QCOMPARE(hs.value(QStringLiteral("features")).toList().size(), 2);
     }
 
+    void userClientsAreAskedOnceAnsweredAndForgotten()
+    {
+        MockMatrixClient client;
+        AboutController about;
+        about.setClient(&client);
+        const QString user = QStringLiteral("@friend:mock.local");
+        QCOMPARE(about.userClients(user).value(QStringLiteral("state")).toString(),
+                 QStringLiteral("idle"));
+        about.requestUserClients(user);
+        about.requestUserClients(user);
+        QCOMPARE(client.userClientRequests.size(), 1);
+        QCOMPARE(about.userClients(user).value(QStringLiteral("state")).toString(),
+                 QStringLiteral("loading"));
+        QTRY_COMPARE(about.userClients(user).value(QStringLiteral("state")).toString(),
+                     QStringLiteral("ready"));
+        const QVariantList devices =
+            about.userClients(user).value(QStringLiteral("devices")).toList();
+        QCOMPARE(devices.size(), 2);
+        QCOMPARE(devices.at(0).toMap().value(QStringLiteral("name")).toString(),
+                 QStringLiteral("Element Web: Firefox on Linux"));
+        // A user the store does not know is ready and empty, never guessed.
+        const QString stranger = QStringLiteral("@nobody:mock.local");
+        about.requestUserClients(stranger);
+        QTRY_COMPARE(about.userClients(stranger).value(QStringLiteral("state")).toString(),
+                     QStringLiteral("ready"));
+        QVERIFY(about.userClients(stranger).value(QStringLiteral("devices")).toList().isEmpty());
+        const int rev = about.userClientsRevision();
+        about.clearUserClients();
+        QVERIFY(about.userClientsRevision() > rev);
+        QCOMPARE(about.userClients(user).value(QStringLiteral("state")).toString(),
+                 QStringLiteral("idle"));
+    }
+
     void aFailedHomeserverAnswerSaysWhy()
     {
         MockMatrixClient client;

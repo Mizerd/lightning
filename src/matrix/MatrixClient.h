@@ -1208,6 +1208,11 @@ public:
     /// accountDataListed. 0 means this backend cannot list.
     virtual quint64 requestAccountDataListing(const QString &roomId)
     { Q_UNUSED(roomId); return 0; }
+    /// The sessions (device id and the name its owner gave it) this device's
+    /// crypto store knows for `userId`. Answers on userClientsListed. 0 means
+    /// this backend cannot ask.
+    virtual quint64 requestUserClients(const QString &userId)
+    { Q_UNUSED(userId); return 0; }
     /// Whether media opened this session is kept between sessions, and why
     /// not: "kept", "keptExceptEncrypted" (the key is not in a secure
     /// keyring), "keptExceptEncryptedPendingUpload" (this session only, the
@@ -2557,6 +2562,9 @@ Q_SIGNALS:
     // `listing`: { ok, roomId, truncated, entries[{type, redacted, json,
     // cut}], category }.
     void accountDataListed(quint64 opId, const QVariantMap &listing);
+    // `result`: { ok, userId, devices[{deviceId, name}] }. `name` is whatever
+    // the owner typed, or empty.
+    void userClientsListed(quint64 opId, const QVariantMap &result);
     void eventCacheCleared(quint64 opId, bool ok);
     /// A cache reset step's compaction finished, reported after (never
     /// instead of) that step's own completion signal, and only after a clear

@@ -3380,6 +3380,25 @@ quint64 MockMatrixClient::requestAccountDataListing(const QString &roomId)
     return op;
 }
 
+quint64 MockMatrixClient::requestUserClients(const QString &userId)
+{
+    userClientRequests.append(userId);
+    const quint64 op = m_aboutOp++;
+    QTimer::singleShot(0, this, [this, op, userId] {
+        QVariantList devices;
+        if (userId == QLatin1String("@friend:mock.local")) {
+            devices.append(QVariantMap{{QStringLiteral("deviceId"), QStringLiteral("MOCKDEV1")},
+                                       {QStringLiteral("name"), QStringLiteral("Element Web: Firefox on Linux")}});
+            devices.append(QVariantMap{{QStringLiteral("deviceId"), QStringLiteral("MOCKDEV2")},
+                                       {QStringLiteral("name"), QString()}});
+        }
+        Q_EMIT userClientsListed(op, QVariantMap{{QStringLiteral("ok"), true},
+                                                 {QStringLiteral("userId"), userId},
+                                                 {QStringLiteral("devices"), devices}});
+    });
+    return op;
+}
+
 bool MockMatrixClient::clearSearchIndex()
 {
     indexCleared = true;

@@ -562,6 +562,73 @@ pub unsafe extern "C" fn mx_rust_account_data_listing(
     })
 }
 
+/// Most sessions listed for one user.
+const CLIENT_COUNT_CAP: usize = 64;
+/// A session name is whatever its owner typed; it is cut here.
+const CLIENT_NAME_CAP: usize = 80;
+
+/// One session name made safe to show: control characters dropped, bounded.
+/// Pure and unit-tested. The text is the owner's own and is never trusted as
+/// a statement about the software.
+pub(crate) fn clean_client_name(name: &str) -> String {
+    name.chars().filter(|c| !c.is_control()).take(CLIENT_NAME_CAP).collect::<String>().trim().to_owned()
+}
+
+/// The sessions this device's crypto store knows for `user_id`: device id and
+/// the display name the owner gave it. That is all the protocol carries about
+/// a "client"; nothing is inferred. A user the store does not track yields an
+/// empty list, which the UI reports as unknown. Result: `user_clients`.
+pub(crate) fn user_clients(
+    bridge: &RustClient,
+    user_id: String,
+    op_id: u64,
+) -> Result<(), String> {
+    let client = require_client(bridge)?;
+    let uid = matrix_sdk::ruma::UserId::parse(&user_id).map_err(|_| "invalid user id".to_owned())?;
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    bridge.spawn_room_action(async move {
+        let mut event = json!({
+            "type": "user_clients", "op_id": op_id, "lifecycle": lifecycle,
+            "user_id": user_id, "ok": false, "devices": [],
+        });
+        if let Ok(devices) = client.encryption().get_user_devices(&uid).await {
+            let mut rows: Vec<Value> = devices
+                .devices()
+                .map(|d| {
+                    json!({
+                        "device_id": d.device_id().as_str(),
+                        "name": d.display_name().map(clean_client_name).unwrap_or_default(),
+                    })
+                })
+                .collect();
+            rows.sort_by(|a, b| a["device_id"].as_str().cmp(&b["device_id"].as_str()));
+            rows.truncate(CLIENT_COUNT_CAP);
+            event["ok"] = json!(true);
+            event["devices"] = json!(rows);
+        }
+        if timelines.lifecycle_current(lifecycle) {
+            enqueue(&events, event);
+        }
+    });
+    Ok(())
+}
+
+/// Sessions of one user as this device knows them. Result: `user_clients`.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_user_clients(
+    ptr: *mut c_void,
+    user_id: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let handle = unsafe { bridge(ptr)? };
+        let user_id = unsafe { cstr_arg(user_id) }?;
+        user_clients(handle, user_id, op_id).map(|_| String::new())
+    })
+}
+
 /// Clear the SDK's event cache (not the crypto store). Result:
 /// `event_cache_cleared`.
 #[no_mangle]
@@ -575,6 +642,13 @@ pub unsafe extern "C" fn mx_rust_event_cache_clear(ptr: *mut c_void, op_id: u64)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_session_name_loses_control_characters_and_is_bounded() {
+        assert_eq!(clean_client_name("Element\u{7}\n Web"), "Element Web");
+        assert_eq!(clean_client_name(&"x".repeat(500)).chars().count(), CLIENT_NAME_CAP);
+        assert_eq!(clean_client_name("  "), "");
+    }
 
     #[test]
     fn secret_types_are_recognised_by_prefix_and_by_name() {

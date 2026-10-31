@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QHash>
 #include <QObject>
 #include <QString>
 #include <QTimer>
@@ -27,6 +28,9 @@ class AboutController : public QObject
     Q_PROPERTY(QString versionSummary READ versionSummary
                    NOTIFY versionSummaryChanged)
     Q_PROPERTY(QString reportIssueUrl READ reportIssueUrl CONSTANT)
+    /// The GStreamer runtime the call engine would load; empty in a build
+    /// without the call engine.
+    Q_PROPERTY(QString gstreamerVersion READ gstreamerVersion CONSTANT)
 
     /// "idle" | "loading" | "ready" | "failed" | "unsupported".
     Q_PROPERTY(QString homeserverState READ homeserverState
@@ -54,6 +58,11 @@ class AboutController : public QObject
     Q_PROPERTY(QString accountDataError READ accountDataError
                    NOTIFY accountDataChanged)
 
+    /// Bumped whenever a user's session list arrives or is dropped, so a QML
+    /// binding that calls userClients() re-evaluates.
+    Q_PROPERTY(int userClientsRevision READ userClientsRevision
+                   NOTIFY userClientsChanged)
+
 public:
     /// How long a clear step may stay silent before the reset reads as not
     /// finished.
@@ -76,6 +85,8 @@ public:
     /// The install kind's label ("AppImage", "Debian package" ...), supplied
     /// by the update manager that detects it.
     void setPackageKind(const QString &label);
+    void setGstreamerVersion(const QString &version) { m_gstreamerVersion = version; }
+    QString gstreamerVersion() const { return m_gstreamerVersion; }
 
     QString versionSummary() const;
     QString reportIssueUrl() const;
@@ -100,6 +111,18 @@ public:
     /// Drops what the browser holds (closing the Developer tools).
     Q_INVOKABLE void clearAccountData();
 
+    /// Developer mode: which sessions a user has, as far as this device's
+    /// crypto store knows. Only the device id and the name the OWNER gave the
+    /// session exist in the protocol; nothing here infers a client. Asks once
+    /// per user until cleared.
+    Q_INVOKABLE void requestUserClients(const QString &userId);
+    /// { state: "idle"|"loading"|"ready"|"failed", devices: [{deviceId,
+    /// name}] }. `name` is empty when the owner set none.
+    Q_INVOKABLE QVariantMap userClients(const QString &userId) const;
+    /// Forgets every user's sessions (Developer mode switched off, sign-out).
+    Q_INVOKABLE void clearUserClients();
+    int userClientsRevision() const { return m_clientsRevision; }
+
 Q_SIGNALS:
     void versionSummaryChanged();
     void homeserverChanged();
@@ -109,10 +132,12 @@ Q_SIGNALS:
     /// whoever shows one must reopen it.
     void eventCacheWasCleared();
     void accountDataChanged();
+    void userClientsChanged();
 
 private:
     void onHomeserverInfo(quint64 opId, const QVariantMap &info);
     void onAccountData(quint64 opId, const QVariantMap &listing);
+    void onUserClients(quint64 opId, const QVariantMap &result);
     void onMediaCleared(quint64 opId, bool ok);
     void onEventCacheCleared(quint64 opId, bool ok);
     void onCacheCompacted(quint64 opId, const QString &store,
@@ -127,6 +152,7 @@ private:
     MatrixClient *m_client = nullptr;
     MessageSearchController *m_search = nullptr;
     QString m_packageKind;
+    QString m_gstreamerVersion;
 
     QString m_homeserverState = QStringLiteral("idle");
     QVariantMap m_homeserver;
@@ -167,4 +193,8 @@ private:
     QString m_accountDataRoom;
     QString m_accountDataError;
     quint64 m_accountDataOp = 0;
+
+    QHash<QString, QVariantMap> m_userClients;
+    QHash<quint64, QString> m_userClientOps;
+    int m_clientsRevision = 0;
 };

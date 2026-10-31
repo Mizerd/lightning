@@ -857,6 +857,7 @@ const CLASSES: &[(&str, EventClass)] = {
         ("uia_required", UiOnly),
         ("upload_limit", UiOnly),
         ("url_preview_result", UiOnly),
+        ("user_clients", UiOnly),
         ("user_profile_result", UiOnly),
         ("user_search_result", UiOnly),
         ("verification_done", UiOnly),

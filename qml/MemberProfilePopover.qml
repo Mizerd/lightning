@@ -1079,6 +1079,12 @@ Popup {
                 }
             }
 
+            // Developer mode only: the user's sessions and the names their
+            // owner gave them (draws nothing otherwise).
+            UserClientsInfo {
+                userId: root.userId
+            }
+
             // Chip row: facts and light actions, wrapping rather than eliding,
             // since a clipped domain misleads.
             Flow {

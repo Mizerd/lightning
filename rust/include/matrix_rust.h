@@ -2128,6 +2128,10 @@ char *mx_rust_homeserver_info(void *client, unsigned long long op_id);
 char *mx_rust_account_data_listing(void *client, const char *room_id,
                                    unsigned long long op_id);
 char *mx_rust_event_cache_clear(void *client, unsigned long long op_id);
+/* Sessions (device id + owner-chosen name) the crypto store knows for a user.
+ * Result: user_clients. */
+char *mx_rust_user_clients(void *client, const char *user_id,
+                           unsigned long long op_id);
 /* v0.7.x server-side message search (POST /_matrix/client/v3/search).
  * Unencrypted rooms ONLY — the server cannot search ciphertext, and the UI
  * must disclose that. room_id empty = all rooms; next_batch pages.

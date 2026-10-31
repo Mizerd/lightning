@@ -40,6 +40,7 @@ ColumnLayout {
                 root.about.refreshHomeserver()
         } else {
             root.about.clearAccountData()
+            root.about.clearUserClients()
         }
     }
 
@@ -68,8 +69,57 @@ ColumnLayout {
                 color: AppTheme.stormTextMuted
                 font.pixelSize: AppTheme.textMeta
                 text: qsTr("Shows read-only views of what the homeserver reports "
-                           + "and what your account stores. Nothing here changes "
-                           + "your account.")
+                           + "and what your account stores, and adds each person's "
+                           + "sessions to their profile card. Nothing here "
+                           + "changes your account.")
+            }
+        }
+    }
+
+    // This session: facts that are not on the About page above.
+    DevCard {
+        visible: root.enabledTools
+        ColumnLayout {
+            width: parent.width
+            spacing: AppTheme.spacing4
+            Label {
+                text: qsTr("This session")
+                color: AppTheme.stormTextSecondary
+                font.pixelSize: AppTheme.textBody
+                font.weight: AppTheme.weightStrong
+            }
+            Label {
+                objectName: "developerDeviceId"
+                Layout.fillWidth: true
+                wrapMode: Text.WrapAnywhere
+                textFormat: Text.PlainText
+                color: AppTheme.stormText
+                font.family: AppTheme.monoFont
+                font.pixelSize: AppTheme.textMeta
+                text: qsTr("Device ID: %1").arg(
+                    (typeof app !== "undefined" && app && app.cryptoHealth.currentDeviceId)
+                    ? app.cryptoHealth.currentDeviceId : qsTr("unknown"))
+            }
+            Label {
+                objectName: "developerGstreamer"
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                textFormat: Text.PlainText
+                color: AppTheme.stormText
+                font.family: AppTheme.monoFont
+                font.pixelSize: AppTheme.textMeta
+                text: root.about && root.about.gstreamerVersion.length > 0
+                      ? qsTr("Call media: %1").arg(root.about.gstreamerVersion)
+                      : qsTr("Call media: not built into this package")
+            }
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                color: AppTheme.stormTextMuted
+                font.pixelSize: AppTheme.textMeta
+                text: qsTr("Room ID, room version and each event's source are on the "
+                           + "room's info panel and a message's menu. Logs are under "
+                           + "Troubleshooting below.")
             }
         }
     }

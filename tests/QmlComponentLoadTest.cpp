@@ -44,6 +44,7 @@ constexpr const char *kComponents[] = {
     "QrLoginDialog",         // MSC4108 sign-in-another-device
     "AboutToolsSection",     // About: copy version, homeserver, reset cache
     "DeveloperToolsSection", // About: developer switch, account-data browser
+    "UserClientsInfo",       // developer mode: a user's sessions, names as typed
     "LogExportCard",         // About: log export, delete-saved-logs dialog
     "UpdatesSettingsSection", // Settings: updates card
     "PolicyListDialog",      // Mjolnir-style moderation lists

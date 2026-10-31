@@ -1137,6 +1137,7 @@ set(APP_QML_FILES
     qml/UpdatesSettingsSection.qml
     qml/AboutToolsSection.qml
     qml/DeveloperToolsSection.qml
+    qml/UserClientsInfo.qml
     qml/SettingsPercentBox.qml
     qml/SettingsNeedsBadge.qml
     qml/SettingsHint.qml

@@ -71,6 +71,8 @@ void AboutController::setClient(MatrixClient *client)
                 &AboutController::onHomeserverInfo);
         connect(m_client, &MatrixClient::accountDataListed, this,
                 &AboutController::onAccountData);
+        connect(m_client, &MatrixClient::userClientsListed, this,
+                &AboutController::onUserClients);
         connect(m_client, &MatrixClient::storedMediaCleared, this,
                 [this](quint64 opId, bool ok, qint64, qint64 keptBytes) {
                     if (opId != 0 && opId == m_mediaOp && ok)
@@ -397,8 +399,59 @@ void AboutController::clearAccountData()
     Q_EMIT accountDataChanged();
 }
 
+void AboutController::requestUserClients(const QString &userId)
+{
+    if (!m_client || userId.isEmpty() || m_userClients.contains(userId))
+        return;
+    const quint64 op = m_client->requestUserClients(userId);
+    QVariantMap row{{QStringLiteral("devices"), QVariantList{}}};
+    row.insert(QStringLiteral("state"), op != 0 ? QStringLiteral("loading")
+                                                : QStringLiteral("failed"));
+    m_userClients.insert(userId, row);
+    if (op != 0)
+        m_userClientOps.insert(op, userId);
+    ++m_clientsRevision;
+    Q_EMIT userClientsChanged();
+}
+
+QVariantMap AboutController::userClients(const QString &userId) const
+{
+    const auto it = m_userClients.constFind(userId);
+    if (it != m_userClients.constEnd())
+        return *it;
+    return QVariantMap{{QStringLiteral("state"), QStringLiteral("idle")},
+                       {QStringLiteral("devices"), QVariantList{}}};
+}
+
+void AboutController::onUserClients(quint64 opId, const QVariantMap &result)
+{
+    const auto op = m_userClientOps.find(opId);
+    if (op == m_userClientOps.end())
+        return;
+    const QString userId = op.value();
+    m_userClientOps.erase(op);
+    m_userClients.insert(
+        userId, QVariantMap{
+            {QStringLiteral("state"), result.value(QStringLiteral("ok")).toBool()
+                 ? QStringLiteral("ready") : QStringLiteral("failed")},
+            {QStringLiteral("devices"), result.value(QStringLiteral("devices"))}});
+    ++m_clientsRevision;
+    Q_EMIT userClientsChanged();
+}
+
+void AboutController::clearUserClients()
+{
+    if (m_userClients.isEmpty() && m_userClientOps.isEmpty())
+        return;
+    m_userClients.clear();
+    m_userClientOps.clear();
+    ++m_clientsRevision;
+    Q_EMIT userClientsChanged();
+}
+
 void AboutController::onLoggedOut()
 {
+    clearUserClients();
     m_homeserverOp = 0;
     m_homeserver.clear();
     m_homeserverState = QStringLiteral("idle");
