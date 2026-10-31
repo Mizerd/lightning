@@ -24,6 +24,18 @@ import MatrixClient
 Popup {
     id: root
 
+    // Qt keeps the panel at least this far inside the window on every side.
+    // An anchored panel is sized from the window height less the anchor's
+    // height, which assumes the anchor sits a fixed margin off the bottom; the
+    // composer sits higher than that (about 34 px more at the 360 px floor),
+    // and the panel's top used to leave the window. The margin pulls it back
+    // by the overshoot. It is a no-op while the panel fits, so the rigid
+    // pinned-corner placement is unchanged at ordinary sizes.
+    topMargin: AppTheme.spacingS
+    leftMargin: AppTheme.spacingS
+    rightMargin: AppTheme.spacingS
+    bottomMargin: AppTheme.spacingS
+
     // The control this popup belongs to; it becomes the popup's parent, which
     // keeps the two rigid relative to each other.
     property Item anchorItem: null
@@ -61,18 +73,8 @@ Popup {
         if (!overlayItem)
             return minHeight
         var room = overlayItem.height - AppTheme.spacingM * 2
-        if (anchorItem) {
-            // The room above the anchor's top edge, measured where the anchor
-            // really is rather than assumed to sit a fixed margin off the
-            // window's bottom: the composer's insets differ with density and
-            // its own height changes as a draft grows, and an assumption left
-            // the panel's top above the window in a short one. The reads of
-            // height/y are the binding's dependencies; mapToItem has none.
-            void anchorItem.height
-            void anchorItem.y
-            var anchorTop = anchorItem.mapToItem(overlayItem, 0, 0).y
-            room = anchorTop - anchorGap - AppTheme.spacingM
-        }
+        if (anchorItem)
+            room -= anchorItem.height + anchorGap
         return room
     }
 

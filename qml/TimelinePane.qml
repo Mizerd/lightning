@@ -371,7 +371,7 @@ Rectangle {
         // message box out of reach during a call.
         var reserve = roomHeaderBand.height + timelineCallHeaderBar.height + 9
                       + (messageComposer.visible ? messageComposer.height : 0)
-                      + 80
+                      + 64
         var room = Math.max(64, root.height - reserve)
         floor = Math.min(floor, room)
         ceiling = Math.min(ceiling, room)

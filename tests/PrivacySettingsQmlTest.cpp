@@ -414,8 +414,14 @@ private slots:
                  qPrintable(QStringLiteral(
                      "the Device trust label ends at x=%1 in a %2 px window")
                      .arg(right).arg(m_window->width())));
-        QVERIFY2(label->property("lineCount").toInt() > 1,
-                 "at 640 px the label should wrap onto a second line");
+        // Whether it needs a second line depends on the room the navigation
+        // column leaves it, which narrows with the window (it used to be a
+        // fixed 300 px, leaving 339 px at 640); what matters is that it
+        // never runs past the window, asserted above, and never elides.
+        QVERIFY2(label->property("lineCount").toInt() >= 1,
+                 "the Device trust label has no text");
+        QVERIFY2(!label->property("truncated").toBool(),
+                 "the Device trust label is cut off at 640 px");
 
         m_window->setWidth(1374);
         m_window->setHeight(944);
