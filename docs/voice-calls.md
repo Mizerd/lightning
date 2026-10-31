@@ -1259,8 +1259,10 @@ keeps a transceiver that never got a section and asks for negotiation after ever
 answer, so the same offer went out for as long as the call lasted. Live, when
 NVENC failed 200 ms into a share: 770 offers in the first 95 s and 1110 in the
 138 s until the run was stopped. In plain software VP8 in a test: 73 in 3 s. An offer identical to the last answered one is now dropped
-(`offerIdentity()`). That fix is proved by tests only: a live share
-retired that early is NOT TESTED since it went in.
+(`offerIdentity()`). Live, with the encoder failure path forced before the
+first offer: 298 offers in 30 s with the drop switched off, 1 with it, and the
+next share reached Element Call. That failure was injected in a rig build; a real
+NVENC failure has not been repeated since the fix.
 
 Cost of the backup, same bench as below, real NVENC, three runs: 0.94-1.01 s
 against 0.63-0.80 s for 5 s of video, about 6% of a core; the VP8 GPU path it
