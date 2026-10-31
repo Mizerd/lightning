@@ -104,6 +104,36 @@ private:
         }
     }
 
+    // Every visible control (button, field, combo, check, switch) whose box,
+    // after the clip of each ancestor, still leaves [0, w] x [0, h] of the
+    // window. A clipped ancestor is how a scrolled-away row is meant to
+    // disappear, so only what is still VISIBLE after the clips counts.
+    static void collectControlsOutsideWindow(QQuickItem *it, const QRectF &win,
+                                             QStringList &out)
+    {
+        if (!it->isVisible() || it->opacity() <= 0.01)
+            return;
+        const QByteArray cls = it->metaObject()->className();
+        const bool control = cls.contains("Button") || cls.contains("TextField")
+            || cls.contains("ComboBox") || cls.contains("CheckBox")
+            || cls.contains("Switch");
+        if (control && it->width() > 0 && it->height() > 0) {
+            QRectF r = it->mapRectToScene(QRectF(0, 0, it->width(), it->height()));
+            for (QQuickItem *a = it->parentItem(); a; a = a->parentItem())
+                if (a->clip())
+                    r = r.intersected(
+                        a->mapRectToScene(QRectF(0, 0, a->width(), a->height())));
+            if (!r.isEmpty() && !win.adjusted(-1, -1, 1, 1).contains(r))
+                out << QStringLiteral("%1 %2 [%3,%4 %5x%6]")
+                           .arg(QString::fromLatin1(cls),
+                                it->objectName(), QString::number(r.x()),
+                                QString::number(r.y()), QString::number(r.width()),
+                                QString::number(r.height()));
+        }
+        for (QQuickItem *c : it->childItems())
+            collectControlsOutsideWindow(c, win, out);
+    }
+
 private Q_SLOTS:
     void initTestCase()
     {
@@ -162,6 +192,31 @@ private Q_SLOTS:
                  "window");
         input->setProperty("text", QString());
         QTest::qWait(60);
+    }
+
+    // The small-window round: a window a quarter of a screen must not push a
+    // control off its own edge. Measured on the real MainScreen with a room
+    // open, at the application floor and at three common small sizes (the
+    // send-options chevron of the composer used to sit 18 px past the edge at
+    // the 640 floor).
+    void everyControlStaysInsideTheWindowAtSmallSizes()
+    {
+        const QSize sizes[] = { QSize(640, 420), QSize(640, 720),
+                                QSize(854, 480), QSize(960, 540) };
+        for (const QSize &sz : sizes) {
+            m_window->resize(sz);
+            QTest::qWait(200);
+            QStringList outside;
+            collectControlsOutsideWindow(
+                m_window->contentItem(),
+                QRectF(0, 0, m_window->width(), m_window->height()), outside);
+            QVERIFY2(outside.isEmpty(),
+                     qPrintable(QStringLiteral("%1x%2: ").arg(sz.width())
+                                    .arg(sz.height())
+                                + outside.join(QStringLiteral("; "))));
+        }
+        m_window->resize(640, 420);
+        QTest::qWait(100);
     }
 
     // B032 / B054: a display name and a Space name of 300 characters at the

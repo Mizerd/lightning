@@ -2431,7 +2431,12 @@ Item {
                     Layout.rightMargin: AppTheme.spacing12 + 2
                     Layout.topMargin: AppTheme.spacing8 + 2
                     Layout.bottomMargin: AppTheme.spacing8 + 2
-                    spacing: AppTheme.spacing8 + 2
+                    // Tighter in a narrow bar: at the 320 px timeline floor
+                    // the row's fixed buttons plus the field's minimum
+                    // are wider than the card, and the send-options chevron
+                    // used to sit past the window edge.
+                    spacing: root.compactInputRow ? AppTheme.spacing4 + 2
+                                                  : AppTheme.spacing8 + 2
 
                     IconButton {
                         objectName: "composerAttachButton"
