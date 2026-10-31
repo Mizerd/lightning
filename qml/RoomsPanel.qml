@@ -414,6 +414,20 @@ Rectangle {
                     spacing: AppTheme.spacing8
                     Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
 
+                    IconButton {
+                        objectName: "favouritesShortcut"
+                        visible: app.loggedIn
+                        implicitWidth: 30; implicitHeight: 30
+                        radius: AppTheme.radiusMd
+                        iconName: "star"
+                        iconSize: 18
+                        active: app.settings.roomFilterMode === 4
+                        Accessible.name: qsTr("Favourites")
+                        ToolTip.text: qsTr("Favourites")
+                        ToolTip.visible: hovered
+                        onClicked: app.settings.roomFilterMode = active ? 0 : 4
+                    }
+
                     // How the list is ordered (Activity / A-Z), Element's
                     // "..." beside the search field.
                     IconButton {
@@ -646,8 +660,8 @@ Rectangle {
                 // model Binding.
                 readonly property int channelsFilterMode: {
                     const stored = app.settings.roomFilterMode
-                    if (stored === 3)
-                        return 3
+                    if (stored === 3 || stored === 4)
+                        return stored
                     // People passes through only where the chip is offered (a
                     // Space view and Home).
                     if (stored === 1 && (filterChips.spaceView || filterChips.homeView))
@@ -658,8 +672,10 @@ Rectangle {
                        ? ((spaceView || homeView)
                           ? [ { label: qsTr("All"), value: 0 },
                               { label: qsTr("People"), value: 1 },
+                              { label: qsTr("Favourites"), value: 4 },
                               { label: qsTr("Unreads"), value: 3 } ]
                           : [ { label: qsTr("All"), value: 0 },
+                              { label: qsTr("Favourites"), value: 4 },
                               { label: qsTr("Unreads"), value: 3 } ])
                        : [ { label: qsTr("All"), value: 0 },
                            { label: qsTr("People"), value: 1 },

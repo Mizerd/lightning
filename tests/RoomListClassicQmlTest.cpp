@@ -449,6 +449,26 @@ RoomListClassicPresenter { objectName: "presenter"; width: 320; height: 900 }
         model->setSearchQuery(QString());
     }
 
+    void favouritesShortcutFitsAndTogglesTheFilter()
+    {
+        Fixture f;
+        QVERIFY(load(f, R"QML(
+import QtQuick
+import MatrixClient
+RoomsPanel { width: 320; height: 700 }
+)QML", 320, 700));
+        auto *button = byName(f.item.get(), QStringLiteral("favouritesShortcut"));
+        QVERIFY(button && button->isVisible());
+        const auto bounds = button->mapRectToItem(f.item.get(), button->boundingRect());
+        QVERIFY(bounds.left() >= 0);
+        QVERIFY(bounds.right() <= f.item->width());
+        f.controller->settings()->setRoomFilterMode(0);
+        QVERIFY(QMetaObject::invokeMethod(button, "clicked"));
+        QCOMPARE(f.controller->settings()->roomFilterMode(), 4);
+        QVERIFY(QMetaObject::invokeMethod(button, "clicked"));
+        QCOMPARE(f.controller->settings()->roomFilterMode(), 0);
+    }
+
     void theSortMenuChecksTheEffectiveDefault()
     {
         Fixture f;

@@ -420,6 +420,11 @@ NOT TESTED**. Automated tests named in commits do not establish live behavior.
     overrides this default in both conversation layouts when Space order is
     selected; an explicit Activity/A–Z/Unread choice still wins. The lobby
     continues to show the shared default.
+  * **Favourites** has a header shortcut in both layouts, toggling the existing
+    scoped filter. Channels supports the same filter and retains invitations,
+    as Classic does. Gear/account visibility switches are deliberately absent.
+    The room-list options menu explains the grouping and current sort; unread
+    status changes rank only when Unread first is selected.
   * **Activity search** filters loaded rows in memory, intersected with the
     selected category or thread scope. It searches room/sender names and the
     displayed preview; it never fetches history by itself, changes badge/seen

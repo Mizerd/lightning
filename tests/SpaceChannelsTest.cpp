@@ -278,6 +278,21 @@ private Q_SLOTS:
         QCOMPARE(finished.size(), 2); // Previous account's completion is discarded.
     }
 
+    void favouritesFilterWorksInChannels()
+    {
+        Fixture f;
+        auto rooms = workspace();
+        for (auto &room : rooms)
+            if (room.id == QStringLiteral("!random:x")) room.isFavourite = true;
+        f.build(rooms);
+        f.selectSpace(QStringLiteral("!work:x"));
+        f.model.setFilterMode(4);
+        QCOMPARE(f.model.filterMode(), 4);
+        QCOMPARE(f.model.matchCount(), 1);
+        f.model.setFilterMode(0);
+        QVERIFY(f.model.matchCount() > 1);
+    }
+
     void personalArrangementWinsInsideASpace()
     {
         Fixture f;

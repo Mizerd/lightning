@@ -403,7 +403,7 @@ void SpaceChannelModel::setSettings(SettingsManager *settings)
 
 void SpaceChannelModel::setFilterMode(int mode)
 {
-    const int clamped = (mode < 0 || mode > 3) ? 0 : mode;
+    const int clamped = (mode < 0 || mode > 4) ? 0 : mode;
     if (m_filterMode == clamped)
         return;
     m_filterMode = clamped;
@@ -557,7 +557,7 @@ bool SpaceChannelModel::empty() const
     return !m_accountHasContent;
 }
 
-bool SpaceChannelModel::filterAdmits(bool isDirect, bool unread) const
+bool SpaceChannelModel::filterAdmits(bool isDirect, bool unread, bool favourite) const
 {
     switch (m_filterMode) {
     case 1:   // People
@@ -566,6 +566,8 @@ bool SpaceChannelModel::filterAdmits(bool isDirect, bool unread) const
         return !isDirect;
     case 3:   // Unreads
         return unread;
+    case 4:   // Favourites
+        return favourite;
     default:  // All
         return true;
     }
@@ -804,7 +806,7 @@ int SpaceChannelModel::appendGroup(QVector<Row> &rows, Row header,
         // whatever view is chosen.
         if (!room.isInvite
             && !filterAdmits(room.isDirect, room.hasUnread || room.unread > 0
-                                                || room.highlight > 0)) {
+                                                || room.highlight > 0, room.favourite)) {
             continue;
         }
         room.depth = 1;

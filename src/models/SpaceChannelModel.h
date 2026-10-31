@@ -55,7 +55,7 @@ class SpaceChannelModel : public QAbstractListModel
     Q_OBJECT
 
     Q_PROPERTY(int count READ rowCount NOTIFY countChanged)
-    /// Which groups to include: 0 All, 1 People, 2 Rooms, 3 Unreads. The same
+    /// Which groups to include: 0 All, 1 People, 2 Rooms, 3 Unreads, 4 Favourites. The same
     /// closed set the room list's filter chips write.
     Q_PROPERTY(int filterMode READ filterMode WRITE setFilterMode
                    NOTIFY filterModeChanged)
@@ -332,7 +332,7 @@ private:
     void applyRows(QVector<Row> rows);
     void loadCollapsed() const;
     void saveCollapsed();
-    bool filterAdmits(bool isDirect, bool unread) const;
+    bool filterAdmits(bool isDirect, bool unread, bool favourite) const;
     bool matchesQuery(const QString &name) const;
     /// Appends `rooms` under a header, dropping the header when nothing
     /// survived the filter. Returns how many rooms were appended.
