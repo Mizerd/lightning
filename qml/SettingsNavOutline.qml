@@ -93,9 +93,6 @@ Item {
                 rightPadding: entryRow.mirrored ? entryRow.startInset : AppTheme.spacing8
                 Accessible.role: Accessible.Button
                 Accessible.name: modelData.label
-                ToolTip.visible: entryRow.hovered && entryLabel.truncated
-                ToolTip.text: modelData.label
-                ToolTip.delay: 600
                 Accessible.selected: entryRow.current
                 onClicked: outline.entryActivated(entryRow.index)
                 Keys.onPressed: (event) => {
@@ -137,7 +134,9 @@ Item {
                     text: entryRow.modelData.label
                     textFormat: Text.PlainText
                     verticalAlignment: Text.AlignVCenter
-                    elide: Label.ElideRight
+                    // Wraps instead of eliding, so no tooltip is needed to
+                    // read a name and none can run past the column.
+                    wrapMode: Text.WordWrap
                     color: entryRow.current ? AppTheme.stormText
                                             : AppTheme.stormTextSecondary
                     // Navigation, not a hint: its own token (Part 6, 3.3).

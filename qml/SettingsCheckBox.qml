@@ -9,6 +9,8 @@ import MatrixClient
 // 2026-10-23). Both come from AppTheme tokens so they follow the text scale.
 CheckBox {
     palette.windowText: AppTheme.stormText
+    // The indicator's outline (see AppTheme.settingsControlEdge).
+    palette.mid: AppTheme.settingsControlEdge
     font.pixelSize: AppTheme.settingsOptionSize
     implicitHeight: Math.max(implicitContentHeight + topPadding + bottomPadding,
                              implicitIndicatorHeight + topPadding + bottomPadding,

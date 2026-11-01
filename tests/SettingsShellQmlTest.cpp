@@ -2156,6 +2156,187 @@ private slots:
         openSection(QStringLiteral("appearance"));
     }
 
+    static QQuickItem *findByText(QQuickItem *parent, const QString &text)
+    {
+        if (!parent)
+            return nullptr;
+        if (parent->isVisible() && parent->property("text").toString() == text
+            && parent->property("font").isValid())
+            return parent;
+        for (QQuickItem *child : parent->childItems()) {
+            if (auto *hit = findByText(child, text))
+                return hit;
+        }
+        return nullptr;
+    }
+
+    // S-01: a jump link lands with the page-level section heading in view, not
+    // a card or two below it.
+    void outlineJumpLandsOnTheSectionHeading()
+    {
+        openSection(QStringLiteral("privacy"));
+        QCOMPARE(callScreen("jumpToFirstShown",
+                            QStringList{QStringLiteral("readReceiptModeCombo")})
+                     .toString(),
+                 QStringLiteral("readReceiptModeCombo"));
+        QTest::qWait(400);
+        auto *flick = item("settingsContentFlick");
+        auto *content = flick->property("contentItem").value<QQuickItem *>();
+        QQuickItem *heading =
+            findByText(content, QStringLiteral("Reading and typing"));
+        QVERIFY2(heading, "the section heading is not on the page");
+        const qreal top = heading->mapToItem(flick, QPointF(0, 0)).y();
+        QVERIFY2(top >= 0 && top < 60,
+                 qPrintable(QStringLiteral("heading sits %1px into the viewport")
+                                .arg(top)));
+        auto *combo = item("readReceiptModeCombo");
+        QVERIFY(combo);
+        QVERIFY(combo->mapToItem(flick, QPointF(0, combo->height())).y()
+                <= flick->height());
+        // The chip says what the heading says.
+        const QVariant outline = callScreen("outlineEntries", QStringLiteral("privacy"));
+        bool named = false;
+        for (const QVariant &e : outline.toList())
+            named |= e.toMap().value(QStringLiteral("label")).toString()
+                     == QStringLiteral("Reading and typing");
+        QVERIFY(named);
+        openSection(QStringLiteral("appearance"));
+    }
+
+    // S-06: the Text size and Interface zoom slider tracks start and end at the
+    // same x, so neither row's end caps push its slider off the other's.
+    void textSizeAndZoomSlidersAlign()
+    {
+        openSection(QStringLiteral("appearance"));
+        auto *text = item("textScaleSlider");
+        auto *zoom = item("interfaceZoomSlider");
+        QVERIFY(text && zoom);
+        QCoreApplication::processEvents();
+        QCOMPARE(text->mapToItem(m_window->contentItem(), QPointF(0, 0)).x(),
+                 zoom->mapToItem(m_window->contentItem(), QPointF(0, 0)).x());
+        QCOMPARE(text->width(), zoom->width());
+        auto *textBox = item("textScalePercentBox");
+        auto *zoomBox = item("interfaceZoomPercentBox");
+        QVERIFY(textBox && zoomBox);
+        QCOMPARE(textBox->mapToItem(m_window->contentItem(), QPointF(0, 0)).x(),
+                 zoomBox->mapToItem(m_window->contentItem(), QPointF(0, 0)).x());
+    }
+
+    // S-09: the About backdrop paints behind the page, never over a control.
+    void aboutBackdropIsBehindTheContent()
+    {
+        // Not opened: the band's images need a provider this suite lacks and
+        // warn when it shows. Its stacking is fixed in the tree.
+        auto *band = item("aboutStormBand");
+        auto *flick = item("settingsContentFlick");
+        QVERIFY(band && flick);
+        QCOMPARE(band->parentItem(), flick->parentItem());
+        const auto kids = band->parentItem()->childItems();
+        QVERIFY2(kids.indexOf(band) < kids.indexOf(flick) && band->z() <= flick->z(),
+                 "the band is stacked over the scrolling content");
+    }
+
+    // S-11: a narrow window folds the nav to an icon rail whose labels move
+    // to tooltips; widening restores the labelled column.
+    void narrowWindowFoldsTheNavToIcons()
+    {
+        const QSize original = m_window->size();
+        openSection(QStringLiteral("appearance"));
+        auto *nav = item("settingsNavColumn");
+        QVERIFY(nav);
+        QVERIFY(nav->width() >= 200);
+        m_window->resize(600, 700);
+        QTRY_VERIFY(nav->width() <= 60);
+        auto *row = item("settingsNavRow_account");
+        QVERIFY(row && row->isVisible());
+        QVERIFY(row->width() <= nav->width());
+        QVERIFY(item("settingsNavExpandButton")->isVisible());
+        // The open button restores labels (and search) at this width.
+        QVERIFY(QMetaObject::invokeMethod(item("settingsNavExpandButton"), "clicked"));
+        QTRY_VERIFY(nav->width() >= 200);
+        QVERIFY(item("settingsSearchField")->isVisible());
+        QVERIFY(item("settingsNavCollapseButton")->isVisible());
+        QVERIFY(QMetaObject::invokeMethod(item("settingsNavCollapseButton"), "clicked"));
+        QTRY_VERIFY(nav->width() <= 60);
+        m_window->resize(original);
+        QTRY_VERIFY(nav->width() >= 200);
+        QVERIFY(!item("settingsNavExpandButton")->isVisible());
+        openSection(QStringLiteral("appearance"));
+    }
+
+    // S-05: an unchecked checkbox's outline keeps 3:1 on the Settings card on
+    // every palette (Moss Light drew it pale on pale). Asserts the number of
+    // distinct palettes actually measured, not the loop count.
+    void checkboxEdgeKeepsContrastOnEveryTheme()
+    {
+        QVERIFY(QFile::exists(QStringLiteral(QML_DIR "/SettingsCheckBox.qml")));
+        QFile f(QStringLiteral(QML_DIR "/SettingsCheckBox.qml"));
+        QVERIFY(f.open(QIODevice::ReadOnly));
+        QVERIFY(QString::fromUtf8(f.readAll()).contains(
+            QStringLiteral("palette.mid: AppTheme.settingsControlEdge")));
+        const int original = int(m_controller->settings()->theme());
+        QSet<QString> palettes;
+        for (int id = 1; id <= 11; ++id) {
+            QQmlExpression expr(
+                qmlContext(m_window), m_window,
+                QStringLiteral("(function() { AppTheme.mode = %1; return "
+                               "[AppTheme.settingsControlEdge, "
+                               "AppTheme.stormPanel, AppTheme.mode, "
+                               "AppTheme.contrastRatio(AppTheme."
+                               "settingsControlEdge, AppTheme.stormPanel)]; "
+                               "})()").arg(id));
+            const QVariantList r = expr.evaluate().toList();
+            QVERIFY2(r.size() == 4 && !expr.hasError(), qPrintable(expr.error().toString()));
+            if (r.at(2).toInt() != id)
+                continue;
+            palettes.insert(r.at(0).value<QColor>().name()
+                            + r.at(1).value<QColor>().name());
+            QVERIFY2(r.at(3).toDouble() >= 3.0,
+                     qPrintable(QStringLiteral("theme %1: checkbox edge %2 on "
+                                               "card %3 is %4:1")
+                                    .arg(id).arg(r.at(0).value<QColor>().name(),
+                                                 r.at(1).value<QColor>().name())
+                                    .arg(r.at(3).toDouble(), 0, 'f', 2)));
+        }
+        QVERIFY2(palettes.size() >= 8,
+                 qPrintable(QStringLiteral("only %1 distinct palettes were "
+                                           "measured").arg(palettes.size())));
+        QQmlExpression(qmlContext(m_window), m_window,
+                       QStringLiteral("AppTheme.mode = %1").arg(original)).evaluate();
+    }
+
+    // S-02: the preview takes the height of its tallest state, so choosing a
+    // spacing or layout never moves the controls beneath it.
+    void layoutPreviewKeepsOneHeightAcrossSpacingAndLayout()
+    {
+        openSection(QStringLiteral("layout"));
+        auto *preview = item("layoutPresetPreview");
+        QVERIFY(preview);
+        auto *settings = m_controller->settings();
+        const int previousPreset = settings->layoutPreset();
+        qreal first = -1;
+        int states = 0;
+        for (int layout : {0, 1, 2, 3}) {
+            for (int spacing : {SettingsManager::kSpacingCompact,
+                                SettingsManager::kSpacingRoomy}) {
+                settings->setMessageLayout(layout);
+                settings->setMessageSpacing(spacing);
+                QCoreApplication::processEvents();
+                if (first < 0)
+                    first = preview->height();
+                QCOMPARE(preview->height(), first);
+                ++states;
+            }
+        }
+        QCOMPARE(states, 8);
+        // Back to the defaults the rest of the suite starts from.
+        settings->setLayoutPreset(previousPreset);
+        settings->resetLayoutPresetOverrides();
+        settings->setMessageLayout(0);
+        settings->setMessageSpacing(1);
+        openSection(QStringLiteral("appearance"));
+    }
+
     // Part 6, 3.3: the sub-section labels are navigation, one step larger than
     // the hint text they used to share, and their rows grow with the text.
     void subSectionLabelsUseTheirOwnLargerToken()

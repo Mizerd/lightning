@@ -842,6 +842,26 @@ Item {
         searchRevealSettle.restart()
     }
 
+    // The page-level section title (a Label at AppTheme.textTitle) that
+    // precedes the card holding `node`, or null. A card's own captions are
+    // smaller, so the size tells the two apart.
+    function sectionHeadingOf(node) {
+        for (var n = node; n && n !== contentColumn; n = n.parent) {
+            var sibs = n.parent ? n.parent.children : []
+            var at = -1
+            for (var i = 0; i < sibs.length; ++i) {
+                if (sibs[i] === n) { at = i; break }
+            }
+            for (var j = at - 1; j >= 0; --j) {
+                var s = sibs[j]
+                if (s.visible && typeof s.text === "string"
+                        && s.font && s.font.pixelSize === AppTheme.textTitle)
+                    return s
+            }
+        }
+        return null
+    }
+
     // Returns the target's y in content coordinates, or -1 when there is
     // nothing to reveal.
     function applySearchReveal(flash) {
@@ -853,9 +873,19 @@ Item {
         var top = target.mapToItem(contentFlick.contentItem, 0, 0).y
         var maxY = Math.max(0, contentFlick.contentHeight - contentFlick.height)
         // Land the control slightly below the top so its heading stays visible.
+        var land = top - AppTheme.spacing24 * 2
+        // A control sits inside a card under a section heading; when the
+        // heading and the control fit on screen together, land on the heading.
+        var heading = root.sectionHeadingOf(target)
+        if (heading) {
+            var headTop = heading.mapToItem(contentFlick.contentItem, 0, 0).y
+                          - AppTheme.spacing8
+            var targetBottom = top + target.height
+            if (headTop < land && targetBottom - headTop <= contentFlick.height)
+                land = headTop
+        }
         settingsWheelArea.stopGlide()
-        contentFlick.contentY =
-            Math.max(0, Math.min(top - AppTheme.spacing24 * 2, maxY))
+        contentFlick.contentY = Math.max(0, Math.min(land, maxY))
         if (flash)
             searchRevealHalo.flashOver(target)
         else
@@ -941,7 +971,7 @@ Item {
         ],
         "privacy": [
             { label: qsTr("Device trust"), anchors: ["strictDeviceTrustCheck"] },
-            { label: qsTr("Receipts and typing"),
+            { label: qsTr("Reading and typing"),
               anchors: ["readReceiptModeCombo"] },
             { label: qsTr("Ignored users"), anchors: ["ignoredUsersCard"] },
             { label: qsTr("Message search"), anchors: ["searchIndexHelpText"] },
@@ -1365,6 +1395,8 @@ Item {
     // True when at least one of `keys` is a nav row a search leaves showing
     // (the same rule SettingsNavRow.visible applies).
     function navGroupShown(keys) {
+        if (root.navCollapsed)
+            return false
         if (root.settingsSearchQuery.trim().length === 0
                 || root.matchedSearchResults.length === 0)
             return true
@@ -1405,7 +1437,7 @@ Item {
     component SettingsNavOutlineFor: SettingsNavOutline {
         required property string sectionKey
         objectName: "settingsNavOutline_" + sectionKey
-        shown: root.outlineExpanded(sectionKey)
+        shown: root.outlineExpanded(sectionKey) && !root.navCollapsed
                && root.settingsSearchQuery.trim().length === 0
         entries: root.outlineEntries(sectionKey)
         activeIndex: root.section === sectionKey ? root.outlineActive : -1
@@ -1445,7 +1477,17 @@ Item {
         // caret, then content); overhanging the rounded corner made it look
         // broken.
         readonly property int caretGutter: 4 + 11 + AppTheme.spacing4
-        leftPadding: padding + caretGutter
+        leftPadding: root.navCollapsed ? padding : padding + caretGutter
+        // Folded rail: the label is the tooltip, placed beside the rail so it
+        // cannot run off the window's left edge.
+        ToolTip {
+            objectName: "settingsNavRowTip_" + navRow.sectionKey
+            visible: root.navCollapsed && navRow.hovered
+            text: navRow.navLabel
+            delay: 300
+            x: navRow.width + AppTheme.spacing4
+            y: (navRow.height - height) / 2
+        }
         // The Basic ItemDelegate's 12px padding survives the forced 32px height
         // and leaves contentItem too little room to centre; same fix as
         // AppMenuItem.
@@ -1520,6 +1562,7 @@ Item {
             Label {
                 id: navRowText
                 text: navRow.navLabel
+                visible: !root.navCollapsed
                 Layout.fillWidth: true
                 Layout.alignment: Qt.AlignVCenter
                 color: navRow.highlighted ? AppTheme.stormText
@@ -1527,14 +1570,17 @@ Item {
                 font.family: AppTheme.menuFont
                 font.pixelSize: AppTheme.settingsOptionSize
                 font.weight: navRow.highlighted ? AppTheme.weightBold : AppTheme.weightStrong
-                elide: Label.ElideRight
+                // Labels wrap rather than elide: a clipped name is not a name.
+                wrapMode: Text.WordWrap
+                lineHeight: AppTheme.lineHeightBody
+                lineHeightMode: Text.ProportionalHeight
             }
             // Its own control: folds or unfolds this branch only, without
             // selecting the page. A 24px target around the 16px glyph.
             AbstractButton {
                 id: navChevron
                 objectName: "settingsNavChevronButton_" + navRow.sectionKey
-                visible: navRow.hasOutline
+                visible: navRow.hasOutline && !root.navCollapsed
                 Layout.alignment: Qt.AlignVCenter
                 implicitWidth: 24
                 implicitHeight: 24
@@ -1623,6 +1669,20 @@ Item {
     // "account" | "appearance" | "shortcuts" | "notifications" | "sound" |
     // "privacy" | "sessions" | "labs" | "about". Opens on Appearance.
     property string section: "appearance"
+
+    // Narrow windows: the navigation column folds to an icon rail (labels in
+    // tooltips) instead of taking a third of the window and eliding every
+    // label. The rail's top button opens the full column, labels and search
+    // included, until the reader folds it again or the window widens. Measured
+    // in the window's own (scaled) pixels, so a 125% zoom folds sooner.
+    readonly property bool navNarrow: root.width < 720
+    property bool navOpenAtNarrow: false
+    readonly property bool navCollapsed: navNarrow && !navOpenAtNarrow
+    onNavNarrowChanged: if (!navNarrow) navOpenAtNarrow = false
+    onNavCollapsedChanged: {
+        if (navCollapsed)
+            settingsSearchField.text = ""
+    }
 
     function sectionTitle(key) {
         if (key === "account") return qsTr("Account")
@@ -2125,8 +2185,9 @@ Item {
                 // content pane the difference, down to the 200 minimum (at the
                 // 640 px floor a fixed 300 left 339 px, and most sections'
                 // controls ran 60 px past the window edge).
-                Layout.preferredWidth: Math.max(200, Math.min(300, root.width * 0.3))
-                Layout.minimumWidth: 200
+                Layout.preferredWidth: root.navCollapsed
+                    ? 56 : Math.max(200, Math.min(300, root.width * 0.3))
+                Layout.minimumWidth: root.navCollapsed ? 56 : 200
                 color: AppTheme.settingsNav
                 // Nothing in this column may paint across the divider into the
                 // content pane.
@@ -2171,7 +2232,22 @@ Item {
 
                     // Pane title, sitting tight against the search field it
                     // labels.
+                    // The folded rail's one control: opens the full column
+                    // (search and labels) over the narrow window.
+                    IconButton {
+                        objectName: "settingsNavExpandButton"
+                        visible: root.navCollapsed
+                        storm: true
+                        iconName: "search"
+                        Layout.alignment: Qt.AlignHCenter
+                        Accessible.name: qsTr("Show settings names and search")
+                        ToolTip.text: qsTr("Show settings names and search")
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 500
+                        onClicked: root.navOpenAtNarrow = true
+                    }
                     RowLayout {
+                        visible: !root.navCollapsed
                         spacing: AppTheme.spacing8
                         Layout.leftMargin: AppTheme.spacing8
                         Layout.topMargin: AppTheme.spacing4
@@ -2187,6 +2263,19 @@ Item {
                             font.family: AppTheme.menuFont
                             font.pixelSize: AppTheme.textTitle
                             font.weight: AppTheme.weightBold
+                            Layout.fillWidth: true
+                        }
+                        IconButton {
+                            objectName: "settingsNavCollapseButton"
+                            visible: root.navNarrow
+                            storm: true
+                            iconName: "chevron_left"
+                            size: "sm"
+                            Accessible.name: qsTr("Show icons only")
+                            ToolTip.text: qsTr("Show icons only")
+                            ToolTip.visible: hovered
+                            ToolTip.delay: 500
+                            onClicked: root.navOpenAtNarrow = false
                         }
                     }
 
@@ -2194,6 +2283,7 @@ Item {
                     // is the one deliberate gap in this column: it separates
                     // search from the section list.
                     RowLayout {
+                        visible: !root.navCollapsed
                         Layout.fillWidth: true
                         Layout.bottomMargin: AppTheme.spacing4
                         spacing: AppTheme.spacing6
@@ -2247,7 +2337,8 @@ Item {
                     // searching.
                     ColumnLayout {
                         objectName: "settingsSearchResults"
-                        visible: root.settingsSearchQuery.trim().length > 0
+                        visible: !root.navCollapsed
+                                 && root.settingsSearchQuery.trim().length > 0
                         Layout.fillWidth: true
                         spacing: AppTheme.spacing4
 
@@ -2644,7 +2735,8 @@ Item {
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: 0
-                        visible: root.settingsSearchQuery.trim().length > 0
+                        visible: !root.navCollapsed
+                                 && root.settingsSearchQuery.trim().length > 0
                         Rectangle {
                             Layout.fillWidth: true
                             implicitHeight: 1
@@ -2700,6 +2792,22 @@ Item {
             Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
+            // Storm Band pinned to the bottom of the content pane, dissolving
+            // upward. It is declared BEFORE the Flickable so it paints BEHIND
+            // the page: it used to sit over the bottom 190px and faded the
+            // Refresh button and the log export card half out. Input-
+            // transparent; About only. backdropColor must stay
+            // stormDeep (ThemeTokensTest bans the raw background token in this
+            // file).
+            StormBand {
+                objectName: "aboutStormBand"
+                visible: root.section === "about"
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                height: 190
+                backdropColor: AppTheme.stormDeep
+            }
             Flickable {
                 id: contentFlick
                 objectName: "settingsContentFlick"
@@ -3537,6 +3645,10 @@ Item {
                                 text: "A"
                                 color: AppTheme.stormTextMuted
                                 font.pixelSize: 12
+                                // Fixed gutters, shared with the Interface zoom
+                                // row below, so both slider tracks start at
+                                // one x and end at one x.
+                                Layout.preferredWidth: 20
                             }
                             Slider {
                                 id: textScaleSlider
@@ -3614,6 +3726,7 @@ Item {
                                 text: "A"
                                 color: AppTheme.stormTextMuted
                                 font.pixelSize: 18
+                                Layout.preferredWidth: 20
                             }
                             SettingsPercentBox {
                                 objectName: "textScalePercentBox"
@@ -3629,12 +3742,12 @@ Item {
                             lineHeightMode: Text.ProportionalHeight
                             color: AppTheme.stormTextMuted
                             font.pixelSize: AppTheme.settingsHintSize
-                            text: qsTr("Scales message and list text, and the "
-                                       + "Spaces rail with it, so its nesting "
-                                       + "levels stay readable at any size. "
-                                       + "Other chrome keeps its size — "
-                                       + "Interface zoom below scales the "
-                                       + "whole window.")
+                            text: qsTr("Scales message, list and Settings text, "
+                                       + "and the Spaces rail with it, so its "
+                                       + "nesting levels stay readable at any "
+                                       + "size. Icons and the window layout keep "
+                                       + "their size — Interface zoom below "
+                                       + "scales the whole window.")
                         }
 
                         // Interface zoom: whole-UI scale via QT_SCALE_FACTOR,
@@ -3644,6 +3757,7 @@ Item {
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: AppTheme.spacing12
+                            Item { Layout.preferredWidth: 20 }
                             Slider {
                                 id: interfaceZoomSlider
                                 objectName: "interfaceZoomSlider"
@@ -3704,6 +3818,7 @@ Item {
                                                   : AppTheme.stormBorderStrong
                                 }
                             }
+                            Item { Layout.preferredWidth: 20 }
                             SettingsPercentBox {
                                 objectName: "interfaceZoomPercentBox"
                                 slider: interfaceZoomSlider
@@ -4903,7 +5018,7 @@ Item {
                                 width: parent.width
                                 spacing: AppTheme.spacing8
                                 Label {
-                                    text: qsTr("Banners and panel widths")
+                                    text: qsTr("Room list")
                                     color: AppTheme.stormTextSecondary
                                     font.pixelSize: AppTheme.settingsOptionSize
                                     font.weight: AppTheme.weightStrong
@@ -4927,23 +5042,6 @@ Item {
                                     onToggled: app.settings.compactRoomList = checked
                                     Accessible.description: qsTr(
                                         "One line per room, without the last message")
-                                }
-                                SettingsCheckBox {
-                                    palette.windowText: AppTheme.stormText
-                                    objectName: "spaceBannersVisibleCheck"
-                                    text: qsTr("Show Space banners")
-                                    checked: app.settings.spaceBannersVisible
-                                    onToggled: app.settings.spaceBannersVisible = checked
-                                }
-                                SettingsCheckBox {
-                                    palette.windowText: AppTheme.stormText
-                                    objectName: "spaceBannerExpandedCheck"
-                                    Layout.leftMargin: AppTheme.spacing16
-                                    enabled: app.settings.spaceBannersVisible
-                                    text: qsTr("Show the whole banner instead of a strip")
-                                    checked: app.settings.spaceBannerExpanded
-                                    onToggled: app.settings.spaceBannerExpanded = checked
-                                    SettingsNeedsBadge { needs: qsTr("Show Space banners") }
                                 }
                                 Label {
                                     Layout.topMargin: AppTheme.spacing8
@@ -4992,6 +5090,36 @@ Item {
                                                + "when you open another room, switch "
                                                + "Space, tab or search, or come back to "
                                                + "the window.")
+                                }
+                            }
+                        }
+
+                        SettingsCard {
+                            ColumnLayout {
+                                width: parent.width
+                                spacing: AppTheme.spacing8
+                                Label {
+                                    text: qsTr("Banners and side panel")
+                                    color: AppTheme.stormTextSecondary
+                                    font.pixelSize: AppTheme.settingsOptionSize
+                                    font.weight: AppTheme.weightStrong
+                                }
+                                SettingsCheckBox {
+                                    palette.windowText: AppTheme.stormText
+                                    objectName: "spaceBannersVisibleCheck"
+                                    text: qsTr("Show Space banners")
+                                    checked: app.settings.spaceBannersVisible
+                                    onToggled: app.settings.spaceBannersVisible = checked
+                                }
+                                SettingsCheckBox {
+                                    palette.windowText: AppTheme.stormText
+                                    objectName: "spaceBannerExpandedCheck"
+                                    Layout.leftMargin: AppTheme.spacing16
+                                    enabled: app.settings.spaceBannersVisible
+                                    text: qsTr("Show the whole banner instead of a strip")
+                                    checked: app.settings.spaceBannerExpanded
+                                    onToggled: app.settings.spaceBannerExpanded = checked
+                                    SettingsNeedsBadge { needs: qsTr("Show Space banners") }
                                 }
                                 Label {
                                     Layout.topMargin: AppTheme.spacing8
@@ -11151,29 +11279,14 @@ Item {
                         DeveloperToolsSection { }
                         LogExportCard {}
 
-                        // Reserve the Storm Band's height so content can scroll
-                        // clear of its opaque lower part.
                         Item {
                             Layout.fillWidth: true
-                            Layout.preferredHeight: 190
+                            Layout.preferredHeight: AppTheme.spacing24
                         }
                     }
                 }
             }
 
-            // Storm Band pinned to the bottom of the content pane, dissolving
-            // upward. Input-transparent; About only. backdropColor must stay
-            // stormDeep (ThemeTokensTest bans the raw background token in this
-            // file).
-            StormBand {
-                objectName: "aboutStormBand"
-                visible: root.section === "about"
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.bottom: parent.bottom
-                height: 190
-                backdropColor: AppTheme.stormDeep
-            }
             }
         }
     }

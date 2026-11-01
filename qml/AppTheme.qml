@@ -1564,6 +1564,14 @@ QtObject {
     // both marks vanished (live, 2026-10-26).
     readonly property color settingsNavSelectedMark:
         contrastRatio(bolt, settingsNavSelected) >= 3.0 ? bolt : stormText
+    // The outline of an unchecked Settings checkbox on a Settings card. The
+    // Basic style drew it in palette.mid, which on Moss Light was pale on pale
+    // (live, 2026-11-01). The quietest ink that keeps the 3:1 WCAG asks of a
+    // control's boundary on the card, else the text ink.
+    readonly property color settingsControlEdge:
+        contrastRatio(stormTextMuted, stormPanel) >= 3.0 ? stormTextMuted
+        : contrastRatio(stormTextSecondary, stormPanel) >= 3.0
+          ? stormTextSecondary : stormText
     readonly property color memberRowHover:     _p.memberRowHover !== undefined
                                                 ? _p.memberRowHover : hover
     readonly property color roomUnreadBadge:    _p.roomUnreadBadge !== undefined

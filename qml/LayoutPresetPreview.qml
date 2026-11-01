@@ -15,7 +15,13 @@ Rectangle {
     readonly property bool compact: messageLayout === 2 || messageLayout === 3
     readonly property int rowGap: messageSpacing === 0 ? 3
                                   : messageSpacing === 2 ? 10 : 6
-    implicitHeight: Math.max(168, timelineContent.implicitHeight + AppTheme.spacing8 * 2)
+    readonly property int composerHeight: compact ? 22 : 30
+    // The height is that of the TALLEST state (widest gaps, tall composer, the
+    // avatar row), so choosing a spacing or layout never moves the controls
+    // under the preview. Seven layout gaps plus the "You" label's top margin.
+    readonly property int worstCaseExtra: (10 - rowGap) * 8 + (30 - composerHeight)
+    implicitHeight: Math.max(168, timelineContent.implicitHeight + worstCaseExtra
+                                   + AppTheme.spacing8 * 2)
     radius: AppTheme.radiusMd
     color: AppTheme.timelineBackground
     border.color: AppTheme.stormBorder
@@ -89,6 +95,9 @@ Rectangle {
                 spacing: root.rowGap
                 RowLayout {
                     Layout.fillWidth: true
+                    // The avatar's height is reserved in every layout so the
+                    // header row never changes height with the choice.
+                    Layout.minimumHeight: 20
                     spacing: 5
                     Rectangle {
                         objectName: "layoutPreviewSmallAvatar"
@@ -152,7 +161,7 @@ Rectangle {
                 Item { Layout.fillHeight: true }
                 Rectangle {
                     Layout.fillWidth: true
-                    implicitHeight: root.compact ? 22 : 30
+                    implicitHeight: root.composerHeight
                     radius: AppTheme.radiusSm
                     color: AppTheme.surface
                     border.color: AppTheme.stormBorder
