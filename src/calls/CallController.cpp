@@ -1521,7 +1521,8 @@ QString CallController::mediaFailureNotice(const QString &category,
                                            bool wasActive)
 {
     const bool lostConnection = category == QLatin1String("media_connection")
-        || category == QLatin1String("media_receive");
+        || category == QLatin1String("media_receive")
+        || category == QLatin1String("connection_timeout");
     if (wasActive) {
         return lostConnection
             ? tr("The call ended because the connection was lost.")

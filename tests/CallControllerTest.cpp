@@ -4114,6 +4114,9 @@ private Q_SLOTS:
         const QString lost = text("media_connection", true);
         const QString cannotConnect = text("media_connection", false);
         QCOMPARE(text("media_receive", true), lost);
+        // A timeout while still connecting reads as a connection problem, not
+        // a pipeline one.
+        QCOMPARE(text("connection_timeout", false), cannotConnect);
         QVERIFY(setup != stopped && setup != lost && setup != cannotConnect);
         QVERIFY(stopped != lost && lost != cannotConnect);
         QVERIFY2(!lost.contains(QLatin1String("set up")), qPrintable(lost));
