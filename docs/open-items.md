@@ -1,5 +1,15 @@
 # Open items and the NOT TESTED inventory
 
+
+## 2026-11-01 — KNOWN LIMIT: DMs created before 0.10.3 keep stock call power levels
+
+`dm_create_request` now carries the `m.call.member` power-level override that
+other rooms already had, so an invitee to a NEW Lightning-created DM can
+publish their call membership. A DM created earlier keeps the levels it was
+made with: the invitee joins at 0 and the server refuses their membership
+("You don't have permission to join calls in this room"). Nothing here changes
+an existing room's power levels. NOT live-tested with a call (rtcrig).
+
 ## 2026-10-31 — OPEN after the integration round
 
 - **A hardware share is opt-in** (`LIGHTNING_SHARE_ENCODER=hardware`) and stays so
