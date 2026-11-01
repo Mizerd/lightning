@@ -2966,6 +2966,30 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 ++m_callGateRevision;
                 Q_EMIT callGateRevisionChanged();
             });
+    // The lane also depends on what the room list says about the room (a DM's
+    // second member, its direct flag): those arrive after the room is open, and
+    // nothing bumped the revision, so the call button was absent until the
+    // reader left and came back. Re-evaluate on any change of the open room's
+    // lane, which is cheap and exact.
+    {
+        auto lastLane = std::make_shared<QString>();
+        const auto recheck = [this, lastLane] {
+            const QString lane = m_currentRoomId.isEmpty()
+                ? QString() : preferredCallLane(m_currentRoomId);
+            if (lane == *lastLane)
+                return;
+            *lastLane = lane;
+            ++m_callGateRevision;
+            Q_EMIT callGateRevisionChanged();
+        };
+        connect(m_roomList.get(), &QAbstractItemModel::dataChanged, this,
+                recheck);
+        connect(m_roomList.get(), &QAbstractItemModel::rowsInserted, this,
+                recheck);
+        connect(m_roomList.get(), &QAbstractItemModel::modelReset, this,
+                recheck);
+        connect(this, &AppController::currentRoomIdChanged, this, recheck);
+    }
     connect(m_rtc.get(), &RtcController::sessionChanged, this,
             [this](const QString &) {
                 ++m_callGateRevision;
