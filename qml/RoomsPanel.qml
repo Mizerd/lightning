@@ -17,6 +17,18 @@ Rectangle {
             roomSearch.forceActiveFocus()
     }
     onCompactChanged: if (compact && app.roomBatch) app.roomBatch.exitSelection()
+    // A selection belongs to the rows it was made on: another layout or row
+    // density rebuilds them, and the bar used to stay up, covering the bottom
+    // of a list it no longer described, until Done.
+    Connections {
+        target: app.settings
+        function onRoomNavigationLayoutChanged() {
+            if (app.roomBatch) app.roomBatch.exitSelection()
+        }
+        function onCompactRoomListChanged() {
+            if (app.roomBatch) app.roomBatch.exitSelection()
+        }
+    }
     Shortcut {
         sequence: "Escape"
         enabled: root.visible && app.roomBatch.selecting

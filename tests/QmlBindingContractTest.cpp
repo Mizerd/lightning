@@ -2303,6 +2303,20 @@ private Q_SLOTS:
         QVERIFY(block.contains(QStringLiteral(
             "!== PaginationController.Loading\n                    anchors.centerIn: parent")));
     }
+
+    // The multi-select bar stayed up across a layout or density change.
+    void aRoomSelectionEndsWhenTheListLayoutChanges()
+    {
+        const QString panel = read(QStringLiteral("RoomsPanel.qml"));
+        for (const char *handler : { "function onRoomNavigationLayoutChanged() {",
+                                     "function onCompactRoomListChanged() {" }) {
+            const int at = panel.indexOf(QLatin1String(handler));
+            QVERIFY2(at >= 0, handler);
+            QVERIFY2(panel.mid(at, 120).contains(
+                         QStringLiteral("app.roomBatch.exitSelection()")),
+                     handler);
+        }
+    }
 };
 
 QTEST_MAIN(QmlBindingContractTest)
