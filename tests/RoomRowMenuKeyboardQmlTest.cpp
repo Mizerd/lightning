@@ -414,6 +414,45 @@ private slots:
         QVERIFY(joinedAgain.join(QLatin1Char('|'))
                     .contains(QStringLiteral("Notifications")));
     }
+
+    // A room the server counts 13 unread without a read-receipt flag drew a
+    // badge but its menu offered only "Mark as unread".
+    void aCountedRoomWithoutAReceiptFlagCanBeMarkedRead()
+    {
+        QQmlEngine engine;
+        std::unique_ptr<QObject> app;
+        QVERIFY(makeApp(engine, kMenuApp, app));
+        QString src = QString::fromUtf8(kRowScene);
+        src.replace(QStringLiteral("unreadCount: 0"),
+                    QStringLiteral("unreadCount: 13"));
+        QQmlComponent c(&engine);
+        c.setData(src.toUtf8(), QUrl(QStringLiteral("qrc:/countedrow.qml")));
+        std::unique_ptr<QObject> owner(c.create());
+        QVERIFY2(owner, qPrintable(c.errorString()));
+        auto *rootItem = qobject_cast<QQuickItem *>(owner.get());
+        QQuickWindow window;
+        window.resize(400, 300);
+        rootItem->setParentItem(window.contentItem());
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        auto *list = rootItem->findChild<QQuickItem *>(QStringLiteral("list"));
+        QVERIFY(list);
+        QQuickItem *row = nullptr;
+        QTRY_VERIFY([&] {
+            const auto kids =
+                list->property("contentItem").value<QQuickItem *>()->childItems();
+            for (QQuickItem *k : kids)
+                if (k->property("showGroupDivider").isValid()) {
+                    row = k;
+                    return true;
+                }
+            return false;
+        }());
+        QVERIFY(row->property("canMarkRead").isValid());
+        QVERIFY(!row->property("isUnread").toBool());
+        QVERIFY2(row->property("canMarkRead").toBool(),
+                 "a 13-unread room would not offer Mark as read");
+    }
 };
 
 QTEST_MAIN(RoomRowMenuKeyboardQmlTest)
