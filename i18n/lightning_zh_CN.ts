@@ -970,7 +970,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+8494"/>
+        <location filename="../src/app/AppController.cpp" line="+8505"/>
         <source>Room invitation</source>
         <translation>房间邀请</translation>
     </message>
@@ -1090,7 +1090,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>来电</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-6507"/>
+        <location filename="../src/app/AppController.cpp" line="-6518"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>因账号已变更，退出登录已取消。未重置任何内容。</translation>
     </message>
@@ -1142,13 +1142,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+1"/>
         <location line="+55"/>
-        <location line="+4784"/>
+        <location line="+4795"/>
         <location line="+984"/>
         <source>Not connected</source>
         <translation>未连接</translation>
     </message>
     <message>
-        <location line="-5820"/>
+        <location line="-5831"/>
         <source>Connecting…</source>
         <translation>正在连接…</translation>
     </message>
@@ -1221,12 +1221,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4527"/>
+        <location line="+4538"/>
         <source>Not signed in.</source>
         <translation>尚未登录。</translation>
     </message>
     <message>
-        <location line="-4525"/>
+        <location line="-4536"/>
         <source>Room-key import failed.</source>
         <translation>房间密钥导入失败。</translation>
     </message>
@@ -1262,12 +1262,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>新提及</translation>
     </message>
     <message>
-        <location line="+447"/>
-        <source>The call ended because its audio or video could not be set up.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+241"/>
+        <location line="+688"/>
         <source>Call started</source>
         <translation>通话已开始</translation>
     </message>
@@ -1483,7 +1478,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>清除此设备的本地数据无法解决该问题，反而会销毁你仍然需要的加密密钥。</translation>
     </message>
     <message>
-        <location line="+616"/>
+        <location line="+627"/>
         <location line="+975"/>
         <location line="+867"/>
         <location line="+15"/>
@@ -1581,8 +1576,8 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+572"/>
-        <location filename="../src/app/AppController.cpp" line="-2557"/>
-        <location line="+1196"/>
+        <location filename="../src/app/AppController.cpp" line="-2568"/>
+        <location line="+1207"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
         <translation>Lightning 目前无法读取本设备保存的登录信息：系统密钥环已锁定或不可用。请解锁后重试。</translation>
     </message>
@@ -2432,6 +2427,29 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <location line="+73"/>
         <source>One redaction was already in progress; its result is unknown.</source>
         <translation>已有一次删除在进行中；其结果未知。</translation>
+    </message>
+</context>
+<context>
+    <name>CallController</name>
+    <message>
+        <location filename="../src/calls/CallController.cpp" line="+1527"/>
+        <source>The call ended because the connection was lost.</source>
+        <translation type="unfinished">由于连接丢失，通话结束。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The call ended because its audio or video stopped working.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>The call could not connect.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The call ended because its audio or video could not be set up.</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -3546,7 +3564,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>你的麦克风没有收到任何声音，因此此处没有人能听到你。请在通话设置中检查所选的麦克风。</translation>
     </message>
     <message>
-        <location line="+136"/>
+        <location line="+142"/>
         <source>Show screen shares (%1)</source>
         <translation>显示屏幕共享 (%1)</translation>
     </message>
@@ -3571,7 +3589,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>此电脑无法显示视频：没有可用的图形加速，因此摄像头和共享屏幕都不会显示。音频不受影响。</translation>
     </message>
     <message>
-        <location line="+118"/>
+        <location line="+122"/>
         <source>Full screen</source>
         <translation>全屏</translation>
     </message>
@@ -3704,7 +3722,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+2"/>
-        <location filename="../qml/SpaceLobby.qml" line="+282"/>
+        <location filename="../qml/SpaceLobby.qml" line="+286"/>
         <source>%1, collapsed</source>
         <translation>%1，折叠</translation>
     </message>
@@ -31564,12 +31582,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-558"/>
         <location filename="../qml/TimelinePane.qml" line="+389"/>
-        <location line="+6750"/>
+        <location line="+6770"/>
         <source>Space</source>
         <translation>空间</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-6749"/>
+        <location filename="../qml/TimelinePane.qml" line="-6769"/>
         <source>Home</source>
         <translation>主页</translation>
     </message>
@@ -31662,12 +31680,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+5023"/>
+        <location line="+5039"/>
         <source>Room information</source>
         <translation>房间信息</translation>
     </message>
     <message>
-        <location line="-5007"/>
+        <location line="-5023"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation>更多房间操作</translation>
@@ -31888,7 +31906,7 @@ Note: importing keys does not verify this session.</source>
         <translation>搜索无法完成。</translation>
     </message>
     <message>
-        <location line="+3786"/>
+        <location line="+3802"/>
         <location line="+501"/>
         <source>Loading older messages…</source>
         <translation>正在加载更早的消息…</translation>
@@ -31986,7 +32004,7 @@ Note: importing keys does not verify this session.</source>
         <translation>转发…</translation>
     </message>
     <message>
-        <location line="+541"/>
+        <location line="+545"/>
         <source>Room added — waiting for the server to confirm.</source>
         <translation>房间已添加 —— 正在等待服务器确认。</translation>
     </message>
@@ -32191,7 +32209,7 @@ Note: importing keys does not verify this session.</source>
         <translation>退出不会移除其中的房间。</translation>
     </message>
     <message>
-        <location filename="../qml/SpaceLobby.qml" line="-263"/>
+        <location filename="../qml/SpaceLobby.qml" line="-262"/>
         <source>ROOMS AND SPACES</source>
         <translation>房间与空间</translation>
     </message>
@@ -32203,7 +32221,7 @@ Note: importing keys does not verify this session.</source>
         </translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+12"/>
         <location filename="../qml/TimelinePane.qml" line="+246"/>
         <source>Remove</source>
         <translation>移除</translation>
@@ -32311,21 +32329,21 @@ Note: importing keys does not verify this session.</source>
         <translation>这些房间会继续存在，你也仍在其中 —— 它们只是离开这个空间的列表。</translation>
     </message>
     <message>
-        <location line="-1641"/>
+        <location line="-1645"/>
         <location line="+191"/>
-        <location line="+1464"/>
+        <location line="+1468"/>
         <location line="+58"/>
         <source>Cancel</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location line="-7406"/>
+        <location line="-7426"/>
         <location line="+92"/>
         <source>View profile</source>
         <translation>查看个人资料</translation>
     </message>
     <message>
-        <location line="+6536"/>
+        <location line="+6556"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation>图片 (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
@@ -32396,7 +32414,7 @@ Note: importing keys does not verify this session.</source>
         <translation>拖放文件以添加附件</translation>
     </message>
     <message>
-        <location line="-6779"/>
+        <location line="-6799"/>
         <source>Part of %1</source>
         <translation>属于 %1</translation>
     </message>

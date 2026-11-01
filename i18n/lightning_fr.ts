@@ -980,7 +980,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+8494"/>
+        <location filename="../src/app/AppController.cpp" line="+8505"/>
         <source>Room invitation</source>
         <translation>Invitation au salon</translation>
     </message>
@@ -1101,7 +1101,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Appel entrant</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-6507"/>
+        <location filename="../src/app/AppController.cpp" line="-6518"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>La déconnexion a été annulée car le compte a changé. Rien n&apos;a été réinitialisé.</translation>
     </message>
@@ -1153,13 +1153,13 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
     <message>
         <location line="+1"/>
         <location line="+55"/>
-        <location line="+4784"/>
+        <location line="+4795"/>
         <location line="+984"/>
         <source>Not connected</source>
         <translation>Non connecté</translation>
     </message>
     <message>
-        <location line="-5820"/>
+        <location line="-5831"/>
         <source>Connecting…</source>
         <translation>Connexion…</translation>
     </message>
@@ -1232,12 +1232,12 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4527"/>
+        <location line="+4538"/>
         <source>Not signed in.</source>
         <translation>Non connecté.</translation>
     </message>
     <message>
-        <location line="-4525"/>
+        <location line="-4536"/>
         <source>Room-key import failed.</source>
         <translation>L&apos;import des clés de salon a échoué.</translation>
     </message>
@@ -1273,12 +1273,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Nouvelles mentions</translation>
     </message>
     <message>
-        <location line="+447"/>
-        <source>The call ended because its audio or video could not be set up.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+241"/>
+        <location line="+688"/>
         <source>Call started</source>
         <translation>Appel lancé</translation>
     </message>
@@ -1494,7 +1489,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Effacer les données locales de cet appareil ne résoudrait pas ce problème et détruirait des clés de chiffrement dont vous avez encore besoin.</translation>
     </message>
     <message>
-        <location line="+616"/>
+        <location line="+627"/>
         <location line="+975"/>
         <location line="+867"/>
         <location line="+15"/>
@@ -1592,8 +1587,8 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
     </message>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+572"/>
-        <location filename="../src/app/AppController.cpp" line="-2557"/>
-        <location line="+1196"/>
+        <location filename="../src/app/AppController.cpp" line="-2568"/>
+        <location line="+1207"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
         <translation>Lightning ne peut pas lire les connexions enregistrées sur cet appareil pour le moment : le trousseau système est verrouillé ou indisponible. Déverrouillez-le et réessayez.</translation>
     </message>
@@ -2448,6 +2443,29 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <location line="+73"/>
         <source>One redaction was already in progress; its result is unknown.</source>
         <translation>Une suppression était déjà en cours ; son résultat est inconnu.</translation>
+    </message>
+</context>
+<context>
+    <name>CallController</name>
+    <message>
+        <location filename="../src/calls/CallController.cpp" line="+1527"/>
+        <source>The call ended because the connection was lost.</source>
+        <translation type="unfinished">L&apos;appel a pris fin car la connexion a été perdue.</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The call ended because its audio or video stopped working.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>The call could not connect.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The call ended because its audio or video could not be set up.</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -3563,7 +3581,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Votre microphone ne capte rien : personne ici ne peut vous entendre. Vérifiez le microphone sélectionné dans les paramètres d&apos;appel.</translation>
     </message>
     <message>
-        <location line="+136"/>
+        <location line="+142"/>
         <source>Show screen shares (%1)</source>
         <translation>Afficher les partages d&apos;écran (%1)</translation>
     </message>
@@ -3588,7 +3606,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>La vidéo ne peut pas être affichée sur cet ordinateur : aucune accélération graphique fonctionnelle, les caméras et les partages d&apos;écran n&apos;apparaîtront donc pas. L&apos;audio n&apos;est pas affecté.</translation>
     </message>
     <message>
-        <location line="+118"/>
+        <location line="+122"/>
         <source>Full screen</source>
         <translation>Plein écran</translation>
     </message>
@@ -3722,7 +3740,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
     </message>
     <message>
         <location line="+2"/>
-        <location filename="../qml/SpaceLobby.qml" line="+282"/>
+        <location filename="../qml/SpaceLobby.qml" line="+286"/>
         <source>%1, collapsed</source>
         <translation>%1, réduit</translation>
     </message>
@@ -31702,12 +31720,12 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-558"/>
         <location filename="../qml/TimelinePane.qml" line="+389"/>
-        <location line="+6750"/>
+        <location line="+6770"/>
         <source>Space</source>
         <translation>Espace</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-6749"/>
+        <location filename="../qml/TimelinePane.qml" line="-6769"/>
         <source>Home</source>
         <translation>Accueil</translation>
     </message>
@@ -31800,12 +31818,12 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+5023"/>
+        <location line="+5039"/>
         <source>Room information</source>
         <translation>Informations du salon</translation>
     </message>
     <message>
-        <location line="-5007"/>
+        <location line="-5023"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation>Autres actions du salon</translation>
@@ -32026,7 +32044,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>La recherche n&apos;a pas pu aboutir.</translation>
     </message>
     <message>
-        <location line="+3786"/>
+        <location line="+3802"/>
         <location line="+501"/>
         <source>Loading older messages…</source>
         <translation>Chargement des messages plus anciens…</translation>
@@ -32125,7 +32143,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Transférer…</translation>
     </message>
     <message>
-        <location line="+541"/>
+        <location line="+545"/>
         <source>Room added — waiting for the server to confirm.</source>
         <translation>Salon ajouté — en attente de confirmation du serveur.</translation>
     </message>
@@ -32331,7 +32349,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Quitter l&apos;espace ne supprime pas les salons qu&apos;il contient.</translation>
     </message>
     <message>
-        <location filename="../qml/SpaceLobby.qml" line="-263"/>
+        <location filename="../qml/SpaceLobby.qml" line="-262"/>
         <source>ROOMS AND SPACES</source>
         <translation>SALONS ET ESPACES</translation>
     </message>
@@ -32344,7 +32362,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         </translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+12"/>
         <location filename="../qml/TimelinePane.qml" line="+246"/>
         <source>Remove</source>
         <translation>Retirer</translation>
@@ -32456,21 +32474,21 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Les salons continuent d&apos;exister et vous y restez — ils quittent seulement la liste de cet espace.</translation>
     </message>
     <message>
-        <location line="-1641"/>
+        <location line="-1645"/>
         <location line="+191"/>
-        <location line="+1464"/>
+        <location line="+1468"/>
         <location line="+58"/>
         <source>Cancel</source>
         <translation>Annuler</translation>
     </message>
     <message>
-        <location line="-7406"/>
+        <location line="-7426"/>
         <location line="+92"/>
         <source>View profile</source>
         <translation>Voir le profil</translation>
     </message>
     <message>
-        <location line="+6536"/>
+        <location line="+6556"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
@@ -32541,7 +32559,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Déposez des fichiers pour les joindre</translation>
     </message>
     <message>
-        <location line="-6779"/>
+        <location line="-6799"/>
         <source>Part of %1</source>
         <translation>Fait partie de %1</translation>
     </message>

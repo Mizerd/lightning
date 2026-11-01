@@ -980,7 +980,7 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+8494"/>
+        <location filename="../src/app/AppController.cpp" line="+8505"/>
         <source>Room invitation</source>
         <translation>Invitación a una sala</translation>
     </message>
@@ -1101,7 +1101,7 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
         <translation>Llamada entrante</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-6507"/>
+        <location filename="../src/app/AppController.cpp" line="-6518"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>El cierre de sesión se canceló porque la cuenta cambió. No se restableció nada.</translation>
     </message>
@@ -1153,13 +1153,13 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
     <message>
         <location line="+1"/>
         <location line="+55"/>
-        <location line="+4784"/>
+        <location line="+4795"/>
         <location line="+984"/>
         <source>Not connected</source>
         <translation>Sin conexión</translation>
     </message>
     <message>
-        <location line="-5820"/>
+        <location line="-5831"/>
         <source>Connecting…</source>
         <translation>Conectando…</translation>
     </message>
@@ -1232,12 +1232,12 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4527"/>
+        <location line="+4538"/>
         <source>Not signed in.</source>
         <translation>No has iniciado sesión.</translation>
     </message>
     <message>
-        <location line="-4525"/>
+        <location line="-4536"/>
         <source>Room-key import failed.</source>
         <translation>Falló la importación de claves de sala.</translation>
     </message>
@@ -1273,12 +1273,7 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
         <translation>Menciones nuevas</translation>
     </message>
     <message>
-        <location line="+447"/>
-        <source>The call ended because its audio or video could not be set up.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+241"/>
+        <location line="+688"/>
         <source>Call started</source>
         <translation>Llamada iniciada</translation>
     </message>
@@ -1494,7 +1489,7 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
         <translation>Borrar los datos locales de este dispositivo no lo solucionaría y destruiría claves de cifrado que todavía necesitas.</translation>
     </message>
     <message>
-        <location line="+616"/>
+        <location line="+627"/>
         <location line="+975"/>
         <location line="+867"/>
         <location line="+15"/>
@@ -1592,8 +1587,8 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
     </message>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+572"/>
-        <location filename="../src/app/AppController.cpp" line="-2557"/>
-        <location line="+1196"/>
+        <location filename="../src/app/AppController.cpp" line="-2568"/>
+        <location line="+1207"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
         <translation>Lightning no puede leer ahora los inicios de sesión guardados de este dispositivo: el llavero del sistema está bloqueado o no disponible. Desbloquéalo e inténtalo de nuevo.</translation>
     </message>
@@ -2448,6 +2443,29 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
         <location line="+73"/>
         <source>One redaction was already in progress; its result is unknown.</source>
         <translation>Ya había una eliminación en curso; se desconoce su resultado.</translation>
+    </message>
+</context>
+<context>
+    <name>CallController</name>
+    <message>
+        <location filename="../src/calls/CallController.cpp" line="+1527"/>
+        <source>The call ended because the connection was lost.</source>
+        <translation type="unfinished">La llamada terminó porque se perdió la conexión.</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The call ended because its audio or video stopped working.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>The call could not connect.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The call ended because its audio or video could not be set up.</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -3563,7 +3581,7 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
         <translation>Tu micrófono no capta nada, así que nadie aquí puede oírte. Comprueba qué micrófono está seleccionado en los ajustes de llamada.</translation>
     </message>
     <message>
-        <location line="+136"/>
+        <location line="+142"/>
         <source>Show screen shares (%1)</source>
         <translation>Mostrar pantalla compartida (%1)</translation>
     </message>
@@ -3588,7 +3606,7 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
         <translation>No se puede mostrar el vídeo en este equipo: no hay aceleración gráfica funcional, así que las cámaras y las pantallas compartidas no aparecerán. El audio no se ve afectado.</translation>
     </message>
     <message>
-        <location line="+118"/>
+        <location line="+122"/>
         <source>Full screen</source>
         <translation>Pantalla completa</translation>
     </message>
@@ -3722,7 +3740,7 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
     </message>
     <message>
         <location line="+2"/>
-        <location filename="../qml/SpaceLobby.qml" line="+282"/>
+        <location filename="../qml/SpaceLobby.qml" line="+286"/>
         <source>%1, collapsed</source>
         <translation>%1, colapsado</translation>
     </message>
@@ -31702,12 +31720,12 @@ Nota: importar claves no verifica esta sesión.</translation>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-558"/>
         <location filename="../qml/TimelinePane.qml" line="+389"/>
-        <location line="+6750"/>
+        <location line="+6770"/>
         <source>Space</source>
         <translation>Espacio</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-6749"/>
+        <location filename="../qml/TimelinePane.qml" line="-6769"/>
         <source>Home</source>
         <translation>Inicio</translation>
     </message>
@@ -31800,12 +31818,12 @@ Nota: importar claves no verifica esta sesión.</translation>
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+5023"/>
+        <location line="+5039"/>
         <source>Room information</source>
         <translation>Información de la sala</translation>
     </message>
     <message>
-        <location line="-5007"/>
+        <location line="-5023"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation>Más acciones de la sala</translation>
@@ -32026,7 +32044,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>No se pudo completar la búsqueda.</translation>
     </message>
     <message>
-        <location line="+3786"/>
+        <location line="+3802"/>
         <location line="+501"/>
         <source>Loading older messages…</source>
         <translation>Cargando mensajes anteriores…</translation>
@@ -32125,7 +32143,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>Reenviar…</translation>
     </message>
     <message>
-        <location line="+541"/>
+        <location line="+545"/>
         <source>Room added — waiting for the server to confirm.</source>
         <translation>Sala añadida: esperando la confirmación del servidor.</translation>
     </message>
@@ -32331,7 +32349,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>Salir no elimina las salas que contiene.</translation>
     </message>
     <message>
-        <location filename="../qml/SpaceLobby.qml" line="-263"/>
+        <location filename="../qml/SpaceLobby.qml" line="-262"/>
         <source>ROOMS AND SPACES</source>
         <translation>SALAS Y ESPACIOS</translation>
     </message>
@@ -32344,7 +32362,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         </translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+12"/>
         <location filename="../qml/TimelinePane.qml" line="+246"/>
         <source>Remove</source>
         <translation>Quitar</translation>
@@ -32456,21 +32474,21 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>Las salas siguen existiendo y tú sigues en ellas: solo salen de la lista de este espacio.</translation>
     </message>
     <message>
-        <location line="-1641"/>
+        <location line="-1645"/>
         <location line="+191"/>
-        <location line="+1464"/>
+        <location line="+1468"/>
         <location line="+58"/>
         <source>Cancel</source>
         <translation>Cancelar</translation>
     </message>
     <message>
-        <location line="-7406"/>
+        <location line="-7426"/>
         <location line="+92"/>
         <source>View profile</source>
         <translation>Ver perfil</translation>
     </message>
     <message>
-        <location line="+6536"/>
+        <location line="+6556"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation>Imágenes (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
@@ -32541,7 +32559,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>Suelta archivos para adjuntarlos</translation>
     </message>
     <message>
-        <location line="-6779"/>
+        <location line="-6799"/>
         <source>Part of %1</source>
         <translation>Parte de %1</translation>
     </message>

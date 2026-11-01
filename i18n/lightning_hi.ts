@@ -980,7 +980,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+8494"/>
+        <location filename="../src/app/AppController.cpp" line="+8505"/>
         <source>Room invitation</source>
         <translation>रूम का आमंत्रण</translation>
     </message>
@@ -1101,7 +1101,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>आने वाली कॉल</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-6507"/>
+        <location filename="../src/app/AppController.cpp" line="-6518"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>खाता बदलने के कारण साइन-आउट रद्द कर दिया गया। कुछ भी रीसेट नहीं हुआ।</translation>
     </message>
@@ -1153,13 +1153,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+1"/>
         <location line="+55"/>
-        <location line="+4784"/>
+        <location line="+4795"/>
         <location line="+984"/>
         <source>Not connected</source>
         <translation>कनेक्ट नहीं है</translation>
     </message>
     <message>
-        <location line="-5820"/>
+        <location line="-5831"/>
         <source>Connecting…</source>
         <translation>कनेक्ट हो रहा है…</translation>
     </message>
@@ -1232,12 +1232,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4527"/>
+        <location line="+4538"/>
         <source>Not signed in.</source>
         <translation>साइन इन नहीं है।</translation>
     </message>
     <message>
-        <location line="-4525"/>
+        <location line="-4536"/>
         <source>Room-key import failed.</source>
         <translation>रूम-कुंजी आयात विफल रहा।</translation>
     </message>
@@ -1273,12 +1273,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>नए मेंशन</translation>
     </message>
     <message>
-        <location line="+447"/>
-        <source>The call ended because its audio or video could not be set up.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+241"/>
+        <location line="+688"/>
         <source>Call started</source>
         <translation>कॉल शुरू हुई</translation>
     </message>
@@ -1494,7 +1489,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>इस डिवाइस का स्थानीय डेटा मिटाने से यह ठीक नहीं होगा, और वे एन्क्रिप्शन कुंजियाँ नष्ट हो जाएँगी जिनकी आपको अब भी ज़रूरत है।</translation>
     </message>
     <message>
-        <location line="+616"/>
+        <location line="+627"/>
         <location line="+975"/>
         <location line="+867"/>
         <location line="+15"/>
@@ -1592,8 +1587,8 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+572"/>
-        <location filename="../src/app/AppController.cpp" line="-2557"/>
-        <location line="+1196"/>
+        <location filename="../src/app/AppController.cpp" line="-2568"/>
+        <location line="+1207"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
         <translation>Lightning अभी इस डिवाइस के सहेजे हुए साइन-इन नहीं पढ़ सकता — सिस्टम कीरिंग लॉक है या उपलब्ध नहीं है। उसे अनलॉक करें और फिर कोशिश करें।</translation>
     </message>
@@ -2448,6 +2443,29 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <location line="+73"/>
         <source>One redaction was already in progress; its result is unknown.</source>
         <translation>एक हटाना पहले से जारी था; उसका परिणाम अज्ञात है।</translation>
+    </message>
+</context>
+<context>
+    <name>CallController</name>
+    <message>
+        <location filename="../src/calls/CallController.cpp" line="+1527"/>
+        <source>The call ended because the connection was lost.</source>
+        <translation type="unfinished">कनेक्शन टूट जाने के कारण कॉल समाप्त हो गई.</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The call ended because its audio or video stopped working.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>The call could not connect.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The call ended because its audio or video could not be set up.</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -3563,7 +3581,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>आपका माइक्रोफ़ोन कुछ भी नहीं पकड़ रहा, इसलिए यहाँ कोई आपको नहीं सुन सकता। कॉल सेटिंग्स में देखें कि कौन-सा माइक्रोफ़ोन चुना गया है।</translation>
     </message>
     <message>
-        <location line="+136"/>
+        <location line="+142"/>
         <source>Show screen shares (%1)</source>
         <translation>स्क्रीन शेयर दिखाएं (%1)</translation>
     </message>
@@ -3588,7 +3606,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>इस कंप्यूटर पर वीडियो नहीं दिखाया जा सकता — कोई काम करने वाला ग्राफ़िक्स एक्सेलेरेशन नहीं है, इसलिए कैमरे और शेयर की गई स्क्रीन नहीं दिखेंगी। ऑडियो पर असर नहीं पड़ता।</translation>
     </message>
     <message>
-        <location line="+118"/>
+        <location line="+122"/>
         <source>Full screen</source>
         <translation>पूर्ण स्क्रीन</translation>
     </message>
@@ -3722,7 +3740,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+2"/>
-        <location filename="../qml/SpaceLobby.qml" line="+282"/>
+        <location filename="../qml/SpaceLobby.qml" line="+286"/>
         <source>%1, collapsed</source>
         <translation>%1, ढह गया</translation>
     </message>
@@ -31702,12 +31720,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-558"/>
         <location filename="../qml/TimelinePane.qml" line="+389"/>
-        <location line="+6750"/>
+        <location line="+6770"/>
         <source>Space</source>
         <translation>स्पेस</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-6749"/>
+        <location filename="../qml/TimelinePane.qml" line="-6769"/>
         <source>Home</source>
         <translation>होम</translation>
     </message>
@@ -31800,12 +31818,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+5023"/>
+        <location line="+5039"/>
         <source>Room information</source>
         <translation>कक्ष जानकारी</translation>
     </message>
     <message>
-        <location line="-5007"/>
+        <location line="-5023"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation>रूम की और कार्रवाइयाँ</translation>
@@ -32026,7 +32044,7 @@ Note: importing keys does not verify this session.</source>
         <translation>खोज पूरी नहीं हो सकी।</translation>
     </message>
     <message>
-        <location line="+3786"/>
+        <location line="+3802"/>
         <location line="+501"/>
         <source>Loading older messages…</source>
         <translation>पुराने संदेश लोड हो रहे हैं…</translation>
@@ -32125,7 +32143,7 @@ Note: importing keys does not verify this session.</source>
         <translation>फ़ॉरवर्ड करें…</translation>
     </message>
     <message>
-        <location line="+541"/>
+        <location line="+545"/>
         <source>Room added — waiting for the server to confirm.</source>
         <translation>कक्ष जोड़ा गया — सर्वर की पुष्टि की प्रतीक्षा है।</translation>
     </message>
@@ -32331,7 +32349,7 @@ Note: importing keys does not verify this session.</source>
         <translation>छोड़ने से उसके भीतर के कक्ष नहीं हटते।</translation>
     </message>
     <message>
-        <location filename="../qml/SpaceLobby.qml" line="-263"/>
+        <location filename="../qml/SpaceLobby.qml" line="-262"/>
         <source>ROOMS AND SPACES</source>
         <translation>कक्ष और स्पेस</translation>
     </message>
@@ -32344,7 +32362,7 @@ Note: importing keys does not verify this session.</source>
         </translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+12"/>
         <location filename="../qml/TimelinePane.qml" line="+246"/>
         <source>Remove</source>
         <translation>हटाएँ</translation>
@@ -32456,21 +32474,21 @@ Note: importing keys does not verify this session.</source>
         <translation>कक्ष बने रहते हैं और आप उनमें बने रहते हैं — वे बस इस स्पेस की सूची से निकल जाते हैं।</translation>
     </message>
     <message>
-        <location line="-1641"/>
+        <location line="-1645"/>
         <location line="+191"/>
-        <location line="+1464"/>
+        <location line="+1468"/>
         <location line="+58"/>
         <source>Cancel</source>
         <translation>रद्द करें</translation>
     </message>
     <message>
-        <location line="-7406"/>
+        <location line="-7426"/>
         <location line="+92"/>
         <source>View profile</source>
         <translation>प्रोफ़ाइल देखें</translation>
     </message>
     <message>
-        <location line="+6536"/>
+        <location line="+6556"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation>तस्वीरें (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
@@ -32541,7 +32559,7 @@ Note: importing keys does not verify this session.</source>
         <translation>संलग्न करने के लिए फ़ाइलें छोड़ें</translation>
     </message>
     <message>
-        <location line="-6779"/>
+        <location line="-6799"/>
         <source>Part of %1</source>
         <translation>%1 का हिस्सा</translation>
     </message>
