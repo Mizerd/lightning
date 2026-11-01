@@ -976,9 +976,23 @@ async fn send_create_room(
         .map(|r| r.room_id)
 }
 
+/// The power-level override every room that can host a call is created with:
+/// `m.call.member` is lowered to 0 so an ordinary member can publish their
+/// call membership (see `build_create_room_request`). Only these event types
+/// move; `state_default` stays.
+pub(crate) fn call_membership_power_levels() -> serde_json::Value {
+    let mut events = serde_json::Map::new();
+    for ev in [crate::rtc::EV_MEMBER_LEGACY, crate::rtc::EV_MEMBER_STICKY] {
+        events.insert(ev.to_owned(), json!(0));
+    }
+    json!({ "events": serde_json::Value::Object(events) })
+}
+
 /// The request `Client::create_dm` builds (TrustedPrivateChat preset,
 /// `is_direct`, the invite, recommended encryption), sent by us so that the
-/// retry policy is ours.
+/// retry policy is ours. A DM hosts calls too, so it carries the same
+/// call-membership override (the invitee joins at level 0 and would otherwise
+/// be refused when publishing their membership).
 pub(crate) fn dm_create_request(uid: &UserId) -> create_room::v3::Request {
     let initial_state = vec![InitialStateEvent::with_empty_state_key(
         RoomEncryptionEventContent::with_recommended_defaults(),
@@ -989,6 +1003,10 @@ pub(crate) fn dm_create_request(uid: &UserId) -> create_room::v3::Request {
         is_direct: true,
         preset: Some(RoomPreset::TrustedPrivateChat),
         initial_state,
+        // cast_unchecked: the value is built here from literals.
+        power_level_content_override: Raw::new(&call_membership_power_levels())
+            .ok()
+            .map(|raw| raw.cast_unchecked()),
     })
 }
 
@@ -1402,25 +1420,15 @@ pub(crate) fn build_create_room_request(
     // who joins gets a call that looks connected but is one-way (their
     // membership never lands, so no media key is sent to them). Element Call
     // does the same for rooms it creates. Spaces are excluded (no calls).
-    let power_levels = if opts.is_space {
+    let power_level_content_override = if opts.is_space {
         None
     } else {
-        let mut events = serde_json::Map::new();
-        for ev in [crate::rtc::EV_MEMBER_LEGACY, crate::rtc::EV_MEMBER_STICKY] {
-            events.insert(ev.to_owned(), json!(0));
-        }
-        // Only these event types are lowered; `state_default` is unchanged.
-        Some(json!({ "events": serde_json::Value::Object(events) }))
-    };
-    // Outside the request literal: `?` cannot cross the assign! macro.
-    let power_level_content_override = match power_levels {
         // cast_unchecked: the value is built here from literals.
-        Some(v) => Some(
-            Raw::new(&v)
+        Some(
+            Raw::new(&call_membership_power_levels())
                 .map_err(|e| format!("power level override: {e}"))?
                 .cast_unchecked(),
-        ),
-        None => None,
+        )
     };
 
     let creation_content = if opts.is_space {
@@ -7424,6 +7432,23 @@ mod tests {
         assert_eq!(req.invite, vec![uid]);
         assert!(matches!(req.preset, Some(RoomPreset::TrustedPrivateChat)));
         assert_eq!(req.initial_state.len(), 1);
+    }
+
+    /// A DM hosts calls: the invitee joins at level 0 and must be able to
+    /// publish `m.call.member` (a DM created without the override refused the
+    /// invitee's membership, "You don't have permission to join calls").
+    #[test]
+    fn a_created_dm_lets_the_invitee_publish_call_membership() {
+        let uid = UserId::parse("@peer:example.org").unwrap();
+        let raw = dm_create_request(&uid)
+            .power_level_content_override
+            .expect("a DM that can host a call needs the override");
+        let v: serde_json::Value = raw.deserialize_as_unchecked().unwrap();
+        let events = v.get("events").and_then(|e| e.as_object()).unwrap();
+        for ev in [crate::rtc::EV_MEMBER_LEGACY, crate::rtc::EV_MEMBER_STICKY] {
+            assert_eq!(events.get(ev).and_then(|x| x.as_u64()), Some(0), "{ev}");
+        }
+        assert!(v.get("state_default").is_none());
     }
 
     #[test]
