@@ -1948,6 +1948,13 @@ int main(int argc, char *argv[])
     // decode. An explicit value (including "") wins.
     if (!qEnvironmentVariableIsSet("QT_FFMPEG_DECODING_HW_DEVICE_TYPES"))
         qputenv("QT_FFMPEG_DECODING_HW_DEVICE_TYPES", ",");
+    // Only video encoding asks for a device and nothing here encodes video
+    // with Qt: the voice recorder is audio only, and call video is GStreamer.
+    // Left unset, Qt opens every device type once when its media backend
+    // starts, which loads each vendor's VDPAU, VA-API and CUDA stack for good:
+    // 60 MB of RSS, 14 MB of it private, measured on an NVIDIA driver.
+    if (!qEnvironmentVariableIsSet("QT_FFMPEG_ENCODING_HW_DEVICE_TYPES"))
+        qputenv("QT_FFMPEG_ENCODING_HW_DEVICE_TYPES", ",");
 
     // Qt Multimedia's audio goes through its PulseAudio backend
     // (pipewire-pulse) wherever the running Qt (6.10+) would otherwise use its
