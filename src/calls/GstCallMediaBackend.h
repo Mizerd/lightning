@@ -35,6 +35,7 @@
 // STUN fallback.
 #pragma once
 
+#include "app/AllocatorPolicy.h"
 #include <atomic>
 #include <functional>
 #include <memory>
@@ -397,6 +398,8 @@ private:
 
     Session m_session; // exactly one live call, matching CallController
     bool m_sessionActive = false;
+    // Received frames come from the heap while a call runs.
+    lightning::CallAllocatorHold m_callAllocator;
     // Read on a GStreamer thread in onPadAdded, written on the Qt thread;
     // atomic because pad-added cannot marshal without the track going audible
     // first.

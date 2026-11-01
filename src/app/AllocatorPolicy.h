@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdlib> // defines __GLIBC__
+#include <mutex>
 
 #if defined(__GLIBC__)
 #include <malloc.h>
@@ -21,16 +22,84 @@ namespace lightning {
 // Setting either value turns the adaptation off, so this pins the threshold
 // at its documented default, and keeps a little slack at the top of a heap so
 // a burst does not trim and regrow on every free.
+//
+// The fixed threshold has one price: a block above it costs a mapping and its
+// page faults on every malloc, and a call allocates one 1080p frame per
+// received frame. So a live call lifts the threshold above any frame and the
+// last one ending puts it back. CallAllocatorHold is the only writer.
+inline constexpr int kIdleMmapThresholdBytes = 128 * 1024;
+inline constexpr int kCallMmapThresholdBytes = 32 * 1024 * 1024; // glibc's ceiling
+
 inline bool applyAllocatorPolicy()
 {
 #if defined(__GLIBC__)
-    constexpr int kMmapThresholdBytes = 128 * 1024;
     constexpr int kTrimThresholdBytes = 2 * 1024 * 1024;
-    return mallopt(M_MMAP_THRESHOLD, kMmapThresholdBytes) == 1
+    // Before any thread exists. glibc allows eight arenas per core, and short
+    // lived Tokio and pool threads each strand one.
+    constexpr int kArenaMax = 4;
+    return mallopt(M_ARENA_MAX, kArenaMax) == 1
+        && mallopt(M_MMAP_THRESHOLD, kIdleMmapThresholdBytes) == 1
         && mallopt(M_TRIM_THRESHOLD, kTrimThresholdBytes) == 1;
 #else
     return false;
 #endif
 }
+
+// Held by a call's media engine for as long as it carries a call. Engines
+// overlap across a transfer, so the threshold follows the count.
+class CallAllocatorHold
+{
+public:
+    CallAllocatorHold() = default;
+    CallAllocatorHold(const CallAllocatorHold &) = delete;
+    CallAllocatorHold &operator=(const CallAllocatorHold &) = delete;
+    ~CallAllocatorHold() { release(); }
+
+    void engage()
+    {
+        if (m_held)
+            return;
+        m_held = true;
+        adjust(+1);
+    }
+    void release()
+    {
+        if (!m_held)
+            return;
+        m_held = false;
+        adjust(-1);
+    }
+    static int activeCalls()
+    {
+        const std::lock_guard<std::mutex> lock(mutex());
+        return count();
+    }
+
+private:
+    static std::mutex &mutex()
+    {
+        static std::mutex m;
+        return m;
+    }
+    static int &count()
+    {
+        static int n = 0;
+        return n;
+    }
+    static void adjust(int delta)
+    {
+        const std::lock_guard<std::mutex> lock(mutex());
+        const int before = count();
+        count() = before + delta;
+#if defined(__GLIBC__)
+        if (before == 0 && count() == 1)
+            mallopt(M_MMAP_THRESHOLD, kCallMmapThresholdBytes);
+        else if (before == 1 && count() == 0)
+            mallopt(M_MMAP_THRESHOLD, kIdleMmapThresholdBytes);
+#endif
+    }
+
+    bool m_held = false;
+};
 
 } // namespace lightning

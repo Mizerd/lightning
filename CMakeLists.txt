@@ -2353,8 +2353,6 @@ if(BUILD_TESTING)
     target_link_libraries(custom-app-icon-test PRIVATE
         Qt6::Core Qt6::Gui Qt6::Test)
 
-    # User-selectable and importable fonts. The link list is part of the
-    # contract: FontManager must not depend on the Matrix client or network.
     qt_add_executable(allocator-policy-test
         tests/AllocatorPolicyTest.cpp
     )
@@ -2369,6 +2367,8 @@ if(BUILD_TESTING)
     target_link_libraries(log-color-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME log-color COMMAND log-color-test)
 
+    # User-selectable and importable fonts. The link list is part of the
+    # contract: FontManager must not depend on the Matrix client or network.
     qt_add_executable(font-manager-test
         tests/FontManagerTest.cpp
         src/app/FontManager.h

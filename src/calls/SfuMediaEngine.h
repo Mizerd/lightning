@@ -23,6 +23,7 @@
 // only from the SFU's JoinResponse; there is no third-party STUN fallback.
 #pragma once
 
+#include "app/AllocatorPolicy.h"
 #include <array>
 #include <atomic>
 #include <memory>
@@ -1420,6 +1421,8 @@ private:
     Peer m_publisher;
     Peer m_subscriber;
     bool m_active = false;
+    // Received frames come from the heap while a call runs.
+    lightning::CallAllocatorHold m_callAllocator;
     bool m_testSources = false;
     mutable QMutex m_deviceMutex;
     DeviceChoice m_cameraChoice;

@@ -1043,6 +1043,7 @@ bool GstCallMediaBackend::startSession(const QString &callId, bool offerer,
             gst_object_unref(micpay);
     }
     m_sessionActive = true;
+    m_callAllocator.engage();
     // Before any callback can run; see destroySessionLocked().
     lightning::webrtc::installGate(webrtc);
 
@@ -1179,6 +1180,7 @@ void GstCallMediaBackend::destroySessionLocked()
     m_retirer.retire(m_session.pipeline, m_session.webrtc);
     m_session = Session();
     m_sessionActive = false;
+    m_callAllocator.release();
     // Engine state is per session. The controller owns the deafen intent and
     // re-applies it; a latched value would silence a later call.
     m_outputMuted.store(false);

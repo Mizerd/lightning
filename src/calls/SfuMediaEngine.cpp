@@ -1162,6 +1162,7 @@ SfuMediaEngine::~SfuMediaEngine()
 void SfuMediaEngine::start()
 {
     teardown(false);
+    m_callAllocator.engage();
     refreshSpeakerSink();
     // Bump first so callbacks from the previous session are already stale.
     m_generation.fetch_add(1);
@@ -1184,6 +1185,7 @@ void SfuMediaEngine::start()
 void SfuMediaEngine::stop()
 {
     teardown(true);
+    m_callAllocator.release();
 }
 
 void SfuMediaEngine::suspend()
