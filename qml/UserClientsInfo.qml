@@ -46,6 +46,9 @@ ColumnLayout {
     }
     onDevModeChanged: ask()
     onUserIdChanged: ask()
+    // Shown again (the popover reopened): the controller throttles, so this
+    // only refetches once the earlier answer has aged out.
+    onVisibleChanged: if (visible) ask()
     Component.onCompleted: ask()
 
     Text {

@@ -158,6 +158,33 @@ private Q_SLOTS:
                  QStringLiteral("idle"));
     }
 
+    void anAnsweredUserIsAskedAgainOnlyAfterTheRefreshInterval()
+    {
+        MockMatrixClient client;
+        AboutController about;
+        about.setClient(&client);
+        about.setUserClientsRefreshMs(80);
+        const QString user = QStringLiteral("@friend:mock.local");
+        about.requestUserClients(user);
+        QTRY_COMPARE(about.userClients(user).value(QStringLiteral("state")).toString(),
+                     QStringLiteral("ready"));
+        // Inside the interval: coalesced.
+        about.requestUserClients(user);
+        QCOMPARE(client.userClientRequests.size(), 1);
+        // Past it: asked again, and the old answer stays on show meanwhile.
+        QTest::qWait(120);
+        const int rev = about.userClientsRevision();
+        about.requestUserClients(user);
+        QCOMPARE(client.userClientRequests.size(), 2);
+        QCOMPARE(about.userClients(user).value(QStringLiteral("state")).toString(),
+                 QStringLiteral("ready"));
+        QTRY_VERIFY(about.userClientsRevision() > rev);
+        QCOMPARE(about.userClients(user).value(QStringLiteral("devices")).toList().size(), 2);
+        // The answer restarted the clock.
+        about.requestUserClients(user);
+        QCOMPARE(client.userClientRequests.size(), 2);
+    }
+
     void aFailedHomeserverAnswerSaysWhy()
     {
         MockMatrixClient client;

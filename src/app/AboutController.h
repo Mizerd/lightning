@@ -113,8 +113,9 @@ public:
 
     /// Developer mode: which sessions a user has, as far as this device's
     /// crypto store knows. Only the device id and the name the OWNER gave the
-    /// session exist in the protocol; nothing here infers a client. Asks once
-    /// per user until cleared.
+    /// session exist in the protocol; nothing here infers a client. Asks again
+    /// for a user only after the refresh interval (30 s), and never while an
+    /// ask is on the way.
     Q_INVOKABLE void requestUserClients(const QString &userId);
     /// { state: "idle"|"loading"|"ready"|"failed", devices: [{deviceId,
     /// name}] }. `name` is empty when the owner set none.
@@ -122,6 +123,8 @@ public:
     /// Forgets every user's sessions (Developer mode switched off, sign-out).
     Q_INVOKABLE void clearUserClients();
     int userClientsRevision() const { return m_clientsRevision; }
+    /// Tests: how old an answer must be before it is asked again.
+    void setUserClientsRefreshMs(qint64 ms) { m_clientsRefreshMs = ms; }
 
 Q_SIGNALS:
     void versionSummaryChanged();
@@ -196,5 +199,7 @@ private:
 
     QHash<QString, QVariantMap> m_userClients;
     QHash<quint64, QString> m_userClientOps;
+    QHash<QString, qint64> m_userClientAskedMs;
+    qint64 m_clientsRefreshMs = 30000;
     int m_clientsRevision = 0;
 };

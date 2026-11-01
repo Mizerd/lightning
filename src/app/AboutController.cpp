@@ -3,6 +3,7 @@
 #include "matrix/MatrixClient.h"
 #include "models/MessageSearchController.h"
 
+#include <QDateTime>
 #include <QGuiApplication>
 #include <QLocale>
 #include <QClipboard>
@@ -403,13 +404,30 @@ void AboutController::requestUserClients(const QString &userId)
 {
     if (!m_client || userId.isEmpty())
         return;
-    // A failed lookup may be asked again; the rest are answered or on the way.
+    // A failed lookup may be asked again, and so may an answered one once it
+    // is older than the refresh interval (a device that joined since reads
+    // "no record" otherwise); one on the way is not.
     const auto known = m_userClients.constFind(userId);
-    if (known != m_userClients.cend()
-        && known->value(QStringLiteral("state")).toString()
-            != QLatin1String("failed"))
-        return;
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    bool refresh = false;
+    if (known != m_userClients.cend()) {
+        const QString state = known->value(QStringLiteral("state")).toString();
+        if (state == QLatin1String("loading"))
+            return;
+        if (state != QLatin1String("failed")) {
+            if (now - m_userClientAskedMs.value(userId, 0) < m_clientsRefreshMs)
+                return;
+            refresh = true;
+        }
+    }
     const quint64 op = m_client->requestUserClients(userId);
+    m_userClientAskedMs.insert(userId, now);
+    if (refresh) {
+        // Keep showing the old answer; the new one replaces it on arrival.
+        if (op != 0)
+            m_userClientOps.insert(op, userId);
+        return;
+    }
     QVariantMap row{{QStringLiteral("devices"), QVariantList{}}};
     row.insert(QStringLiteral("state"), op != 0 ? QStringLiteral("loading")
                                                 : QStringLiteral("failed"));
@@ -451,6 +469,7 @@ void AboutController::clearUserClients()
         return;
     m_userClients.clear();
     m_userClientOps.clear();
+    m_userClientAskedMs.clear();
     ++m_clientsRevision;
     Q_EMIT userClientsChanged();
 }
