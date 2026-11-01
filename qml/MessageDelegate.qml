@@ -2835,8 +2835,24 @@ Item {
                     // last link ran off its edge.
                     Flow {
                         id: utdRow
+                        objectName: "undecryptableActions"
                         Layout.fillWidth: true
                         Layout.minimumWidth: 0
+                        // The width of all three on ONE line. A Flow's own
+                        // implicit width follows its current wrapping, and a
+                        // bubble that shrink-wraps to its content would keep
+                        // the stacked width after the pane widened again.
+                        Layout.preferredWidth: {
+                            var w = 0
+                            var n = 0
+                            for (var i = 0; i < children.length; ++i) {
+                                if (!children[i].visible)
+                                    continue
+                                w += children[i].implicitWidth
+                                ++n
+                            }
+                            return w + Math.max(0, n - 1) * spacing
+                        }
                         visible: model.undecryptable === true
                         spacing: AppTheme.spacingS
                         Label {

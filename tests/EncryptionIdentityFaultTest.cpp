@@ -339,6 +339,45 @@ private Q_SLOTS:
 #endif
     }
 
+    // N4: the undecryptable actions wrap in a narrow pane and go back to ONE
+    // line when it widens again (a shrink-wrapped bubble used to keep the
+    // stacked width).
+    void theUndecryptableActionsWrapNarrowAndRecoverWhenWide()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("The delegate fixture needs the Rust backend's role map.");
+#else
+        AppController app(AppController::RustBackend);
+        const QVariantMap fixture = undecryptableRow(app);
+        Loaded ui;
+        QVERIFY(load(app, QStringLiteral("MessageDelegate"), ui, &fixture));
+        auto *actions = ui.root->findChild<QQuickItem *>(
+            QStringLiteral("undecryptableActions"));
+        QVERIFY(actions);
+        const auto settle = [&](qreal width) {
+            ui.root->setWidth(width);
+            for (int i = 0; i < 6; ++i) {
+                QCoreApplication::processEvents();
+                QTest::qWait(20);
+            }
+        };
+        settle(900);
+        const qreal oneLine = actions->height();
+        QVERIFY(oneLine > 0);
+        settle(250);
+        QVERIFY2(actions->height() > oneLine * 1.5,
+                 qPrintable(QStringLiteral("not wrapped at 250: height %1 vs %2")
+                                .arg(actions->height()).arg(oneLine)));
+        const QPointF end = actions->mapToItem(
+            ui.root, QPointF(actions->width(), 0));
+        QVERIFY2(end.x() <= 250.5, qPrintable(QString::number(end.x())));
+        settle(900);
+        QVERIFY2(actions->height() <= oneLine + 0.5,
+                 qPrintable(QStringLiteral("still stacked after widening: %1 vs %2")
+                                .arg(actions->height()).arg(oneLine)));
+#endif
+    }
+
     // With the fault established, an undecryptable row stops saying
     // "Waiting for keys…" and points at the explanation.
     void theUndecryptableRowStopsPromisingAWaitThatCannotEnd()
