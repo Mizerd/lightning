@@ -1185,6 +1185,43 @@ private Q_SLOTS:
                  qPrintable(QString::number(filter->width())));
     }
 
+    // L10: at a normal width the toolbar keeps its old look: the actions at
+    // the right edge and the title on the buttons' centre line.
+    void theLobbyToolbarKeepsItsWideLookWhenThereIsRoom()
+    {
+        Lobby h;
+        QVERIFY(buildLobby(h, /*subspaceCollapsed=*/false, /*canManage=*/true,
+                           /*width=*/600));
+        auto *suggest = h.lobby->findChild<QQuickItem *>(
+            QStringLiteral("spaceChildSuggestToggleButton"));
+        auto *remove = h.lobby->findChild<QQuickItem *>(
+            QStringLiteral("spaceChildRemoveSelectedButton"));
+        auto *toolbar = h.lobby->findChild<QQuickItem *>(
+            QStringLiteral("spaceLobbyToolbar"));
+        QVERIFY(suggest && remove && toolbar);
+        const QPointF end = suggest->mapToItem(h.lobby, QPointF(suggest->width(), 0));
+        QVERIFY2(qAbs(end.x() - 600) < 1.5,
+                 qPrintable(QStringLiteral("actions end at %1, not at the right edge")
+                                .arg(end.x())));
+        // One line: the title's centre is the Remove button's centre.
+        const auto kids = toolbar->childItems();
+        QQuickItem *title = nullptr;
+        for (QQuickItem *kid : kids)
+            if (kid->metaObject()->className() == QByteArray("QQuickText")
+                || QByteArray(kid->metaObject()->className()).contains("Label")) {
+                title = kid;
+                break;
+            }
+        QVERIFY(title);
+        const qreal titleCentre =
+            title->mapToItem(h.lobby, QPointF(0, title->height() / 2)).y();
+        const qreal buttonCentre =
+            remove->mapToItem(h.lobby, QPointF(0, remove->height() / 2)).y();
+        QVERIFY2(qAbs(titleCentre - buttonCentre) < 1.5,
+                 qPrintable(QStringLiteral("title centre %1, button centre %2")
+                                .arg(titleCentre).arg(buttonCentre)));
+    }
+
     void theLobbySectionsAndRowsDoNotOverlap()
     {
         Lobby h;

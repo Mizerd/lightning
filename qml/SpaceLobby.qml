@@ -134,12 +134,31 @@ ColumnLayout {
     // A Flow, not a RowLayout: a RowLayout's minimum is the sum of its
     // children, so the title plus "Remove" and "Mark as not suggested" asked
     // for ~400 px and every row of the Space home was laid out that wide in a
-    // 760 px window (C-obs2). The actions wrap under the title instead.
+    // 760 px window (C-obs2). Wide, the look is the old one (actions at the
+    // right edge, everything on the buttons' centre line); narrow, the actions
+    // wrap under the title.
     Flow {
+        id: toolbar
+        objectName: "spaceLobbyToolbar"
         Layout.fillWidth: true
         Layout.minimumWidth: 0
         Layout.topMargin: AppTheme.spacingS
         spacing: AppTheme.spacing8
+        // Width of everything but the gap, laid out on one line.
+        readonly property real othersWidth: {
+            var w = 0
+            var n = 0
+            for (var i = 0; i < children.length; ++i) {
+                var c = children[i]
+                if (c === toolbarGap || !c.visible)
+                    continue
+                w += c.width
+                ++n
+            }
+            return w + Math.max(0, n - 1) * spacing
+        }
+        readonly property real rowHeight: Math.max(removeButton.implicitHeight,
+                                                   suggestButton.implicitHeight)
         Label {
             // Pinned by SpaceSettingsContractTest and
             // ElementParityContractTest.
@@ -149,6 +168,8 @@ ColumnLayout {
             font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
             font.weight: AppTheme.weightStrong
             font.letterSpacing: 0.8
+            height: toolbar.rowHeight
+            verticalAlignment: Text.AlignVCenter
         }
         Label {
             visible: root.selectedCount > 0
@@ -158,8 +179,19 @@ ColumnLayout {
             font.family: AppTheme.uiFont
             font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
             font.weight: AppTheme.weightMedium
+            height: toolbar.rowHeight
+            verticalAlignment: Text.AlignVCenter
+        }
+        // Pushes the actions to the right edge while everything fits on one
+        // line; zero (and so out of the way) when it does not.
+        Item {
+            id: toolbarGap
+            height: 1
+            width: Math.max(0, toolbar.width - toolbar.othersWidth
+                               - toolbar.spacing)
         }
         AppButton {
+            id: removeButton
             objectName: "spaceChildRemoveSelectedButton"
             visible: root.canManage
             kind: "danger"
@@ -168,6 +200,7 @@ ColumnLayout {
             onClicked: root.removeRequested(Object.keys(root.selectedIds))
         }
         AppButton {
+            id: suggestButton
             objectName: "spaceChildSuggestToggleButton"
             visible: root.canManage
             enabled: root.selectedCount > 0
