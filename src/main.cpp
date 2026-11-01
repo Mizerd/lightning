@@ -20,6 +20,10 @@
 #include "calls/QtAudioBackendChoice.h"
 #include "media/QtAudioGate.h"
 #if defined(LIGHTNING_HAVE_QT_AUDIO_BACKEND_NAME)
+#include <cstdlib> // defines __GLIBC__ for the check below
+#if defined(__GLIBC__)
+#include <malloc.h>
+#endif
 #include <QtMultimedia/private/qplatformmediaintegration_p.h>
 #endif
 #include <functional>
@@ -1880,6 +1884,14 @@ static int printCallMediaStatus()
 
 int main(int argc, char *argv[])
 {
+#if defined(__GLIBC__)
+    // Before any thread exists. glibc allows eight arenas per core, and short
+    // lived Tokio and pool threads each strand one: over 200 room switches on
+    // 20 cores that was 60 arenas and 92 MB more RSS than a cap of four, with
+    // nothing contended enough to need them.
+    mallopt(M_ARENA_MAX, 4);
+#endif
+
     // Before any QML engine exists: see QmlGcPolicy.h.
     lightning::applyQmlGcPolicy();
 
