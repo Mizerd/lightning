@@ -4113,8 +4113,11 @@ private Q_SLOTS:
         const QString callId = calls.activeCallId();
 
         // Failure BEFORE the offer: nothing reached the wire, so nothing
-        // is announced.
+        // is announced. The reader is told (it ended with no other trace).
+        QSignalSpy ended(&calls, &CallController::mediaFailureEnded);
         media.deliverFailure(callId, QStringLiteral("device"));
+        QCOMPARE(ended.count(), 1);
+        QCOMPARE(ended.first().at(0).toString(), QStringLiteral("device"));
         QCOMPARE(calls.state(), CallController::State::Ended);
         QCOMPARE(calls.endReason(), CallController::EndReason::MediaFailed);
         QVERIFY(client.sent.isEmpty());

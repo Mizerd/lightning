@@ -1533,6 +1533,16 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                     Q_EMIT errorReported(*report);
                 }
             });
+    // A legacy call whose media pipeline failed ended with no visible trace.
+    connect(m_calls.get(), &CallController::mediaFailureEnded, this,
+            [this](const QString &) {
+                if (const auto report = m_callNotice.failed(
+                        tr("The call ended because its audio or video "
+                           "could not be set up."))) {
+                    m_callStatusNotice = *report;
+                    Q_EMIT errorReported(*report);
+                }
+            });
     // A call that carries on another lane makes the failure stale; it stayed
     // up through a whole working legacy call.
     connect(m_calls.get(), &CallController::stateChanged, this, [this] {

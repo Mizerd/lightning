@@ -261,6 +261,9 @@ Q_SIGNALS:
     void stateChanged();
     // The camera would not open; the call goes on. Closed-set category.
     void cameraFailed(const QString &category);
+    // The call's media pipeline failed and the call ended; the reader has
+    // to be told, since a failure here ends it with no other trace.
+    void mediaFailureEnded(const QString &category);
     void callerDisplayNameChanged();
     void mediaBackendAvailableChanged();
     // remainingMs is the invite's real remaining validity.

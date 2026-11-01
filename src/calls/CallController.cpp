@@ -1498,7 +1498,6 @@ void CallController::onCameraFailed(const QString &callId,
 void CallController::onMediaFailed(const QString &callId,
                                    const QString &category)
 {
-    Q_UNUSED(category); // coarse label; the end reason is the record
     if (!sessionLive() || callId != m_session.callId)
         return;
     // Announce when the peer may still be waiting on us (an invite sent, or
@@ -1514,6 +1513,7 @@ void CallController::onMediaFailed(const QString &callId,
                 m_session.callId);
     }
     endSession(EndReason::MediaFailed);
+    Q_EMIT mediaFailureEnded(category);
 }
 
 bool CallController::matchesSession(const CallSignal &signal) const
