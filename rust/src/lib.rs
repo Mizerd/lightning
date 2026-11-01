@@ -7286,8 +7286,10 @@ pub unsafe extern "C" fn mx_rust_thread_subscription_query(
                     "subscribed": subscription.is_some(),
                     "automatic": subscription.map(|s| s.automatic).unwrap_or(false),
                 })),
-                // Servers without MSC4306 and network failures both surface as
-                // unsupported; the UI hides the control.
+                // The server advertises MSC4306 here (checked above), so an
+                // error is a failed read, not an absent feature. It surfaces
+                // as unsupported for now (the UI hides the control); the
+                // feature gate above is what separates a server without it.
                 Err(_) => enqueue(&events, json!({
                     "type": "thread_subscription_state",
                     "room_id": room_id,
@@ -7306,11 +7308,8 @@ pub unsafe extern "C" fn mx_rust_thread_subscription_query(
 /// `/versions` unstable features. An unreadable answer counts as not
 /// advertised, as every other failure of this probe already did.
 async fn thread_subscriptions_advertised(client: &Client) -> bool {
-    use matrix_sdk::ruma::api::FeatureFlag;
-    match client.supported_versions().await {
-        Ok(versions) => versions
-            .features
-            .contains(&FeatureFlag::from("org.matrix.msc4306")),
+    match client.unstable_features().await {
+        Ok(features) => timeline::server_supports_thread_subscriptions(&features),
         Err(_) => false,
     }
 }
@@ -7324,7 +7323,8 @@ fn thread_subscription_reason_for_kind(
 ) -> &'static str {
     use matrix_sdk::ruma::api::error::ErrorKind;
     match kind {
-        Some(ErrorKind::Unrecognized) | Some(ErrorKind::NotFound) => "unsupported_by_server",
+        Some(ErrorKind::Unrecognized) => "unsupported_by_server",
+        Some(ErrorKind::NotFound) => "not_found",
         Some(ErrorKind::LimitExceeded(_)) => "rate_limited",
         Some(ErrorKind::Forbidden) => "forbidden",
         _ => "failed",
@@ -17593,11 +17593,13 @@ mod thread_subscription_reason_tests {
     #[test]
     fn a_refusal_names_a_constant_category() {
         assert_eq!(reason(Some(&ErrorKind::Unrecognized)), "unsupported_by_server");
+        assert_eq!(reason(Some(&ErrorKind::NotFound)), "not_found");
         assert_eq!(reason(Some(&ErrorKind::Forbidden)), "forbidden");
         assert_eq!(reason(None), "failed");
     }
 }
 
+#[cfg(test)]
 mod tests {
     #[test]
     fn mark_read_target_does_not_depend_on_latest_event() {
