@@ -2362,6 +2362,13 @@ if(BUILD_TESTING)
     target_link_libraries(allocator-policy-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME allocator-policy COMMAND allocator-policy-test)
 
+    qt_add_executable(log-color-test
+        tests/LogColorTest.cpp
+    )
+    target_include_directories(log-color-test PRIVATE src)
+    target_link_libraries(log-color-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME log-color COMMAND log-color-test)
+
     qt_add_executable(font-manager-test
         tests/FontManagerTest.cpp
         src/app/FontManager.h

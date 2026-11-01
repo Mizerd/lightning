@@ -49,6 +49,7 @@
 #include "app/FrameIntervalProbe.h"
 #include "app/WindowFrameTheme.h"
 #include "app/AllocatorPolicy.h"
+#include "app/LogColor.h"
 #include "app/QmlGcPolicy.h"
 #include "app/RepeatLogLimiter.h"
 #include "media/VaapiLogGate.h"
@@ -255,6 +256,26 @@ void flushLogFileAtExit()
         sink->shutdown(AsyncLogSink::kShutdownMs);
     if (AsyncLogSink *rolling = lightning::logexport::rollingLogSink())
         rolling->shutdown(AsyncLogSink::kShutdownMs);
+}
+
+// Last in the chain: stands in for Qt's own stderr writer on a terminal, where
+// Qt would not use the journal either.
+void colourLogHandler(QtMsgType type, const QMessageLogContext &context,
+                      const QString &message)
+{
+    const QByteArray line = qFormatLogMessage(type, context, message).toLocal8Bit();
+    std::fprintf(stderr, "%s%s\033[0m\n", lightning::logColorFor(type),
+                 line.constData());
+    std::fflush(stderr);
+}
+
+void installLogColours()
+{
+    if (lightning::logColorWanted(lightning::stderrTakesLogColor(),
+                                  qgetenv("NO_COLOR"), qgetenv("TERM"),
+                                  qgetenv("QT_MESSAGE_PATTERN"))) {
+        qInstallMessageHandler(colourLogHandler);
+    }
 }
 
 // One handler serves both destinations; whichever is installed first
@@ -1905,6 +1926,8 @@ int main(int argc, char *argv[])
 #ifdef Q_OS_WIN
     configureWindowsConsole(pf.consoleRequested);
 #endif
+    // Before every other handler, which all forward to this one.
+    installLogColours();
     // All platforms: a macOS bundle launched from Finder has no terminal.
     installLogFile(pf.logFilePath);
 
