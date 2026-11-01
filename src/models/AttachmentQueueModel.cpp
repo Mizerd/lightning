@@ -842,12 +842,27 @@ QVariantMap AttachmentQueueModel::renderImageEdit(
     QString base = QFileInfo(entry.fileName).completeBaseName();
     if (base.isEmpty())
         base = QStringLiteral("image");
-    const QString path = QDir(workDir).filePath(base + QStringLiteral(".png"));
+    // The source's format where it can hold the result: a photo re-encoded as
+    // PNG came back ten times the size. Anything else, alpha included, is PNG.
+    const bool jpeg = entry.mime == QLatin1String("image/jpeg");
+    const QString path = QDir(workDir).filePath(
+        base + (jpeg ? QStringLiteral(".jpg") : QStringLiteral(".png")));
+    if (jpeg) {
+        // No alpha in a JPEG, and quarter turns and crops add none.
+        QImage opaque(output.size(), QImage::Format_RGB32);
+        if (opaque.isNull())
+            return fail(tr("The image edit failed."));
+        opaque.fill(Qt::white);
+        QPainter(&opaque).drawImage(QPoint(), output);
+        output = std::move(opaque);
+    }
     QByteArray encoded;
     QBuffer encodeBuffer(&encoded);
     if (!encodeBuffer.open(QIODevice::WriteOnly))
         return fail(tr("The image edit could not be saved."));
-    QImageWriter writer(&encodeBuffer, "png");
+    QImageWriter writer(&encodeBuffer, jpeg ? "jpeg" : "png");
+    if (jpeg)
+        writer.setQuality(90);
     if (!writer.write(output))
         return fail(tr("The image edit could not be saved."));
     lightning::scratch::ScratchFile file(path);
@@ -887,9 +902,10 @@ bool AttachmentQueueModel::commitImageEdit(int row)
     entry.editPreviewPath.clear();
     entry.converted = true;
     entry.animated = false;
-    entry.mime = QStringLiteral("image/png");
+    const bool jpeg = entry.localPath.endsWith(QLatin1String(".jpg"));
+    entry.mime = jpeg ? QStringLiteral("image/jpeg") : QStringLiteral("image/png");
     entry.fileName = QFileInfo(entry.fileName).completeBaseName()
-                     + QStringLiteral(".png");
+                     + (jpeg ? QStringLiteral(".jpg") : QStringLiteral(".png"));
     entry.sizeBytes = QFileInfo(entry.localPath).size();
     QImageReader reader(entry.localPath);
     const QSize size = reader.size();

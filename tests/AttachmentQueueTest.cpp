@@ -366,7 +366,7 @@ private Q_SLOTS:
         QVERIFY(!code.contains("QSaveFile file(path)"));
     }
 
-    void editedImagePreviewIsExactlyTheSentPngAndOriginalSurvives()
+    void editedImagePreviewIsExactlyTheSentFileAndOriginalSurvives()
     {
         FakeClient client;
         MessageComposer composer;
@@ -387,18 +387,19 @@ private Q_SLOTS:
         const QString previewPath = preview.value(QStringLiteral("url"))
                                         .toUrl().toLocalFile();
         const QByteArray previewBytes = readAll(previewPath);
-        QVERIFY(previewBytes.startsWith("\x89PNG\r\n\x1a\n"));
+        // A photo stays a JPEG: as PNG it came back ten times the size.
+        QVERIFY(previewBytes.startsWith("\xFF\xD8\xFF"));
         QVERIFY(!previewBytes.contains("Exif"));
         QVERIFY(!previewBytes.contains(kGpsMarker));
         QImage edited;
         QVERIFY(edited.loadFromData(previewBytes));
         QCOMPARE(edited.size(), QSize(8, 16));
         QVERIFY(queue->commitImageEdit(0));
-        QCOMPARE(queue->entries().at(0).mime, QStringLiteral("image/png"));
-        QCOMPARE(queue->entries().at(0).fileName, QStringLiteral("holiday.png"));
+        QCOMPARE(queue->entries().at(0).mime, QStringLiteral("image/jpeg"));
+        QCOMPARE(queue->entries().at(0).fileName, QStringLiteral("holiday.jpg"));
         composer.send();
         QCOMPARE(client.fileSends, 1);
-        QCOMPARE(client.lastMime, QStringLiteral("image/png"));
+        QCOMPARE(client.lastMime, QStringLiteral("image/jpeg"));
         // The announced size is the size of the PNG actually sent.
         QCOMPARE(client.lastFileWidth, edited.width());
         QCOMPARE(client.lastFileHeight, edited.height());
