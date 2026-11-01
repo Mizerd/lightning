@@ -439,20 +439,23 @@ Dialog {
                 iconName: "workspaces"
                 onClicked: root.switchMode("space")
             }
+            // A static label beside a spinner: a looping opacity animation on
+            // text repaints every frame for as long as a (possibly federated,
+            // tens of seconds) create runs.
+            AppBusyIndicator {
+                objectName: "creationBusySpinner"
+                visible: root.busy
+                running: root.busy
+                size: 16
+                color: AppTheme.stormTextMuted
+                Layout.alignment: Qt.AlignVCenter
+            }
             Label {
                 objectName: "creationBusyLabel"
                 visible: root.busy
                 text: qsTr("Working…")
                 color: AppTheme.stormTextMuted
                 font.pixelSize: AppTheme.textBody
-                onVisibleChanged: if (!visible) opacity = 1.0
-                SequentialAnimation on opacity {
-                    running: root.busy && !AppTheme.reducedMotion
-                    loops: Animation.Infinite
-                    alwaysRunToEnd: true
-                    NumberAnimation { from: 1.0; to: 0.45; duration: 600 }
-                    NumberAnimation { from: 0.45; to: 1.0; duration: 600 }
-                }
             }
             Item { Layout.fillWidth: true }
             AppButton {

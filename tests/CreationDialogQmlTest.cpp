@@ -455,6 +455,11 @@ private slots:
         QVERIFY(conversations()->busy());
         QTRY_VERIFY(!create->property("enabled").toBool());
         QVERIFY(item("creationBusyLabel")->isVisible());
+        QVERIFY(item("creationBusySpinner")->isVisible());
+        // The label is static: a looping opacity pulse repainted every frame
+        // for the whole (possibly federated) create.
+        QTest::qWait(300);
+        QCOMPARE(item("creationBusyLabel")->opacity(), 1.0);
         QVERIFY(cancel->property("enabled").toBool());
 
         Q_EMIT m_fake->roomCreateFinished(m_fake->lastOpId, false, QString(),
