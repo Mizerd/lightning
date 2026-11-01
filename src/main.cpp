@@ -46,6 +46,7 @@
 #include "app/WindowFrameTheme.h"
 #include "app/AllocatorPolicy.h"
 #include "app/LogColor.h"
+#include "app/ForeignQtEnvironment.h"
 #include "app/QmlGcPolicy.h"
 #include "app/RepeatLogLimiter.h"
 #include "media/VaapiLogGate.h"
@@ -1908,6 +1909,12 @@ int main(int argc, char *argv[])
     // Before any QML engine exists: see QmlGcPolicy.h.
     lightning::applyQmlGcPolicy();
 
+    // Qt 5 search paths a session exports are read before Qt's own and shadow
+    // its modules (ForeignQtEnvironment.h). Before any Qt object: the helper
+    // processes this binary re-executes inherit the cleaned environment.
+    const QStringList foreignQtReport =
+        lightning::sanitizeForeignQtEnvironment();
+
     // Before QGuiApplication, so a platform-plugin abort cannot mask errors.
     const PreflightResult pf = preflightParse(argc, argv);
 
@@ -1918,6 +1925,8 @@ int main(int argc, char *argv[])
     installLogColours();
     // All platforms: a macOS bundle launched from Finder has no terminal.
     installLogFile(pf.logFilePath);
+    for (const QString &line : foreignQtReport)
+        qInfo().noquote() << "lightning: Qt environment:" << line;
 
     // Qt logs to the journal when stderr is not a TTY; headless and self-test
     // runs need stderr so a harness can capture them. An explicit value wins.

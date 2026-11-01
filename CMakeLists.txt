@@ -6628,6 +6628,17 @@ if(BUILD_TESTING)
     add_dependencies(svg-raster-test lightning-matrix)
     add_test(NAME svg-raster COMMAND svg-raster-test)
 
+    # Qt 5 search paths a session exports (src/app/ForeignQtEnvironment.h):
+    # recognised by name, dropped, and a variable left empty is unset.
+    qt_add_executable(foreign-qt-environment-test
+        tests/ForeignQtEnvironmentTest.cpp
+        src/app/ForeignQtEnvironment.h
+    )
+    target_include_directories(foreign-qt-environment-test PRIVATE src)
+    target_link_libraries(foreign-qt-environment-test PRIVATE
+        Qt6::Core Qt6::Test)
+    add_test(NAME foreign-qt-environment COMMAND foreign-qt-environment-test)
+
     # One process per data root. The in-process cases drive the guard; the
     # process cases run the real binary against a guard the test holds, which
     # is the only way to see where main.cpp claims relative to the preflight
