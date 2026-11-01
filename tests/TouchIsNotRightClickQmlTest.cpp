@@ -107,10 +107,11 @@ private:
                 if (name == QStringLiteral("roomContextMenu")
                     || name == QStringLiteral("channelContextMenu"))
                     menus << o;
-                // The Channels menu sits inside its Loader.
-                const auto inner = o->findChildren<QObject *>(
+                // Both menus sit inside a Loader, built on first use.
+                menus << o->findChildren<QObject *>(
+                    QStringLiteral("roomContextMenu"));
+                menus << o->findChildren<QObject *>(
                     QStringLiteral("channelContextMenu"));
-                menus << inner;
             }
             stack.append(it->childItems());
         }
@@ -138,12 +139,6 @@ private:
                 QMetaObject::invokeMethod(o, "close");
         }
         QTest::qWait(250); // past the menu's exit transition
-    }
-
-    // A sweep that finds no menus would pass every "no menu opened" check.
-    void verifyMenusAreVisible() const
-    {
-        QVERIFY2(!roomMenus().isEmpty(), "the harness found no room menus at all");
     }
 
     // Another room open, every menu closed: the start of every case.
@@ -278,10 +273,8 @@ private Q_SLOTS:
         QTest::qWait(200);
 
         QCOMPARE(m_controller->currentRoomId(), kRoom);
-        // Classic builds its menus with the rows, so an empty find means the
-        // walk is broken. Channels builds one only when it opens.
-        if (layout == 0)
-            verifyMenusAreVisible();
+        // Both layouts build a menu only when it opens, so a tap leaves none;
+        // the long-press case below proves this walk can find an open one.
         QVERIFY2(openRoomMenus() == 0,
                  "a touch tap on a room row also opened the room menu");
     }

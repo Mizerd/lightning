@@ -565,14 +565,25 @@ Item {
     // an id is never inferred from it (a name of "@admin:x.org" would make
     // Ignore user hit an innocent account). Empty when the role is absent.
     readonly property string inviterUserId: model.inviterUserId || ""
-    AppMenu {
-        id: inviteMenu
-        objectName: "inviteContextMenu"
-        AppMenuItem {
-            objectName: "inviteIgnoreUserItem"
-            iconName: "block"
-            text: qsTr("Ignore user")
-            onTriggered: app.moderation.ignoreUser(root.inviterUserId)
+    // Both row menus are built on first use: the whole list shares one pointer,
+    // so a menu per row would cost hundreds of QObjects that never open.
+    function openRowMenu() {
+        const host = root.isInviteRow ? inviteMenuLoader : roomMenuLoader
+        host.active = true
+        if (host.item)
+            host.item.popup()
+    }
+    Loader {
+        id: inviteMenuLoader
+        active: false
+        sourceComponent: AppMenu {
+            objectName: "inviteContextMenu"
+            AppMenuItem {
+                objectName: "inviteIgnoreUserItem"
+                iconName: "block"
+                text: qsTr("Ignore user")
+                onTriggered: app.moderation.ignoreUser(root.inviterUserId)
+            }
         }
     }
     TapHandler {
@@ -581,7 +592,7 @@ Item {
         acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
         enabled: model.membership === "joined"
                  || (root.isInviteRow && root.inviterUserId !== "")
-        onTapped: root.isInviteRow ? inviteMenu.popup() : roomMenu.popup()
+        onTapped: root.openRowMenu()
     }
     // Touch has no right button, so a long press is its way to the menu. A
     // held press never also emits the open-room handler's tapped.
@@ -589,7 +600,7 @@ Item {
         acceptedDevices: PointerDevice.TouchScreen
         enabled: model.membership === "joined"
                  || (root.isInviteRow && root.inviterUserId !== "")
-        onLongPressed: root.isInviteRow ? inviteMenu.popup() : roomMenu.popup()
+        onLongPressed: root.openRowMenu()
     }
     // The row's menu from the keyboard, joined rooms only like right-click.
     // Return / Enter / Space open the row in the host (the Classic presenter's
@@ -600,7 +611,7 @@ Item {
             && (event.key === Qt.Key_Menu
                 || (event.key === Qt.Key_F10
                     && (event.modifiers & Qt.ShiftModifier)))) {
-            roomMenu.popup()
+            root.openRowMenu()
             event.accepted = true
         }
     }
@@ -619,26 +630,29 @@ Item {
         z: 50
     }
     // The menu lives in RoomActionsMenu.qml, shared with the Channels row.
-    RoomActionsMenu {
-        id: roomMenu
-        objectName: "roomContextMenu"
-        roomId: model.roomId
-        roomName: model.name || ""
-        canonicalAlias: model.canonicalAlias || ""
-        isDirect: model.isDirect === true
-        isFavourite: model.isFavourite === true
-        isLowPriority: model.isLowPriority === true
-        isUnread: root.isUnread
-        onMarkRead: root.markRead()
-        onMarkUnread: root.markUnread()
-        onSetFavourite: on => root.setFavourite(on)
-        onSetLowPriority: on => root.setLowPriority(on)
-        onSetNotificationMode: mode => root.setNotificationMode(mode)
-        onCopyRoomLink: root.copyRoomLink()
-        onLeaveRoomRequested: root.leaveRoomRequested()
-        onChatBackgroundRequested: root.chatBackgroundRequested()
-        onInviteRequested: root.inviteRequested()
-        onSelectRoomRequested: root.selectRoomRequested()
+    Loader {
+        id: roomMenuLoader
+        active: false
+        sourceComponent: RoomActionsMenu {
+            objectName: "roomContextMenu"
+            roomId: model.roomId
+            roomName: model.name || ""
+            canonicalAlias: model.canonicalAlias || ""
+            isDirect: model.isDirect === true
+            isFavourite: model.isFavourite === true
+            isLowPriority: model.isLowPriority === true
+            isUnread: root.isUnread
+            onMarkRead: root.markRead()
+            onMarkUnread: root.markUnread()
+            onSetFavourite: on => root.setFavourite(on)
+            onSetLowPriority: on => root.setLowPriority(on)
+            onSetNotificationMode: mode => root.setNotificationMode(mode)
+            onCopyRoomLink: root.copyRoomLink()
+            onLeaveRoomRequested: root.leaveRoomRequested()
+            onChatBackgroundRequested: root.chatBackgroundRequested()
+            onInviteRequested: root.inviteRequested()
+            onSelectRoomRequested: root.selectRoomRequested()
+        }
     }
 
     // No per-row hairline: rows separate through spacing and tints.

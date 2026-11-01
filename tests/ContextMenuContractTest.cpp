@@ -502,7 +502,7 @@ private Q_SLOTS:
         QVERIFY(keysEnd > keysStart);
         const QString keysBlock = delegate.mid(keysStart, keysEnd - keysStart);
         QVERIFY(keysBlock.contains(QStringLiteral("model.membership === \"joined\"")));
-        QVERIFY(keysBlock.contains(QStringLiteral("roomMenu.popup()")));
+        QVERIFY(keysBlock.contains(QStringLiteral("root.openRowMenu()")));
         // Right-click: the room menu for joined rooms only. An invitation
         // gets its own small menu (Ignore user, B122), and only when the
         // inviter's real MXID is known; it never reaches the room menu.
@@ -510,9 +510,11 @@ private Q_SLOTS:
             "enabled: model.membership === \"joined\"\n"
             "                 || (root.isInviteRow && root.inviterUserId !== \"\")")));
         QVERIFY(delegate.contains(QStringLiteral(
-            "onTapped: root.isInviteRow ? inviteMenu.popup() : roomMenu.popup()")));
+            "onTapped: root.openRowMenu()")));
         QVERIFY(delegate.contains(QStringLiteral(
             "readonly property bool isInviteRow: model.membership === \"invited\"")));
+        QVERIFY(delegate.contains(QStringLiteral(
+            "const host = root.isInviteRow ? inviteMenuLoader : roomMenuLoader")));
     }
 
     // The delete confirmation uses AppButton (`dangerPrimary` for the
