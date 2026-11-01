@@ -86,6 +86,23 @@ void RoomDiscoveryController::join(const QString &target,
 {
     if (!supported() || busy())
         return;
+    m_keepRoomOnJoin = false;
+    joinInternal(target, via, isSpace);
+}
+
+void RoomDiscoveryController::joinSpaceKeepingRoom(const QString &target,
+                                                   const QStringList &via)
+{
+    if (!supported() || busy())
+        return;
+    joinInternal(target, via, true);
+    m_keepRoomOnJoin = m_joinOp != 0;
+}
+
+void RoomDiscoveryController::joinInternal(const QString &target,
+                                           const QStringList &via,
+                                           bool isSpace)
+{
     const quint64 opId = m_client->joinRoomByIdOrAlias(target, via);
     if (opId == 0) {
         setError(describeJoinCategory(QStringLiteral("network")));
@@ -184,6 +201,7 @@ void RoomDiscoveryController::onJoinFinished(quint64 opId, bool ok,
     m_joinOp = 0;
     if (!ok) {
         m_awaitedIsSpace = false;
+        m_keepRoomOnJoin = false;
         const QString target = m_joinTarget;
         m_joinTarget.clear();
         const QString message = describeJoinCategory(category);
@@ -283,6 +301,7 @@ void RoomDiscoveryController::onLoggedOut()
     m_cancelKnockOp = 0;
     m_waitingForRoom = false;
     m_awaitedIsSpace = false;
+    m_keepRoomOnJoin = false;
     m_awaitedRoomId.clear();
     m_roomWaitTimeout.stop();
     m_errorMessage.clear();
@@ -319,9 +338,13 @@ void RoomDiscoveryController::finishWaitForRoom()
     m_waitingForRoom = false;
     m_awaitedRoomId.clear();
     m_awaitedIsSpace = false;
+    const bool keepRoom = m_keepRoomOnJoin;
+    m_keepRoomOnJoin = false;
     m_roomWaitTimeout.stop();
     Q_EMIT busyChanged();
-    if (isSpace)
+    if (isSpace && keepRoom)
+        Q_EMIT spaceJoinedInPlace(roomId);
+    else if (isSpace)
         Q_EMIT spaceJoined(roomId);
     else
         Q_EMIT roomJoined(roomId);

@@ -90,6 +90,17 @@ public:
 
     QString activeSpaceId() const { return m_activeSpaceId; }
     void    setActiveSpaceId(const QString &spaceId);
+    // Select a Space the user has just joined. The room can be listed a
+    // moment before it is known to be a joined Space, and a rebuild in that
+    // window would drop the selection to Home; this keeps it until the Space
+    // reaches the rail (or the user selects something else).
+    void    selectJoinedSpace(const QString &spaceId);
+    // The tabbed Space settings dialog opened: the Space Home's inline card
+    // closes so two settings surfaces are never open at once.
+    Q_INVOKABLE void noteSettingsDialogOpened(const QString &spaceId)
+    {
+        Q_EMIT settingsDialogOpened(spaceId);
+    }
     bool activeSpaceCanManageChildren() const
     {
         return isRealSpaceId(m_activeSpaceId)
@@ -264,6 +275,7 @@ public:
 Q_SIGNALS:
     void activeSpaceIdChanged();
     void spacePermissionsChanged();
+    void settingsDialogOpened(const QString &spaceId);
     void spacesChanged();
     void directMessagesHaveOwnTileChanged();
     // Outcome of one addRoomToSpace call (send result, not sync).
@@ -357,4 +369,5 @@ private:
     QHash<quint64, QPair<QString, QString>> m_pendingChildSuggests;
 
     QString m_activeSpaceId; // Empty means "All rooms".
+    QString m_pendingJoinedSpaceId; // see selectJoinedSpace()
 };

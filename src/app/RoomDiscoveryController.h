@@ -48,6 +48,11 @@ public:
     // the room to appear in the list, then emits roomJoined / spaceJoined.
     Q_INVOKABLE void join(const QString &target, const QStringList &via,
                           bool isSpace);
+    // As join(..., true), for a Space joined from a room that is open: the
+    // user stays in that room and spaceJoinedInPlace() is emitted instead of
+    // spaceJoined().
+    Q_INVOKABLE void joinSpaceKeepingRoom(const QString &target,
+                                          const QStringList &via);
     // Knock with an optional reason. Success emits knockSent.
     Q_INVOKABLE void knock(const QString &target, const QStringList &via,
                            const QString &reason);
@@ -73,6 +78,8 @@ Q_SIGNALS:
     // A joined m.space room must be selected in the rail, never given a
     // message timeline.
     void spaceJoined(const QString &spaceId);
+    // Same, for joinSpaceKeepingRoom(): select it, leave the open room alone.
+    void spaceJoinedInPlace(const QString &spaceId);
     // Unlike the shared errorMessage, names the join target that failed.
     void joinFailed(const QString &target, const QString &message);
     void knockSent(const QString &roomId);
@@ -95,6 +102,8 @@ private Q_SLOTS:
 
 private:
     void setError(const QString &message);
+    void joinInternal(const QString &target, const QStringList &via,
+                      bool isSpace);
     void beginWaitForRoom(const QString &roomId, bool isSpace);
     void finishWaitForRoom();
     // Failure category to user-facing text; never raw server text.
@@ -116,6 +125,7 @@ private:
 
     bool m_waitingForRoom = false;
     bool m_awaitedIsSpace = false;
+    bool m_keepRoomOnJoin = false;
     // The target of the in-flight join, so its failure can name itself.
     QString m_joinTarget;
     QString m_awaitedRoomId;

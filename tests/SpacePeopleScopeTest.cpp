@@ -594,6 +594,39 @@ private Q_SLOTS:
         QTRY_VERIFY(!namesOf(f.model).contains(QStringLiteral("People")));
     }
 
+    // A Space joined from the Part-of banner is listed a moment before it is
+    // a joined Space; the rebuild in that window dropped the selection to Home
+    // (live 2026-11-01: the rail ended on Home).
+    void aJustJoinedSpaceKeepsTheSelectionUntilItIsListed()
+    {
+        FakeClient client;
+        client.mirror = workspace();
+        SpaceManager spaces;
+        spaces.setClient(&client);
+        const QString fresh = QStringLiteral("!fresh:x");
+
+        // The control: a plain selection of an unknown Space is dropped.
+        spaces.setActiveSpaceId(fresh);
+        client.announce();
+        QVERIFY(spaces.activeSpaceId().isEmpty());
+
+        // Listed, but not yet known to be a Space.
+        client.mirror.append(room(fresh, QStringLiteral("Fresh")));
+        spaces.selectJoinedSpace(fresh);
+        client.announce();
+        QCOMPARE(spaces.activeSpaceId(), fresh);
+
+        // It arrives as a Space: still selected, and now a normal selection.
+        client.mirror.last() = spaceRoom(fresh, QStringLiteral("Fresh"), {});
+        client.announce();
+        QCOMPARE(spaces.activeSpaceId(), fresh);
+
+        // Leaving it drops the selection as before.
+        client.mirror.last().membership = RoomInfo::Left;
+        client.announce();
+        QVERIFY(spaces.activeSpaceId().isEmpty());
+    }
+
 private:
     QTemporaryDir m_configHome;
 };

@@ -1431,6 +1431,9 @@ Q_SIGNALS:
     void softwareRendererNoticeVisibleChanged();
     void animationsSuspendedChanged();
     void errorReported(const QString &message);
+    // A short, non-error confirmation ("Joined Engineering"); the window
+    // shows it as a brief toast and nothing keeps it.
+    void noticeReported(const QString &message);
     /// A call could not be started, with wording already fit to show.
     void callStartRefused(const QString &message);
     // See openMatrixLink().

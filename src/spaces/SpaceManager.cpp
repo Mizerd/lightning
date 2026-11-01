@@ -107,6 +107,8 @@ void SpaceManager::setClient(MatrixClient *client)
 
 void SpaceManager::setActiveSpaceId(const QString &spaceId)
 {
+    if (spaceId != m_pendingJoinedSpaceId)
+        m_pendingJoinedSpaceId.clear();
     if (m_activeSpaceId == spaceId)
         return;
     m_activeSpaceId = spaceId;
@@ -115,6 +117,13 @@ void SpaceManager::setActiveSpaceId(const QString &spaceId)
     ensureSpaceRoster(m_activeSpaceId);
     Q_EMIT activeSpaceIdChanged();
     Q_EMIT spacePermissionsChanged();
+}
+
+void SpaceManager::selectJoinedSpace(const QString &spaceId)
+{
+    setActiveSpaceId(spaceId);
+    if (isRealSpaceId(spaceId))
+        m_pendingJoinedSpaceId = spaceId;
 }
 
 bool SpaceManager::isRealSpaceId(const QString &spaceId)
@@ -1012,8 +1021,22 @@ void SpaceManager::rebuild()
         }
         return false;
     };
+    const bool stillAJoinedSpace = selectionIsStillAJoinedSpace();
+    if (stillAJoinedSpace)
+        m_pendingJoinedSpaceId.clear();
+    // A Space joined a moment ago is listed before it is known to be a joined
+    // Space; it keeps the selection until it arrives, unless it was left.
+    bool awaitingJoinedSpace = false;
+    if (!m_pendingJoinedSpaceId.isEmpty()
+        && m_pendingJoinedSpaceId == m_activeSpaceId) {
+        const auto it = byId.constFind(m_activeSpaceId);
+        awaitingJoinedSpace = it == byId.constEnd()
+            || it->membership == RoomInfo::Joined;
+        if (!awaitingJoinedSpace)
+            m_pendingJoinedSpaceId.clear();
+    }
     if (m_activeSpaceId.startsWith(QLatin1Char('!'))
-        && !selectionIsStillAJoinedSpace()) {
+        && !stillAJoinedSpace && !awaitingJoinedSpace) {
         m_activeSpaceId.clear();
         Q_EMIT activeSpaceIdChanged();
         Q_EMIT spacePermissionsChanged();

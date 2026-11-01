@@ -190,6 +190,27 @@ private Q_SLOTS:
         QCOMPARE(joinedRoom.count(), 0);
     }
 
+    void bannerSpaceJoinKeepsTheOpenRoom()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        RoomDiscoveryController controller;
+        controller.setClient(&client);
+        QSignalSpy joinedSpace(&controller,
+                               &RoomDiscoveryController::spaceJoined);
+        QSignalSpy inPlace(&controller,
+                           &RoomDiscoveryController::spaceJoinedInPlace);
+        controller.joinSpaceKeepingRoom(QStringLiteral("!space:mock.local"), {});
+        QTRY_COMPARE(inPlace.count(), 1);
+        QCOMPARE(inPlace.first().first().toString(),
+                 QStringLiteral("!space:mock.local"));
+        QCOMPARE(joinedSpace.count(), 0);
+        // The flag is per join: a Discover join afterwards still opens.
+        controller.join(QStringLiteral("!space2:mock.local"), {}, true);
+        QTRY_COMPARE(joinedSpace.count(), 1);
+        QCOMPARE(inPlace.count(), 1);
+    }
+
     void joinFailureCategoriesAreHonest()
     {
         MockMatrixClient client;

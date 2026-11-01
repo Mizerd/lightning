@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
@@ -35,6 +36,9 @@ RowLayout {
     property string buttonObjectName: ""
     property string accessibleName: ""
     property string placeholderText: ""
+    // Why the controls are greyed, as a hover hint; only shown while the
+    // target is the one the permission was read for and editing is refused.
+    property string readOnlyHint: qsTr("Only Space admins can change this.")
 
     property alias field: field
     property alias button: button
@@ -87,6 +91,12 @@ RowLayout {
     Component.onCompleted: root.reset()
 
     spacing: AppTheme.spacing8
+
+    HoverHandler { id: hint }
+    ToolTip.visible: hint.hovered && !root.canEdit && root.targetCurrent
+                     && root.readOnlyHint.length > 0
+    ToolTip.delay: 500
+    ToolTip.text: root.readOnlyHint
 
     AppTextField {
         id: field

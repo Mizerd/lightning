@@ -2935,8 +2935,19 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     connect(m_discovery.get(), &RoomDiscoveryController::spaceJoined,
             this, [this](const QString &spaceId) {
         if (m_spaces)
-            m_spaces->setActiveSpaceId(spaceId);
+            m_spaces->selectJoinedSpace(spaceId);
         setCurrentRoomId(QString());
+    });
+    // Joined from the Part-of banner: the user keeps the room they were
+    // reading and the new Space is shown as active in the rail.
+    connect(m_discovery.get(), &RoomDiscoveryController::spaceJoinedInPlace,
+            this, [this](const QString &spaceId) {
+        if (m_spaces)
+            m_spaces->selectJoinedSpace(spaceId);
+        const QString name = m_client ? m_client->roomInfo(spaceId).name
+                                      : QString();
+        Q_EMIT noticeReported(name.isEmpty() ? tr("Joined the space")
+                                             : tr("Joined %1").arg(name));
     });
     // The upgrade banner reuses Discover's join path; navigateRequested covers
     // an existing successor membership and the "Previous room" link. It fires

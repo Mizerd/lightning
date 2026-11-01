@@ -99,6 +99,8 @@ AppDialog {
         if (app.roomInfo)
             app.roomInfo.roomId = targetSpaceId
         section = 0
+        if (app.spaces)
+            app.spaces.noteSettingsDialogOpened(targetSpaceId)
         // `section` does not change when reopening on tab 0, so reset the
         // shared scroller explicitly.
         bodyFlick.contentY = 0
@@ -1174,6 +1176,43 @@ AppDialog {
                             wrapMode: Text.WordWrap
                             font.family: AppTheme.uiFont
                             font.pixelSize: AppTheme.textMeta
+                        }
+
+                        // Leave, as on the Space Home's inline card: the two
+                        // settings surfaces offer the same exit.
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Layout.topMargin: AppTheme.spacing12
+                            visible: !root.roomMode
+                            spacing: AppTheme.spacing8
+                            AppButton {
+                                objectName: "spaceSettingsLeaveButton"
+                                kind: "danger"
+                                size: "sm"
+                                text: qsTr("Leave Space")
+                                enabled: !!app.roomInfo && !app.roomInfo.leavePending
+                                onClicked: spaceLeaveConfirm.openFor(
+                                               root.spaceId,
+                                               root.info.name || "")
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                wrapMode: Text.WordWrap
+                                color: AppTheme.stormTextMuted
+                                font.family: AppTheme.uiFont
+                                font.pixelSize: AppTheme.textMeta
+                                text: qsTr("Leaving does not remove the rooms inside it.")
+                            }
+                        }
+                        LeaveRoomConfirmDialog {
+                            id: spaceLeaveConfirm
+                            objectName: "spaceSettingsLeaveConfirm"
+                            onConfirmed: (roomId) => {
+                                root.close()
+                                if (app.spaces && app.spaces.activeSpaceId === roomId)
+                                    app.spaces.activeSpaceId = ""
+                                app.roomInfo.leaveRoom(roomId)
+                            }
                         }
 
                         // Close, and for a server administrator delete.

@@ -492,7 +492,7 @@ Rectangle {
     }
 
     // Room information on its overview section, opened (never toggled shut):
-    // the header's "Room settings" row.
+    // the header's "Room information" row.
     function openRoomOverview() {
         if (app.currentRoomId === "" || !app.roomInfo.supported)
             return
@@ -1880,8 +1880,8 @@ Rectangle {
                         AppMenuItem {
                             objectName: "roomHeaderRoomSettings"
                             visible: app.roomInfo.supported
-                            iconName: "settings"
-                            text: qsTr("Room settings")
+                            iconName: "info"
+                            text: qsTr("Room information")
                             onTriggered: root.openRoomOverview()
                         }
                     }
@@ -2238,14 +2238,15 @@ Rectangle {
             property var dismissedRooms: ({})
             // This banner's own join: the discovery signals are global, and
             // their error line lives in a dialog that is not open here. On
-            // success AppController opens the Space.
+            // success AppController selects the Space in the rail and the
+            // user stays in this room (joinSpaceKeepingRoom).
             property string joiningSpaceId: ""
             property string joinError: ""
             readonly property bool joining: joiningSpaceId.length > 0
                                             && joiningSpaceId === spaceId
             Connections {
                 target: app.discovery
-                function onSpaceJoined(joinedId) {
+                function onSpaceJoinedInPlace(joinedId) {
                     if (joinedId === spaceParentBanner.joiningSpaceId)
                         spaceParentBanner.joiningSpaceId = ""
                 }
@@ -2334,10 +2335,9 @@ Rectangle {
                     onClicked: {
                         spaceParentBanner.joinError = ""
                         spaceParentBanner.joiningSpaceId = spaceParentBanner.spaceId
-                        app.discovery.join(
+                        app.discovery.joinSpaceKeepingRoom(
                             spaceParentBanner.spaceId,
-                            spaceParentBanner.parentSpace.via || [],
-                            true)
+                            spaceParentBanner.parentSpace.via || [])
                     }
                     Accessible.role: Accessible.Button
                     Accessible.name: qsTr("Join the space this room belongs to")
@@ -7616,6 +7616,10 @@ Rectangle {
                 onTriggered: spaceHome.clearPendingAddNotice()
             }
             property bool settingsOpen: false
+            Connections {
+                target: app.spaces
+                function onSettingsDialogOpened() { spaceHome.settingsOpen = false }
+            }
             // A Space is a Matrix room, so it has a real member list (the same
             // roster Room Information reads, already pointed at this Space).
             // Follows the same remembered choice as the room member panel,
@@ -8407,6 +8411,11 @@ Rectangle {
                                              && !app.roomInfo.editPending
                                     onClicked: spaceAvatarDialog.open()
                                     Accessible.name: qsTr("Change the Space avatar")
+                                    ToolTip.visible: hovered && !enabled
+                                                     && !!app.roomInfo
+                                                     && !app.roomInfo.canEditAvatar
+                                    ToolTip.delay: 500
+                                    ToolTip.text: qsTr("Only Space admins can change this.")
                                 }
                                 AppButton {
                                     objectName: "spaceRemoveAvatarButton"

@@ -911,6 +911,52 @@ ApplicationWindow {
             onTriggered: zoomNotice.visible = false
         }
     }
+    // A brief confirmation from AppController::noticeReported ("Joined
+    // Engineering"). Overlay-parented like zoomNotice.
+    Rectangle {
+        id: infoToast
+        objectName: "infoToast"
+        function show(text) {
+            infoToastLabel.text = text
+            visible = true
+            infoToastTimer.restart()
+        }
+        visible: false
+        parent: Overlay.overlay
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.top: parent.top
+        anchors.topMargin: AppTheme.spacing16
+        z: 1000
+        radius: AppTheme.radiusLg
+        color: AppTheme.stormPanel
+        border.color: AppTheme.stormBorder
+        border.width: 1
+        width: Math.min(infoToastLabel.implicitWidth + AppTheme.spacing16 * 2,
+                        parent.width - AppTheme.spacing16 * 2)
+        height: infoToastLabel.implicitHeight + AppTheme.spacing12
+        Label {
+            id: infoToastLabel
+            anchors.centerIn: parent
+            width: parent.width - AppTheme.spacing16 * 2
+            elide: Text.ElideRight
+            horizontalAlignment: Text.AlignHCenter
+            // Space names are remote text.
+            textFormat: Text.PlainText
+            color: AppTheme.stormText
+            font.pixelSize: AppTheme.fontSecondary
+            Accessible.role: Accessible.StaticText
+            Accessible.name: text
+        }
+        Timer {
+            id: infoToastTimer
+            interval: 3000
+            onTriggered: infoToast.visible = false
+        }
+    }
+    Connections {
+        target: app
+        function onNoticeReported(message) { infoToast.show(message) }
+    }
     // One-time notice (per version) when the GL driver is a CPU rasteriser
     // such as llvmpipe, e.g. the AppImage under appimage-run on NixOS. Not
     // shown when the user asked for software rendering. See
