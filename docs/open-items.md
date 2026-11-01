@@ -4,6 +4,11 @@
 
 ## 2026-11-01 — ACCEPTED FOLLOW-UPS from the review of the 0.10.3 fix round
 
+- L5: no regression test covers the call gate after a lane change once the room
+  is open (`AppController` bumps `callGateRevision` when the open room's
+  preferred lane changes after a room-list change or navigation). The mock has
+  no media backend, so the legacy lane cannot be driven; the case needs a fake
+  call media backend on the controller. Only a live DM observation exists.
 - L7: the new hint and call-failure notice strings have no translations yet;
   `update-translations` marks them unfinished.
 
