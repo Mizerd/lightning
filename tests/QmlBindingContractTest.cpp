@@ -224,6 +224,33 @@ private Q_SLOTS:
     // Ctrl+Q quits even with close-to-tray on: a window that refuses its close
     // aborts the quit, so the close handler must stand aside for a declared
     // quit intent.
+    // A banner preview that resolves its source from mediaCached alone misses
+    // the notice when the bytes land before its Connections listen (they
+    // connect when the whole page is complete, which on a built-ahead Settings
+    // screen is seconds after the first request): "No banner" for good. Each
+    // preview asks once more at completion.
+    void bannerPreviewsReAskWhenTheirPageIsComplete()
+    {
+        const struct { const char *file; const char *id; } previews[] = {
+            { "SettingsScreen.qml", "ownBannerImage" },
+            { "SpaceSettingsDialog.qml", "bannerPreview" },
+        };
+        for (const auto &p : previews) {
+            const QString source = read(QString::fromLatin1(p.file));
+            QVERIFY2(!source.isEmpty(), p.file);
+            const int image = source.indexOf(
+                QStringLiteral("id: %1\n").arg(QString::fromLatin1(p.id)));
+            QVERIFY2(image >= 0, p.file);
+            const int connections = source.indexOf(
+                QStringLiteral("Connections {"), image);
+            QVERIFY2(connections > image, p.file);
+            const QString between = source.mid(image, connections - image);
+            QVERIFY2(between.contains(QStringLiteral("Component.onCompleted"))
+                         && between.contains(QStringLiteral("resolveTick++")),
+                     p.file);
+        }
+    }
+
     void ctrlQQuitsEvenWithCloseToTrayOn()
     {
         const QString main = read(QStringLiteral("Main.qml"));

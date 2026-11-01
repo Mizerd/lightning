@@ -745,6 +745,14 @@ AppDialog {
                                                    ? app.mediaBridge.wideImageSource(mxc)
                                                    : ""
                                         }
+                                        // Connections only listen once the
+                                        // dialog is complete; see the profile
+                                        // banner preview in SettingsScreen.qml.
+                                        Component.onCompleted: {
+                                            if (mxc.length > 0
+                                                    && source.toString().length === 0)
+                                                resolveTick++
+                                        }
                                         Connections {
                                             target: app.mediaBridge
                                             enabled: bannerPreview.mxc.length > 0

@@ -8955,10 +8955,31 @@ Item {
                                                 ? app.mediaBridge.wideImageSource(mxc)
                                                 : ""
                                         }
+                                        // This page is built piecemeal and the
+                                        // Connections below only listen once the
+                                        // whole page is complete; the banner can
+                                        // arrive before that (the answer to the
+                                        // first request lands while it is still
+                                        // being built), and the preview then
+                                        // stayed on "No banner" for good. Asking
+                                        // once more when the page is complete
+                                        // finds it in the cache.
+                                        Component.onCompleted: {
+                                            if (mxc.length > 0
+                                                    && source.toString().length === 0)
+                                                resolveTick++
+                                        }
                                         Connections {
                                             target: app.mediaBridge
                                             enabled: ownBannerImage.mxc.length > 0
                                             function onMediaCached(key) {
+                                                if (key.endsWith(":" + ownBannerImage.mxc)
+                                                    && ownBannerImage.source.toString().length === 0)
+                                                    ownBannerImage.resolveTick++
+                                            }
+                                            // An expired transient failure mark:
+                                            // re-ask, as the profile popover does.
+                                            function onMediaRetryable(key) {
                                                 if (key.endsWith(":" + ownBannerImage.mxc)
                                                     && ownBannerImage.source.toString().length === 0)
                                                     ownBannerImage.resolveTick++
