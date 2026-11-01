@@ -633,6 +633,15 @@ private Q_SLOTS:
         QCOMPARE(many, QStringLiteral("%n rooms"));
         QVERIFY2(!one.contains(QStringLiteral("(s)")),
                  "the English UI would render a literal \"(s)\"");
+
+        // The Space home header counts JOINED rooms; the Rooms list below it
+        // lists unjoined ones too, so the two were not the same number.
+        QCOMPARE(t.translate("TimelinePane", "%n joined room(s)",
+                             "joined rooms inside a Space", 1),
+                 QStringLiteral("%n joined room"));
+        QCOMPARE(t.translate("TimelinePane", "%n joined room(s)",
+                             "joined rooms inside a Space", 4),
+                 QStringLiteral("%n joined rooms"));
     }
 
     // Every count in the English UI is a real plural. lrelease runs with

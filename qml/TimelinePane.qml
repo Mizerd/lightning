@@ -8243,8 +8243,12 @@ Rectangle {
                                 text: {
                                     var c = spaceHome.info.childCount || 0
                                     var u = spaceHome.info.unreadTotal || 0
-                                    var line = qsTr("%n room(s)",
-                                                    "rooms inside a Space", c)
+                                    // Rooms the user has joined, subspaces
+                                    // included: the Rooms list below also
+                                    // lists rooms not yet joined, so a bare
+                                    // "%n rooms" here disagreed with it.
+                                    var line = qsTr("%n joined room(s)",
+                                                    "joined rooms inside a Space", c)
                                     if (u > 0)
                                         line = qsTr("%1 • %2 unread")
                                             .arg(line).arg(u)
