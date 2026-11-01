@@ -12,6 +12,17 @@
 - L7: the new hint and call-failure notice strings have no translations yet;
   `update-translations` marks them unfinished.
 
+## 2026-11-01 — PRE-EXISTING: the account menu requests other accounts' avatars through the active session
+
+`AccountMenu.qml` builds an `IdentityCard` per account with `avatarMxc:
+modelData.avatarUrl`, and the card's `Avatar` asks `MediaBridge` for it, which
+fetches through the ACTIVE client. An inactive account's picture is therefore
+requested from the active account's homeserver (the on-disk
+`AccountAvatarStore` copy covers the case where it was seen while active). Not
+changed by the 0.10.3 round, which only re-requests the active account's own
+avatar after a transition; recorded because the add-account path makes the
+same request cross homeservers.
+
 ## 2026-11-01 — NOT REPRODUCED: joined rooms listed under "Invites" after a restart
 
 One GUI tester saw joined rooms (Space rooms, Peer Beta) under "Invites" for a
