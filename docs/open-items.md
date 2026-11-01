@@ -1,6 +1,40 @@
 # Open items and the NOT TESTED inventory
 
 
+
+## 2026-11-01 — NOT REPRODUCED: joined rooms listed under "Invites" after a restart
+
+One GUI tester saw joined rooms (Space rooms, Peer Beta) under "Invites" for a
+while after restarting, on the local Continuwuity server. A copy of that
+tester's profile (run/3 home) restarted twice showed no Invites section at any
+point, so no code changed (it touches sync and lifecycle). If it recurs,
+capture BEFORE signing out: a screenshot with the time, the log lines around
+`room_list mode=` and `stale_invites_retired`, whether the rows leave without a
+restart, and the room's membership as the server reports it (`GET
+/_matrix/client/v3/rooms/{id}/state/m.room.member/{own id}`) at the same
+moment. The reconciler is `rust/src/invites.rs` (`run_stale_invite_reconciler`);
+it asks the server with an `is_invite` list filter, which a server that does not
+implement the filter would answer with an empty set.
+
+## 2026-11-01 — OPEN, NOT FIXED in the 0.10.3 pass
+
+- A19: a MatrixRTC call at the 640 px window floor lays the chat pane's call
+  content wider than the pane (the call bar's collapse chevron and the
+  software-video banner clip at the right edge; reproduced again 2026-11-01 on
+  a loopback build, `run/34/shots/a6.png`). Suspect: the call header cell's
+  `Layout.minimumWidth: cramped ? implicitWidth : 0` in `CallStage.qml` keeps
+  the column's minimum above the 320 px pane. Not yet bisected.
+- C-obs2: the inline Space home overflows a 760 px window (Add existing room
+  and the settings card's Rename clipped), the same class as A19.
+- A-obs: "rtp stats: no audio leaving ... outbound=0" every 5 s after the first
+  mute and unmute while audio flows. Not located in the code or reproduced; the
+  only producer is `GstCallMediaBackend::handleStats`.
+- B09: the track menu now lists each heading above its tracks (verified live).
+  A selection that "does not take effect" was NOT confirmed either way: plain
+  Qt Multimedia 6.11 on the same file honours `activeAudioTrack` and
+  `activeSubtitleTrack` (measured), and on the rig the video card closes the
+  menu itself on the next repaint of a looping clip.
+
 ## 2026-11-01 — KNOWN LIMIT: DMs created before 0.10.3 keep stock call power levels
 
 `dm_create_request` now carries the `m.call.member` power-level override that
