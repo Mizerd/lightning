@@ -32188,6 +32188,14 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
             <numerusform>%n ruang</numerusform>
         </translation>
     </message>
+    <message numerus="yes">
+        <location filename="../qml/TimelinePane.qml" line="+0"/>
+        <source>%n joined room(s)</source>
+        <comment>joined rooms inside a Space</comment>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
     <message>
         <location filename="../qml/TimelinePane.qml" line="+3"/>
         <source>%1 • %2 unread</source>

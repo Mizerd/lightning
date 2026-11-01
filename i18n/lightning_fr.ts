@@ -32329,6 +32329,15 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
             <numerusform>%n salons</numerusform>
         </translation>
     </message>
+    <message numerus="yes">
+        <location filename="../qml/TimelinePane.qml" line="+0"/>
+        <source>%n joined room(s)</source>
+        <comment>joined rooms inside a Space</comment>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
     <message>
         <location filename="../qml/TimelinePane.qml" line="+3"/>
         <source>%1 • %2 unread</source>
