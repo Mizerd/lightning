@@ -128,6 +128,7 @@ Item {
     }
 
     Rectangle {
+        objectName: "roomRowChip"
         anchors.fill: parent
         anchors.leftMargin: AppTheme.spacing4
         anchors.rightMargin: AppTheme.spacing4
@@ -140,9 +141,13 @@ Item {
              : hover.hovered ? AppTheme.roomHover
              : root.needsAttention ? AppTheme.chipAccentFill
              : "transparent"
-        HoverHandler { id: hover }
         TapHandler { onTapped: root.clicked() }
     }
+    // On the ROW, not the chip beneath it: a handler on the chip loses the
+    // hover to the handlers of what is drawn over it (the title's tooltip,
+    // the avatar's motion), so the highlight dropped as the pointer crossed
+    // them. The row's own handler sees the pointer anywhere inside it.
+    HoverHandler { id: hover }
 
     // Selected-room edge bar in the gutter left of the chip, rounded and inset
     // so it reads as a marker rather than a table border.

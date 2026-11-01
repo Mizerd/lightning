@@ -747,6 +747,50 @@ RoomsPanel { objectName: "panel"; width: 380; height: 700 }
         QCOMPARE(rows.first()->property("tooltipText").toString(), QStringLiteral("Alice"));
     }
 
+    // 0.10.3 hotfix: the Classic row's highlight flickered as the pointer
+    // crossed the avatar or the title, because the row's only HoverHandler
+    // sat on the chip BENEATH them and the children's own handlers (title
+    // tooltip, avatar motion) took the hover. The row holds it everywhere.
+    void theRowHighlightHoldsAcrossTheWholeRow()
+    {
+        Fixture f;
+        QVERIFY(load(f, kPresenter, 320, 400));
+        const auto rows = rowsOf(f.item.get());
+        QVERIFY(rows.size() >= 2);
+        QQuickItem *row = rows.first();
+        auto *chip = byName(row, QStringLiteral("roomRowChip"));
+        auto *name = byName(row, QStringLiteral("roomNameLabel"));
+        QVERIFY(chip && name);
+        const QColor rest = chip->property("color").value<QColor>();
+        // Park the pointer on a different row first.
+        QTest::mouseMove(&f.window, rows.at(1)->mapToScene(
+            QPointF(row->width() / 2, row->height() / 2)).toPoint());
+        QTRY_VERIFY(chip->property("color").value<QColor>() == rest);
+
+        QQuickItem *avatar = nullptr;
+        QList<QQuickItem *> all;
+        visualTree(row, all);
+        for (auto *it : all)
+            if (it->property("mxc").isValid() && it->property("size").isValid())
+                { avatar = it; break; }
+        QVERIFY(avatar);
+
+        struct Spot { const char *what; QPointF at; };
+        const QList<Spot> spots = {
+            { "avatar", row->mapFromItem(avatar, QPointF(avatar->width() / 2,
+                                                         avatar->height() / 2)) },
+            { "title", row->mapFromItem(name, QPointF(4, name->height() / 2)) },
+            { "blank", QPointF(row->width() - 12, row->height() / 2) },
+        };
+        for (const auto &s : spots) {
+            QTest::mouseMove(&f.window, rows.at(1)->mapToScene(QPointF(4, 4)).toPoint());
+            QTest::mouseMove(&f.window, row->mapToScene(s.at).toPoint());
+            QTRY_VERIFY2(chip->property("color").value<QColor>() != rest,
+                         qPrintable(QStringLiteral("no highlight over the %1")
+                                    .arg(QLatin1String(s.what))));
+        }
+    }
+
     void compactRowsNavigateWithKeyboard()
     {
         Fixture f;
