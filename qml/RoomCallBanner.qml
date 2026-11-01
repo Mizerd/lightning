@@ -44,7 +44,10 @@ Rectangle {
         case "no_transport":
             return qsTr("No MatrixRTC service on this homeserver");
         case "discovery_failed":
-            return qsTr("Couldn't check whether calling is available");
+            // The homeserver's call service did not answer the check; the
+            // Try again button beside it asks once more.
+            return qsTr("Couldn't reach this homeserver's call service, "
+                        + "so calling isn't available");
         case "session_closed":
             return qsTr("This call has ended");
         case "no_media_transport":
@@ -206,6 +209,17 @@ Rectangle {
             HoverHandler {
                 id: hoverHandler
             }
+        }
+
+        // A failed availability check can pass; ask again instead of leaving
+        // the banner with a reason and no way on.
+        AppButton {
+            objectName: "roomCallRetryButton"
+            text: qsTr("Try again")
+            size: "sm"
+            Layout.minimumWidth: implicitWidth
+            visible: root.blockReason === "discovery_failed"
+            onClicked: app.rtc.discover(root.roomId)
         }
 
         // The join affordance, gated on blockReason, ownDeviceHere and
