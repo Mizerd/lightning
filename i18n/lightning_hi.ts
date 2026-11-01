@@ -3304,11 +3304,11 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+4"/>
-        <source>Auto is 720p for the camera and 1080p at 30 fps for a screen share. A bitrate limit only ever lowers the share&apos;s quality, which helps on a slow connection. Changes apply to the next camera or share you start.</source>
-        <translation>स्वचालित का मतलब कैमरे के लिए 720p और स्क्रीन शेयर के लिए 30 fps पर 1080p है। बिटरेट सीमा केवल शेयर की गुणवत्ता घटाती है, जो धीमे कनेक्शन पर मदद करती है। बदलाव आपके अगले कैमरे या शेयर पर लागू होते हैं।</translation>
+        <source>Auto is 720p for the camera and 1080p at 30 fps for a screen share. A bitrate limit only ever lowers the share&apos;s quality, which helps on a slow connection. A new frame rate applies at once; the other changes apply to the next camera or share you start.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="+9"/>
         <source>Microphone processing</source>
         <translation>माइक्रोफ़ोन प्रोसेसिंग</translation>
     </message>
@@ -33476,17 +33476,17 @@ Note: importing keys does not verify this session.</source>
         <translation>प्लेयर बंद करें</translation>
     </message>
     <message>
-        <location line="+30"/>
+        <location line="+36"/>
         <source>Audio</source>
         <translation>ऑडियो</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+6"/>
         <source>Subtitles</source>
         <translation>उपशीर्षक</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+19"/>
         <source>Off</source>
         <translation>बंद</translation>
     </message>

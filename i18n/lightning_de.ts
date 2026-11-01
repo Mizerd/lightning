@@ -3304,11 +3304,11 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     </message>
     <message>
         <location line="+4"/>
-        <source>Auto is 720p for the camera and 1080p at 30 fps for a screen share. A bitrate limit only ever lowers the share&apos;s quality, which helps on a slow connection. Changes apply to the next camera or share you start.</source>
-        <translation>Automatisch bedeutet 720p für die Kamera und 1080p bei 30 fps für eine Bildschirmfreigabe. Ein Bitratenlimit senkt die Qualität der Freigabe immer nur, was bei einer langsamen Verbindung hilft. Änderungen gelten für die nächste Kamera oder Freigabe, die du startest.</translation>
+        <source>Auto is 720p for the camera and 1080p at 30 fps for a screen share. A bitrate limit only ever lowers the share&apos;s quality, which helps on a slow connection. A new frame rate applies at once; the other changes apply to the next camera or share you start.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="+9"/>
         <source>Microphone processing</source>
         <translation>Mikrofonverarbeitung</translation>
     </message>
@@ -33476,17 +33476,17 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Player schließen</translation>
     </message>
     <message>
-        <location line="+30"/>
+        <location line="+36"/>
         <source>Audio</source>
         <translation>Audio</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+6"/>
         <source>Subtitles</source>
         <translation>Untertitel</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+19"/>
         <source>Off</source>
         <translation>Aus</translation>
     </message>

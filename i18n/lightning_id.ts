@@ -3287,11 +3287,11 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
     </message>
     <message>
         <location line="+4"/>
-        <source>Auto is 720p for the camera and 1080p at 30 fps for a screen share. A bitrate limit only ever lowers the share&apos;s quality, which helps on a slow connection. Changes apply to the next camera or share you start.</source>
-        <translation>Otomatis berarti 720p untuk kamera dan 1080p pada 30 fps untuk berbagi layar. Batas bitrate hanya menurunkan kualitas berbagi, yang membantu pada koneksi lambat. Perubahan berlaku untuk kamera atau berbagi berikutnya yang Anda mulai.</translation>
+        <source>Auto is 720p for the camera and 1080p at 30 fps for a screen share. A bitrate limit only ever lowers the share&apos;s quality, which helps on a slow connection. A new frame rate applies at once; the other changes apply to the next camera or share you start.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="+9"/>
         <source>Microphone processing</source>
         <translation>Pemrosesan mikrofon</translation>
     </message>
@@ -33330,17 +33330,17 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Tutup pemutar</translation>
     </message>
     <message>
-        <location line="+30"/>
+        <location line="+36"/>
         <source>Audio</source>
         <translation>Audio</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+6"/>
         <source>Subtitles</source>
         <translation>Subtitel</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+19"/>
         <source>Off</source>
         <translation>Mati</translation>
     </message>

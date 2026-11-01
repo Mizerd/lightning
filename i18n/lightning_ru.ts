@@ -3321,11 +3321,11 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+4"/>
-        <source>Auto is 720p for the camera and 1080p at 30 fps for a screen share. A bitrate limit only ever lowers the share&apos;s quality, which helps on a slow connection. Changes apply to the next camera or share you start.</source>
-        <translation>Авто — это 720p для камеры и 1080p при 30 к/с для демонстрации экрана. Ограничение битрейта только снижает качество демонстрации, что помогает на медленном соединении. Изменения применяются к следующей камере или демонстрации.</translation>
+        <source>Auto is 720p for the camera and 1080p at 30 fps for a screen share. A bitrate limit only ever lowers the share&apos;s quality, which helps on a slow connection. A new frame rate applies at once; the other changes apply to the next camera or share you start.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="+9"/>
         <source>Microphone processing</source>
         <translation>Обработка микрофона</translation>
     </message>
@@ -33622,17 +33622,17 @@ Note: importing keys does not verify this session.</source>
         <translation>Закрыть проигрыватель</translation>
     </message>
     <message>
-        <location line="+30"/>
+        <location line="+36"/>
         <source>Audio</source>
         <translation>Звук</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+6"/>
         <source>Subtitles</source>
         <translation>Субтитры</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+19"/>
         <source>Off</source>
         <translation>Выкл.</translation>
     </message>

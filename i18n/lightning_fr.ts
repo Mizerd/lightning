@@ -3304,11 +3304,11 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
     </message>
     <message>
         <location line="+4"/>
-        <source>Auto is 720p for the camera and 1080p at 30 fps for a screen share. A bitrate limit only ever lowers the share&apos;s quality, which helps on a slow connection. Changes apply to the next camera or share you start.</source>
-        <translation>Auto correspond à 720p pour la caméra et à 1080p à 30 ips pour un partage d&apos;écran. Une limite de débit ne fait que réduire la qualité du partage, ce qui aide sur une connexion lente. Les modifications s&apos;appliquent à la prochaine caméra ou au prochain partage que vous démarrez.</translation>
+        <source>Auto is 720p for the camera and 1080p at 30 fps for a screen share. A bitrate limit only ever lowers the share&apos;s quality, which helps on a slow connection. A new frame rate applies at once; the other changes apply to the next camera or share you start.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="+9"/>
         <source>Microphone processing</source>
         <translation>Traitement du microphone</translation>
     </message>
@@ -33476,17 +33476,17 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Fermer le lecteur</translation>
     </message>
     <message>
-        <location line="+30"/>
+        <location line="+36"/>
         <source>Audio</source>
         <translation>Audio</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+6"/>
         <source>Subtitles</source>
         <translation>Sous-titres</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+19"/>
         <source>Off</source>
         <translation>Désactivés</translation>
     </message>

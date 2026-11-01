@@ -3321,11 +3321,11 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     </message>
     <message>
         <location line="+4"/>
-        <source>Auto is 720p for the camera and 1080p at 30 fps for a screen share. A bitrate limit only ever lowers the share&apos;s quality, which helps on a slow connection. Changes apply to the next camera or share you start.</source>
-        <translation>„Automatinė“ reiškia 720p kamerai ir 1080p, 30 k/s ekrano bendrinimui. Spartos riba tik mažina bendrinimo kokybę, o tai padeda esant lėtam ryšiui. Pakeitimai taikomi kitai jūsų pradėtai kamerai ar bendrinimui.</translation>
+        <source>Auto is 720p for the camera and 1080p at 30 fps for a screen share. A bitrate limit only ever lowers the share&apos;s quality, which helps on a slow connection. A new frame rate applies at once; the other changes apply to the next camera or share you start.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="+9"/>
         <source>Microphone processing</source>
         <translation>Mikrofono apdorojimas</translation>
     </message>
@@ -33622,17 +33622,17 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Uždaryti grotuvą</translation>
     </message>
     <message>
-        <location line="+30"/>
+        <location line="+36"/>
         <source>Audio</source>
         <translation>Garsas</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+6"/>
         <source>Subtitles</source>
         <translation>Subtitrai</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+19"/>
         <source>Off</source>
         <translation>Išjungta</translation>
     </message>
