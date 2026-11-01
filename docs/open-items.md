@@ -2,6 +2,11 @@
 
 
 
+## 2026-11-01 — ACCEPTED FOLLOW-UPS from the review of the 0.10.3 fix round
+
+- L7: the new hint and call-failure notice strings have no translations yet;
+  `update-translations` marks them unfinished.
+
 ## 2026-11-01 — NOT REPRODUCED: joined rooms listed under "Invites" after a restart
 
 One GUI tester saw joined rooms (Space rooms, Peer Beta) under "Invites" for a
@@ -39,10 +44,29 @@ implement the filter would answer with an empty set.
 
 `dm_create_request` now carries the `m.call.member` power-level override that
 other rooms already had, so an invitee to a NEW Lightning-created DM can
-publish their call membership. A DM created earlier keeps the levels it was
-made with: the invitee joins at 0 and the server refuses their membership
-("You don't have permission to join calls in this room"). Nothing here changes
-an existing room's power levels. NOT live-tested with a call (rtcrig).
+publish their call membership. The override sends the whole stock `events` map
+plus the call entries, because a homeserver may merge it shallowly (Synapse:
+`power_level_content.update(override)`), where call entries alone would have
+dropped `m.room.power_levels`, history visibility, server ACL, encryption and
+tombstone to `state_default`. The tombstone level follows the server's default
+room version (150 where creators are explicitly privileged, MSC4289/v12; 100
+before).
+
+**Actual cause, measured 2026-11-01 on the local Continuwuity (rtcrig, room
+version 12):** the `m.room.power_levels` of a DM Lightning created BEFORE the
+fix has `users: {}`, no `m.call.member` entry and the default `state_default`
+50, so the invitee sits at 0 and the server refuses their membership ("You
+don't have permission to join calls in this room"). A DM made after the fix has
+both `m.call.member` entries at 0 and keeps tombstone 150. On Synapse the
+`trusted_private_chat` preset gives invitees level 100, so this failure is
+specific to servers that do not (Continuwuity on v12); the override is harmless
+there. Existing DMs keep the levels they were made with; nothing here changes
+an existing room's power levels.
+
+**Live:** PASS 2026-11-01 for a FRESH DM on the rtcrig Continuwuity: the
+invitee accepted, joined the call, `membership published ok= true`, two
+participants, tone heard both ways (a1 heard 700 Hz, f2 heard 440 Hz). A DM
+that predates the fix was NOT retested and is expected to stay refused.
 
 ## 2026-10-31 — OPEN after the integration round
 
