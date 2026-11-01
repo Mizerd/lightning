@@ -1156,6 +1156,35 @@ private Q_SLOTS:
 
     // Sections stack, headers sit above their rows, every row is inside its
     // section's card, and nothing in a row overlaps anything else.
+    // C-obs2: the lobby's toolbar was a RowLayout whose minimum is the sum of
+    // "ROOMS AND SPACES", Remove and Mark as (not) suggested (~400 px), so in
+    // a 760 px window (a 332 px column) every row of the Space home was laid
+    // out that wide and its right side ran past the pane. At the width the
+    // pane offers, nothing may end past it.
+    void theLobbyToolbarWrapsInsteadOfWideningTheColumn()
+    {
+        Lobby h;
+        QVERIFY(buildLobby(h, /*subspaceCollapsed=*/false, /*canManage=*/true,
+                           /*width=*/332));
+        auto *remove = h.lobby->findChild<QQuickItem *>(
+            QStringLiteral("spaceChildRemoveSelectedButton"));
+        auto *suggest = h.lobby->findChild<QQuickItem *>(
+            QStringLiteral("spaceChildSuggestToggleButton"));
+        auto *filter = h.lobby->findChild<QQuickItem *>(
+            QStringLiteral("spaceChildFilterField"));
+        QVERIFY(remove && suggest && filter);
+        QVERIFY(remove->isVisible() && suggest->isVisible());
+        for (QQuickItem *item : {remove, suggest, filter}) {
+            const QPointF end =
+                item->mapToItem(h.lobby, QPointF(item->width(), 0));
+            QVERIFY2(end.x() <= 332.5,
+                     qPrintable(QStringLiteral("%1 ends at %2 in a 332 px lobby")
+                                    .arg(item->objectName()).arg(end.x())));
+        }
+        QVERIFY2(filter->width() <= 332.5,
+                 qPrintable(QString::number(filter->width())));
+    }
+
     void theLobbySectionsAndRowsDoNotOverlap()
     {
         Lobby h;

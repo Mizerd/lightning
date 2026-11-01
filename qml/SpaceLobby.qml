@@ -131,8 +131,13 @@ ColumnLayout {
     }
 
     // ---- toolbar: selection actions and search ----
-    RowLayout {
+    // A Flow, not a RowLayout: a RowLayout's minimum is the sum of its
+    // children, so the title plus "Remove" and "Mark as not suggested" asked
+    // for ~400 px and every row of the Space home was laid out that wide in a
+    // 760 px window (C-obs2). The actions wrap under the title instead.
+    Flow {
         Layout.fillWidth: true
+        Layout.minimumWidth: 0
         Layout.topMargin: AppTheme.spacingS
         spacing: AppTheme.spacing8
         Label {
@@ -154,7 +159,6 @@ ColumnLayout {
             font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
             font.weight: AppTheme.weightMedium
         }
-        Item { Layout.fillWidth: true }
         AppButton {
             objectName: "spaceChildRemoveSelectedButton"
             visible: root.canManage
