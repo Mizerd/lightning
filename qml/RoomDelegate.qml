@@ -449,7 +449,7 @@ Item {
                     // marked would draw two.
                     Rectangle {
                         objectName: "roomMarkedUnreadDot"
-                        visible: model.markedUnread && !root.hasCountBadge
+                        visible: model.markedUnread === true && !root.hasCountBadge
                                  && !roomUnreadDot.visible
                         Layout.preferredWidth: 8
                         Layout.preferredHeight: 8
