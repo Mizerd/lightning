@@ -544,12 +544,27 @@ bool loadLostSomething(const QTextDocument &document, const QString &text)
     return comparableText(plain) != comparableText(text);
 }
 
+// Set on a document holding text the reader wrote as markdown and saw as
+// characters. Qt's writer escapes those characters for a reader; that reader
+// is the plain box, where the same text was never escaped.
+const char kOpenedLiterally[] = "lightningOpenedLiterally";
+
 // A load of user text never drops any of it: what Qt's reader would lose or
 // compose() could not send opens as the literal text instead.
 void keepTextIfLoadLostIt(QTextDocument *document, const QString &text)
 {
-    if (loadLostSomething(*document, text))
+    const bool literal = loadLostSomething(*document, text);
+    if (literal)
         document->setPlainText(text);
+    document->setProperty(kOpenedLiterally, literal);
+}
+
+QString withoutWriterEscapes(QString markdown)
+{
+    static const QRegularExpression escape(
+        QStringLiteral("\\\\([!-/:-@\\[-`{-~])"));
+    markdown.replace(escape, QStringLiteral("\\1"));
+    return markdown;
 }
 
 // The quote markers a line of markdown opens with.
@@ -754,14 +769,11 @@ void RichComposition::loadMarkdown(QTextDocument *document,
     if (!document)
         return;
     document->setMarkdown(markdown, QTextDocument::MarkdownDialectGitHub);
-    if (!loadLostSomething(*document, markdown))
-        return;
+    const bool literal = loadLostSomething(*document, markdown);
     // The mirror's own escapes are not the reader's text.
-    static const QRegularExpression escape(
-        QStringLiteral("\\\\([!-/:-@\\[-`{-~])"));
-    QString literal = markdown;
-    literal.replace(escape, QStringLiteral("\\1"));
-    document->setPlainText(literal.trimmed());
+    if (literal)
+        document->setPlainText(withoutWriterEscapes(markdown).trimmed());
+    document->setProperty(kOpenedLiterally, literal);
 }
 
 void RichComposition::loadMarkdownLines(QTextDocument *document,
@@ -794,9 +806,13 @@ QString RichComposition::markdownForPlainBox(const QTextDocument &document)
     // Should unfolding ever cost text, the folded mirror is still every word.
     QTextDocument check;
     check.setMarkdown(out, dialect);
-    return comparableText(compose(check).plainBody)
+    const QString box = comparableText(compose(check).plainBody)
             == comparableText(compose(document).plainBody)
         ? out : mirror;
+    // Text the reader never saw as formatted comes back as they wrote it. As
+    // in Element's composer, what they applied here (a list) stays applied.
+    return document.property(kOpenedLiterally).toBool()
+        ? withoutWriterEscapes(box) : box;
 }
 
 QString RichComposition::plainTextOfSanitizedHtml(const QString &sanitizedHtml)

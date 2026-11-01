@@ -558,6 +558,29 @@ private Q_SLOTS:
         QCOMPARE(compose(lines).plainBody, text);
     }
 
+    // Night QA C2: text the guard opened literally, a list applied in rich, and
+    // back: Qt's writer had escaped every marker the reader wrote.
+    void aLiteralDocumentGoesBackToThePlainBoxUnescaped()
+    {
+        QTextDocument document;
+        const QString text = QStringLiteral("x **bold** y use <foo> now");
+        RichComposition::loadMarkdownLines(&document, text);
+        QCOMPARE(document.toPlainText(), text);
+        RichComposition::toggleFormat(&document, 0, 0, QStringLiteral("orderedlist"));
+        QVERIFY(document.begin().textList());
+        QCOMPARE(RichComposition::markdownForPlainBox(document).trimmed(),
+                 QStringLiteral("1. ") + text);
+    }
+
+    // Typed in rich, the same characters stay escaped: they are not markup.
+    void textTypedInRichStaysEscapedForThePlainBox()
+    {
+        QTextDocument document;
+        QTextCursor(&document).insertText(QStringLiteral("2 *3* 4"));
+        QVERIFY(RichComposition::markdownForPlainBox(document).contains(
+            QStringLiteral("\\*")));
+    }
+
     // A draft is the rich mirror, and Qt's writer escapes what was typed.
     void aRestoredDraftOpensAsTyped_data()
     {
