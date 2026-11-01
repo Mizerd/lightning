@@ -916,16 +916,16 @@ private slots:
         QVERIFY(!channelRow.contains(QStringLiteral("app.setRoomNotificationMode")));
     }
 
-    // The translated filter chips compact instead of overflowing the clipping
-    // 300 px column.
-    void theRoomFilterChipsCompactInsteadOfOverflowingTheColumn()
+    // The translated filter chips scroll in the clipping column instead of
+    // eliding ("Favourit…", live 2026-11-01); other segmented rows still fit.
+    void theRoomFilterChipsScrollInsteadOfOverflowingTheColumn()
     {
         const QString host = read(QStringLiteral("RoomsPanel.qml"));
         const QString control = read(QStringLiteral("SegmentedControl.qml"));
         QVERIFY(!host.isEmpty());
         QVERIFY(!control.isEmpty());
-        QVERIFY2(host.contains(QStringLiteral("fitWidth: true")),
-                 "the room-list filter chips do not ask to be fitted");
+        QVERIFY2(host.contains(QStringLiteral("contentWidth: Math.max(filterChips.implicitWidth, width)")),
+                 "the room-list filter chips do not scroll at their natural width");
         // A RowLayout: a plain Row derives implicitWidth from its children's
         // assigned widths, so shrinking them loops polish().
         QVERIFY(control.contains(QStringLiteral("RowLayout {")));
