@@ -737,6 +737,28 @@ private Q_SLOTS:
                     .contains(QStringLiteral("RoomActionsMenu")));
     }
 
+    // A recycled row is another room: its bound menu must not stay open and
+    // quietly change target.
+    void aRecycledRowClosesItsOpenMenu()
+    {
+        Harness h;
+        QVERIFY(build(h, QStringLiteral(R"(
+        ChannelDelegate {
+            width: 300
+            roomId: "!room:example.org"
+            channelName: "alx"
+        })"), /*withAppStub=*/true));
+        QQuickItem *row = h.item();
+        QVERIFY(row);
+        QVERIFY(QMetaObject::invokeMethod(row, "openContextMenu"));
+        QObject *menu =
+            row->findChild<QObject *>(QStringLiteral("channelContextMenu"));
+        QVERIFY(menu);
+        QTRY_VERIFY(menu->property("opened").toBool());
+        row->setProperty("roomId", QStringLiteral("!other:example.org"));
+        QTRY_VERIFY(!menu->property("opened").toBool());
+    }
+
     // GitHub #28: the menu was the only thing a Channels invitation row
     // offered, and its "Leave room" did nothing. An invitation's menu offers
     // Accept and Reject instead, and each reaches the row's own signal; a

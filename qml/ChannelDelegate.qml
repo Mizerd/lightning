@@ -84,7 +84,13 @@ ItemDelegate {
             return;
         root.notificationMode = app.settings.roomNotificationMode(root.roomId);
     }
-    onRoomIdChanged: root.refreshNotificationMode()
+    onRoomIdChanged: {
+        root.refreshNotificationMode()
+        // A recycled row is another room, and its menu is bound to the row:
+        // left open it would quietly change target.
+        if (menuLoader.item)
+            menuLoader.item.close()
+    }
     Component.onCompleted: root.refreshNotificationMode()
     Connections {
         target: (typeof app !== "undefined" && app) ? app.settings : null

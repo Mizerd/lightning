@@ -427,46 +427,70 @@ Item {
 
     // One room menu for the whole list, incubated in the background: a menu per
     // row cost 633 QObjects a row, and building one on the first right-click
-    // made that click visibly slower.
+    // made that click visibly slower. Rows are recycled, so it never holds one:
+    // it keeps the room it was opened on, and every action goes by that id.
     Loader {
         id: sharedRowMenuHost
         objectName: "sharedRoomMenuHost"
         asynchronous: true
-        property Item row: null
-        property var state: ({})
-        function openFor(target) {
-            row = target
-            state = target.rowMenuState()
+        property var menuRoom: ({})
+
+        function openFor(room) {
+            menuRoom = room
             // A click that beats the incubator finishes it now.
             asynchronous = false
-            if (item)
-                item.popup()
+            active = true
+            if (!item) {
+                // A failed build: once more, then the row's own menu.
+                active = false
+                active = true
+            }
+            if (!item)
+                return false
+            item.popup()
+            return true
         }
+        function closeIfRoomLeftTheList() {
+            if (!item || !item.visible)
+                return
+            const rows = app.roomList.roomIdsBetween(0, roomList.count - 1)
+            if (rows.indexOf(menuRoom.roomId) < 0)
+                item.close()
+        }
+
+        Connections {
+            target: app.roomList
+            function onRowsRemoved() {
+                Qt.callLater(sharedRowMenuHost.closeIfRoomLeftTheList)
+            }
+            function onModelReset() {
+                Qt.callLater(sharedRowMenuHost.closeIfRoomLeftTheList)
+            }
+        }
+
         sourceComponent: RoomActionsMenu {
             objectName: "roomContextMenu"
-            roomId: sharedRowMenuHost.state.roomId || ""
-            roomName: sharedRowMenuHost.state.roomName || ""
-            canonicalAlias: sharedRowMenuHost.state.canonicalAlias || ""
-            isDirect: sharedRowMenuHost.state.isDirect === true
-            isFavourite: sharedRowMenuHost.state.isFavourite === true
-            isLowPriority: sharedRowMenuHost.state.isLowPriority === true
-            isUnread: sharedRowMenuHost.state.isUnread === true
-            onMarkRead: if (sharedRowMenuHost.row) sharedRowMenuHost.row.markRead()
-            onMarkUnread: if (sharedRowMenuHost.row) sharedRowMenuHost.row.markUnread()
-            onSetFavourite: on => {
-                if (sharedRowMenuHost.row) sharedRowMenuHost.row.setFavourite(on)
+            readonly property var room: sharedRowMenuHost.menuRoom
+            roomId: room.roomId || ""
+            roomName: room.roomName || ""
+            canonicalAlias: room.canonicalAlias || ""
+            isDirect: room.isDirect === true
+            isFavourite: room.isFavourite === true
+            isLowPriority: room.isLowPriority === true
+            isUnread: room.isUnread === true
+            onMarkRead: app.roomList.markRoomRead(roomId)
+            onMarkUnread: app.roomList.markRoomUnread(roomId)
+            onSetFavourite: on => app.roomList.setRoomFavourite(roomId, on)
+            onSetLowPriority: on => app.roomList.setRoomLowPriority(roomId, on)
+            onSetNotificationMode: mode => app.setRoomNotificationMode(roomId, mode)
+            onCopyRoomLink: root.roomLinkCopyRequested(roomId)
+            onLeaveRoomRequested: root.leaveRoomRequested(roomId, roomName)
+            onChatBackgroundRequested: root.chatBackgroundRequested(roomId, roomName)
+            onInviteRequested: root.inviteRequested(roomId)
+            onSelectRoomRequested: {
+                const rows = app.roomList.roomIdsBetween(0, roomList.count - 1)
+                root.selectAt(rows.indexOf(roomId), roomId, 0)
             }
-            onSetLowPriority: on => {
-                if (sharedRowMenuHost.row) sharedRowMenuHost.row.setLowPriority(on)
-            }
-            onSetNotificationMode: mode => {
-                if (sharedRowMenuHost.row) sharedRowMenuHost.row.setNotificationMode(mode)
-            }
-            onCopyRoomLink: if (sharedRowMenuHost.row) sharedRowMenuHost.row.copyRoomLink()
-            onLeaveRoomRequested: if (sharedRowMenuHost.row) sharedRowMenuHost.row.leaveRoomRequested()
-            onChatBackgroundRequested: if (sharedRowMenuHost.row) sharedRowMenuHost.row.chatBackgroundRequested()
-            onInviteRequested: if (sharedRowMenuHost.row) sharedRowMenuHost.row.inviteRequested()
-            onSelectRoomRequested: if (sharedRowMenuHost.row) sharedRowMenuHost.row.selectRoomRequested()
         }
     }
 }

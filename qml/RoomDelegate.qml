@@ -570,6 +570,15 @@ Item {
     // The list's one shared room menu, when the host provides one; it is built
     // ahead of time, so a first right-click costs what a later one does.
     property Item sharedRowMenu: null
+    readonly property string rowRoomId: model.roomId !== undefined ? model.roomId : ""
+    // A recycled row is another room: its own menus are bound to the row, so
+    // one left open would quietly change target.
+    onRowRoomIdChanged: {
+        if (inviteMenuLoader.item)
+            inviteMenuLoader.item.close()
+        if (roomMenuLoader.item)
+            roomMenuLoader.item.close()
+    }
     function rowMenuState() {
         return {
             roomId: model.roomId,
@@ -582,10 +591,9 @@ Item {
         }
     }
     function openRowMenu() {
-        if (!root.isInviteRow && root.sharedRowMenu) {
-            root.sharedRowMenu.openFor(root)
+        if (!root.isInviteRow && root.sharedRowMenu
+            && root.sharedRowMenu.openFor(root.rowMenuState()))
             return
-        }
         const host = root.isInviteRow ? inviteMenuLoader : roomMenuLoader
         host.active = true
         if (host.item)

@@ -531,6 +531,86 @@ RoomsPanel { width: 320; height: 700 }
         QCOMPARE(f.controller->settings()->roomFilterMode(), 0);
     }
 
+    // Rows are recycled, so a row is not a room: scrolling under an open shared
+    // menu hands the row it was opened from to another room. The header and
+    // every action must keep to the room the menu was opened on.
+    void aRecycledRowUnderAnOpenRoomMenuKeepsItsTargetRoom()
+    {
+        Fixture f;
+        QVERIFY(load(f, R"QML(
+import QtQuick
+import MatrixClient
+RoomListClassicPresenter { objectName: "presenter"; width: 320; height: 60 }
+)QML", 320, 60));
+        auto *host = f.item->findChild<QObject *>(QStringLiteral("sharedRoomMenuHost"));
+        QVERIFY(host);
+        QTRY_VERIFY(host->property("item").value<QObject *>());
+        auto *menu = host->property("item").value<QObject *>();
+        QTRY_VERIFY(!rowsOf(f.item.get()).isEmpty());
+        QQuickItem *row = rowsOf(f.item.get()).first();
+        QVERIFY(QMetaObject::invokeMethod(row, "openRowMenu"));
+        QTRY_VERIFY(menu->property("opened").toBool());
+        const QString target = menu->property("roomId").toString();
+        const QString targetName = menu->property("roomName").toString();
+        QVERIFY(!target.isEmpty());
+
+        auto *list = f.item->findChild<QObject *>(QStringLiteral("roomListView"));
+        QVERIFY(list);
+        list->setProperty("cacheBuffer", 0);
+        for (int step = 0; step < 6
+             && row->property("rowRoomId").toString() == target; ++step) {
+            QVERIFY(QMetaObject::invokeMethod(list, "positionViewAtEnd"));
+            QTest::qWait(50);
+            QVERIFY(QMetaObject::invokeMethod(list, "positionViewAtBeginning"));
+            QTest::qWait(50);
+        }
+        QVERIFY2(row->property("rowRoomId").toString() != target,
+                 "the fixture never recycled the row");
+        QVERIFY(menu->property("opened").toBool());
+        QCOMPARE(menu->property("roomId").toString(), target);
+
+        QSignalSpy leave(f.item.get(), SIGNAL(leaveRoomRequested(QString, QString)));
+        QVERIFY(leave.isValid());
+        QVERIFY(QMetaObject::invokeMethod(menu, "leaveRoomRequested"));
+        QCOMPARE(leave.size(), 1);
+        QCOMPARE(leave.at(0).at(0).toString(), target);
+        QCOMPARE(leave.at(0).at(1).toString(), targetName);
+    }
+
+    // The room leaving the list (a filter here, a real leave in use) takes the
+    // menu with it: nothing may still act on a row that is gone.
+    void aRoomLeavingTheListClosesItsOpenMenu()
+    {
+        Fixture f;
+        QVERIFY(load(f, kPresenter, 320, 400));
+        auto *host = f.item->findChild<QObject *>(QStringLiteral("sharedRoomMenuHost"));
+        QVERIFY(host);
+        QTRY_VERIFY(host->property("item").value<QObject *>());
+        auto *menu = host->property("item").value<QObject *>();
+        QTRY_VERIFY(rowsOf(f.item.get()).size() >= 2);
+        QVERIFY(QMetaObject::invokeMethod(rowsOf(f.item.get()).at(0), "openRowMenu"));
+        QTRY_VERIFY(menu->property("opened").toBool());
+        f.controller->roomList()->setSearchQuery(QStringLiteral("no room is called this"));
+        QTRY_VERIFY(!menu->property("opened").toBool());
+    }
+
+    // A failed background build must not cost the user the menu.
+    void aMenuThatFailedToBuildStillOpens()
+    {
+        Fixture f;
+        QVERIFY(load(f, kPresenter, 320, 400));
+        auto *host = f.item->findChild<QObject *>(QStringLiteral("sharedRoomMenuHost"));
+        QVERIFY(host);
+        QTRY_VERIFY(host->property("item").value<QObject *>());
+        QTRY_VERIFY(rowsOf(f.item.get()).size() >= 1);
+        QVERIFY(host->setProperty("active", false));
+        QTRY_VERIFY(!host->property("item").value<QObject *>());
+        QVERIFY(QMetaObject::invokeMethod(rowsOf(f.item.get()).at(0), "openRowMenu"));
+        auto *menu = host->property("item").value<QObject *>();
+        QVERIFY(menu);
+        QTRY_VERIFY(menu->property("opened").toBool());
+    }
+
     void theSortMenuChecksTheEffectiveDefault()
     {
         Fixture f;
