@@ -186,7 +186,7 @@ Rectangle {
                     return n === 1 ? qsTr("1 person in call") : qsTr("%1 people in call").arg(n);
                 }
                 color: AppTheme.callBannerText
-                font.pixelSize: 13
+                font.pixelSize: AppTheme.scaled(13)
                 font.weight: Font.Medium
                 elide: Text.ElideRight
             }
@@ -199,7 +199,7 @@ Rectangle {
             visible: text.length > 0
             text: root.blockText
             color: AppTheme.textMuted
-            font.pixelSize: 12
+            font.pixelSize: AppTheme.scaled(12)
             wrapMode: Text.WordWrap
             maximumLineCount: 2
             elide: Text.ElideRight

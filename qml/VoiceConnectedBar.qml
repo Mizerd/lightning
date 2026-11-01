@@ -50,7 +50,7 @@ Rectangle {
                           : app.groupCall.state === SfuCallController.Connected
                             ? qsTr("Voice connected") : qsTr("Connecting…")
                     color: app.groupCall.state === SfuCallController.Connected ? AppTheme.success : AppTheme.warning
-                    font.pixelSize: 11
+                    font.pixelSize: AppTheme.scaled(11)
                     font.weight: Font.DemiBold
                     Layout.fillWidth: true
                     Layout.minimumWidth: 0
@@ -71,7 +71,7 @@ Rectangle {
                 }
                 visible: text.length > 0
                 color: AppTheme.stormTextSecondary
-                font.pixelSize: 11
+                font.pixelSize: AppTheme.scaled(11)
                 elide: Text.ElideRight
             }
         }

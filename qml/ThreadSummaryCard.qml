@@ -206,7 +206,7 @@ Item {
             Label {
                 text: card.countLabel()
                 color: AppTheme.accent
-                font.pixelSize: 12
+                font.pixelSize: AppTheme.scaled(12)
                 font.bold: true
                 Layout.alignment: Qt.AlignVCenter
             }
@@ -218,7 +218,7 @@ Item {
                 elide: Text.ElideRight
                 maximumLineCount: 1
                 textFormat: Text.PlainText
-                font.pixelSize: 11
+                font.pixelSize: AppTheme.scaled(11)
                 color: card.unread ? AppTheme.textPrimary : AppTheme.textMuted
                 text: card.latestSender.length > 0
                       ? card.latestSender + ": " + card.previewLabel()
@@ -235,7 +235,7 @@ Item {
                 sourceComponent: Label {
                     text: card.timeLabel()
                     color: AppTheme.textMuted
-                    font.pixelSize: 12
+                    font.pixelSize: AppTheme.scaled(12)
                 }
             }
 
