@@ -35,10 +35,17 @@ implement the filter would answer with an empty set.
   mute and unmute while audio flows. Not located in the code or reproduced; the
   only producer is `GstCallMediaBackend::handleStats`.
 - B09: the track menu now lists each heading above its tracks (verified live).
-  A selection that "does not take effect" was NOT confirmed either way: plain
-  Qt Multimedia 6.11 on the same file honours `activeAudioTrack` and
-  `activeSubtitleTrack` (measured), and on the rig the video card closes the
-  menu itself on the next repaint of a looping clip.
+  Selecting a track does not stick, and the cause is narrower than "a Qt
+  limit": measured 2026-11-01 with a temporary log in the menu's handler, a
+  pick on the real card DOES write `activeAudioTrack` (before 0, after 1, with
+  the clip paused and `mediaStatus` BufferedMedia), and about three seconds
+  later the player's `source` changes again (`sourceChanged` fires, the card
+  restarts it), which drops the choice back to the default track. Plain Qt
+  Multimedia 6.11 on the same file keeps `activeAudioTrack` and
+  `activeSubtitleTrack` (measured). So the open question is what re-sets the
+  card's `player.source` after a pick (`VideoPlayerCard.start()` and
+  `resetPlayback()` are the only writers); not found, not fixed. The subtitle
+  pick was not measured separately.
 
 ## 2026-11-01 — KNOWN LIMIT: DMs created before 0.10.3 keep stock call power levels
 
