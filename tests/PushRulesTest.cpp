@@ -1013,10 +1013,19 @@ Item {
         }
 
         // The troubleshooter lists its checks and offers the app switch.
+        // S-08: the outcome is said beside the buttons, not only in the list
+        // below them.
+        auto *status = find("troubleshooterStatus");
+        QVERIFY(status);
+        QVERIFY(!status->property("visible").toBool());
         QVERIFY(QMetaObject::invokeMethod(find("troubleshooterRunButton"), "clicked"));
         QCOMPARE(shoot.checks().size(), 5);
+        QTRY_VERIFY_WITH_TIMEOUT(status->property("visible").toBool(), kWaitMs);
+        QVERIFY(!status->property("text").toString().isEmpty());
         QVERIFY(QMetaObject::invokeMethod(find("troubleshooterTestButton"), "clicked"));
         QCOMPARE(tests, 1);
+        QVERIFY(status->property("text").toString().contains(
+            QStringLiteral("Test sent")));
 
         QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join(QLatin1Char('\n'))));
     }

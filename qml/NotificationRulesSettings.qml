@@ -20,6 +20,19 @@ ColumnLayout {
 
     readonly property var rules: (typeof app !== "undefined" && app)
                                  ? app.pushRules : null
+    // Which troubleshooter button was last pressed ("", "checks", "test"), and
+    // the counts the status line beside them reports.
+    property string shootNote: ""
+    readonly property int shootProblems: countStatus(2)
+    readonly property int shootWarnings: countStatus(1)
+    function countStatus(status) {
+        var list = root.shoot ? root.shoot.checks : []
+        var n = 0
+        for (var i = 0; i < list.length; ++i)
+            if (list[i].status === status)
+                ++n
+        return n
+    }
     readonly property var shoot: (typeof app !== "undefined" && app)
                                  ? app.notificationTroubleshooter : null
     readonly property bool supported: root.rules ? root.rules.supported === true
@@ -474,13 +487,45 @@ ColumnLayout {
                     objectName: "troubleshooterRunButton"
                     storm: true
                     text: qsTr("Run checks")
-                    onClicked: root.shoot.run(app.currentRoomId)
+                    onClicked: {
+                        root.shootNote = "checks"
+                        root.shoot.run(app.currentRoomId)
+                    }
                 }
                 AppButton {
                     objectName: "troubleshooterTestButton"
                     storm: true
                     text: qsTr("Send a test notification")
-                    onClicked: root.shoot.sendTest()
+                    onClicked: {
+                        root.shootNote = "test"
+                        root.shoot.sendTest()
+                    }
+                }
+                // The outcome beside the buttons: the per-check list renders
+                // below them, often out of view, so a click would otherwise
+                // answer nothing the user can see.
+                Label {
+                    objectName: "troubleshooterStatus"
+                    Layout.fillWidth: true
+                    visible: text.length > 0
+                    wrapMode: Text.WordWrap
+                    color: root.shootProblems > 0 ? AppTheme.stormDanger
+                         : root.shootWarnings > 0 ? AppTheme.warning
+                         : AppTheme.stormTextSecondary
+                    font.pixelSize: AppTheme.textBody
+                    text: root.shootNote === "test"
+                          ? qsTr("Test sent. If no notification appeared, "
+                                 + "your desktop is not showing them.")
+                          : root.shootNote === "checks" && root.shoot.hasRun
+                            ? (root.shootProblems > 0
+                               ? qsTr("%n problem(s) found. Details below.", "",
+                                      root.shootProblems)
+                               : root.shootWarnings > 0
+                                 ? qsTr("%n thing(s) to check. Details below.", "",
+                                        root.shootWarnings)
+                                 : qsTr("Nothing wrong that Lightning can see. "
+                                        + "Send a test notification to be sure."))
+                            : ""
                 }
             }
             Repeater {
