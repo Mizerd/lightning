@@ -786,6 +786,28 @@ private Q_SLOTS:
         QVERIFY(!bridge.avatarSource(kMxc, 64).isEmpty());
     }
 
+    // A clear() during a switch drops the refused marks and says so, instead
+    // of leaving the account's own avatar a letter for the retry window.
+    void clearTellsConsumersOfRefusedRequestsToAskAgain()
+    {
+        FakeClient client;
+        client.rejectFetches = true;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        QSignalSpy retryable(&bridge, &MediaBridge::mediaRetryable);
+
+        bridge.avatarSource(kMxc, 64);
+        QCOMPARE(bridge.avatarFailureCategory(kMxc),
+                 QStringLiteral("unavailable"));
+        client.rejectFetches = false;
+        // The switch's own clear() drops the mark: consumers must hear it.
+        bridge.clear();
+        QCOMPARE(retryable.count(), 1);
+        QCOMPARE(bridge.avatarFailureCategory(kMxc), QString());
+        bridge.avatarSource(kMxc, 64);
+        QCOMPARE(client.fetches.size(), 1);
+    }
+
     // The watchdog sweeps expired transient marks and emits mediaRetryable,
     // so an idle UI recovers; permanent validation marks are never swept.
     void sweepEmitsMediaRetryableForExpiredTransientMarks()

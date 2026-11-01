@@ -2522,6 +2522,15 @@ void MediaBridge::clear()
         m_activeSaves.clear();
         Q_EMIT activeSavesChanged();
     }
+    // A request refused locally (opId 0) while the session was restoring or
+    // the account switching is not a verdict about the file: the session this
+    // clear belongs to is the one that can answer it now. Tell the consumers
+    // once the state is empty, instead of leaving them on the failure mark
+    // that is being dropped here (an account's own avatar stayed a letter).
+    QStringList refused;
+    for (auto it = m_failed.constBegin(); it != m_failed.constEnd(); ++it)
+        if (it->category == QLatin1String("unavailable"))
+            refused.append(it.key());
     m_failed.clear();
     m_animatedFiles.clear();
     m_animatedSizes.clear();
@@ -2577,6 +2586,8 @@ void MediaBridge::clear()
         + QStringLiteral("/lightning-animated-XXXXXX"));
     // The replacement is a new directory and needs its own mark.
     lightning::portable::holdScratchDirLive(m_animatedDir->path());
+    for (const QString &cacheKey : std::as_const(refused))
+        Q_EMIT mediaRetryable(cacheKey);
 }
 
 void MediaBridge::onLoggedOut()
