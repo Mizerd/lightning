@@ -123,13 +123,20 @@ void RichComposerBridge::loadMarkdown(QQuickTextDocument *document,
                                       const QString &markdown)
 {
     if (QTextDocument *doc = unwrap(document))
-        RichComposition::loadMarkdown(doc, markdown);
+        doc->setMarkdown(markdown, QTextDocument::MarkdownDialectGitHub);
+}
+
+void RichComposerBridge::loadMarkdownLines(QQuickTextDocument *document,
+                                           const QString &markdown)
+{
+    if (QTextDocument *doc = unwrap(document))
+        RichComposition::loadMarkdownLines(doc, markdown);
 }
 
 QString RichComposerBridge::toMarkdown(QQuickTextDocument *document) const
 {
     if (QTextDocument *doc = unwrap(document))
-        return RichComposition::toMarkdown(*doc);
+        return doc->toMarkdown(QTextDocument::MarkdownDialectGitHub);
     return {};
 }
 

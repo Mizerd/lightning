@@ -296,6 +296,7 @@ Item {
     readonly property bool richMode: app.settings
                                      && app.settings.composerMode === "rich"
     property bool richSyncing: false
+    property string richTextAtLeave: ""
     function activeInput() { return root.richMode ? richInput : input }
     function submitComposer() {
         root.flushRichMirror()
@@ -355,14 +356,19 @@ Item {
             spellTimer.restart()
         if (root.richMode) {
             root.richSyncing = true
-            app.richComposer.loadMarkdown(richInput.textDocument,
-                                          app.composer.text)
+            // What the markdown box showed, line for line. Returning with the
+            // box untouched keeps the document: the text is its mirror, folded
+            // at 80 columns, and a fold is not a line.
+            if (app.composer.text !== root.richTextAtLeave)
+                app.richComposer.loadMarkdownLines(richInput.textDocument,
+                                                   app.composer.text)
             root.richSyncing = false
             mentionPopup.tokenActive = false
             mentionPopup.close()
             commandPopup.close()
             Qt.callLater(function () { richInput.forceActiveFocus() })
         } else {
+            root.richTextAtLeave = app.composer.text
             mentionPopup.tokenActive = false
             mentionPopup.close()
             commandPopup.close()
@@ -375,6 +381,8 @@ Item {
     // comparison skips the echo of the editor's own push.
     Connections {
         target: app.composer
+        // A sent message leaves an empty box: back to normal size.
+        function onOwnMessageSent() { root.composerExpanded = false }
         function onTextChanged() {
             if (!root.richMode || root.richSyncing)
                 return
@@ -382,8 +390,14 @@ Item {
             if (current.trim() === app.composer.text.trim())
                 return
             root.richSyncing = true
-            app.richComposer.loadMarkdown(richInput.textDocument,
-                                          app.composer.text)
+            // A message's text is its lines; a draft may be this editor's own
+            // mirror, folded at 80 columns.
+            if (app.composer.isEditing)
+                app.richComposer.loadMarkdownLines(richInput.textDocument,
+                                                   app.composer.text)
+            else
+                app.richComposer.loadMarkdown(richInput.textDocument,
+                                              app.composer.text)
             root.richSyncing = false
         }
     }

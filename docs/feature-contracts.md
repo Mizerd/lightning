@@ -3195,18 +3195,25 @@ live, and the server answers presence. Research and design: vault note
   It keeps its other jobs: completion popups, reply and edit, other popups, the
   find bar and panels, selection. With no room open, a Space overview still
   returns to Home.
-- Sending your own message always returns the timeline to the newest
+- Sending from the message box, a rich document, a posting command or
+  attachments returns the timeline to the newest
   (`MessageComposer::ownMessageSent`), however far up the reader was. An edit
-  does not.
-- The markdown mirror is line-faithful: `RichComposition::loadMarkdown` turns
-  a newline inside a paragraph into a line break in the block and `toMarkdown`
-  undoes Qt's 80-column folding, so a mode switch or a restored draft keeps its
-  lines.
-- Editing a message whose body does not carry its formatting (a rich-mode send)
-  seeds the box with markdown recovered from the formatted body. A body that is
-  the sender's own markdown source stays the seed.
+  does not. GIFs and stickers do not pass through the composer and do not yet.
+- Switching from Markdown to rich text keeps the draft's lines as CommonMark
+  hard breaks, and so does opening a message for edit in rich mode
+  (`RichComposition::loadMarkdownLines`). The markdown mirror stays Qt's
+  writer: it folds at 80 columns, so a draft restored in rich mode still loads
+  with soft breaks and a multi-line one comes back flattened. Known limit.
+- Editing a rich-mode send seeds the box with markdown only when the message is
+  entirely bold, italic, strike, inline code and http(s) links, with text that
+  needs no escaping, and only when the seed reads back as exactly those runs.
+  Anything else (mentions, emoji, lists, tables, spoilers, sub) opens the plain
+  body as before, and its formatting is lost if the text is changed. Known
+  limit. A save with the box unchanged sends nothing, whichever editor.
 - The height button floats in the editor's top-right corner, multi-line or
   expanded only. Both editors keep its width clear at all times.
+  A send returns an expanded box to normal size.
+- Returning to rich text with the markdown box untouched keeps the document.
 
 ### Message keyboard navigation (PR #50)
 

@@ -536,6 +536,21 @@ private slots:
         QTRY_VERIFY(!button->isVisible());
     }
 
+    // Retest at 640x480: the expanded box stayed expanded, and empty, after a
+    // send.
+    void sendingCollapsesTheBox()
+    {
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        auto *bar = item("composerBar");
+        QVERIFY(bar);
+        bar->setProperty("composerExpanded", true);
+        m_controller->composer()->setText(QStringLiteral("to send"));
+        m_controller->composer()->send();
+        QTRY_VERIFY(!bar->property("composerExpanded").toBool());
+        // Later cases start from no room.
+        m_controller->setCurrentRoomId(QString());
+    }
+
     void formatToggleCollapsesAndExpandsToolbar()
     {
         auto *bar = item("composerBar");
@@ -2466,6 +2481,32 @@ private slots:
         settings->setComposerMode(QStringLiteral("markdown"));
         QTest::qWait(40);
         QCOMPARE(m_controller->composer()->text().trimmed(), draft);
+    }
+
+    // There and back with the box untouched leaves a long rich paragraph one
+    // paragraph: the mirror is folded at 80 columns and a fold is not a line.
+    void aLongRichLineSurvivesAnUntouchedTripThroughMarkdown()
+    {
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        auto *settings = m_controller->findChild<SettingsManager *>();
+        ModeScope scope{ settings, settings->composerMode(),
+                         m_controller->composer() };
+        auto *rich = editorFor(QStringLiteral("rich"));
+        QVERIFY(rich);
+        const QString words = QStringLiteral("word ").repeated(40).trimmed();
+        QVERIFY(QMetaObject::invokeMethod(rich, "insert", Q_ARG(int, 0),
+                                          Q_ARG(QString, words)));
+        QTest::qWait(30);
+        QVERIFY(m_controller->composer()->text().trimmed().contains(QLatin1Char('\n')));
+        settings->setComposerMode(QStringLiteral("markdown"));
+        QTest::qWait(40);
+        settings->setComposerMode(QStringLiteral("rich"));
+        QTest::qWait(40);
+        QTextDocument *document = rich->property("textDocument")
+                                      .value<QQuickTextDocument *>()
+                                      ->textDocument();
+        QCOMPARE(document->blockCount(), 1);
+        QCOMPARE(document->toPlainText(), words);
     }
 
     // QA T-7: Up on a rich-mode message opened it plain and saving stripped it.

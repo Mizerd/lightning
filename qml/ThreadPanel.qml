@@ -40,6 +40,7 @@ Rectangle {
     function toggleComposerHeight() { composerExpanded = !composerExpanded }
     // Width the editors keep clear on their right for the height button.
     readonly property int editorCornerReserve: 26
+    property string richTextAtLeave: ""
     function returnShouldSend(modifiers) {
         return ComposerBehavior.returnShouldSend(
             modifiers, app.settings.enterInsertsNewline,
@@ -3617,13 +3618,16 @@ Rectangle {
             threadSpellTimer.restart()
         if (panel.richMode) {
             panel.richSyncing = true
-            app.richComposer.loadMarkdown(threadRichInput.textDocument,
-                                          app.thread.text)
+            // See the room composer.
+            if (app.thread.text !== panel.richTextAtLeave)
+                app.richComposer.loadMarkdownLines(threadRichInput.textDocument,
+                                                   app.thread.text)
             panel.richSyncing = false
             threadMentionPopup.tokenActive = false
             threadMentionPopup.close()
             Qt.callLater(function () { threadRichInput.forceActiveFocus() })
         } else {
+            panel.richTextAtLeave = app.thread.text
             threadMentionPopup.tokenActive = false
             threadMentionPopup.close()
             Qt.callLater(function () { threadComposerInput.forceActiveFocus() })
@@ -3675,6 +3679,7 @@ Rectangle {
             }
             panel.commandErrorText = app.thread.commandError.length > 0 ? plain : ""
             if (app.thread.commandError.length === 0) {
+                panel.composerExpanded = false
                 replyList.followLatest = true
                 replyList.scrollToEndDeferredIfFollowing()
             }
@@ -3693,6 +3698,7 @@ Rectangle {
             panel.commandErrorText = body
             return
         }
+        panel.composerExpanded = false
         panel.commandErrorText = ""
         threadComposerInput.text = ""
         replyList.followLatest = true

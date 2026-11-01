@@ -59,6 +59,8 @@ private slots:
         QCOMPARE(s.count(QStringLiteral("panel.returnShouldSend(event.modifiers)")), 2);
         QCOMPARE(s.count(QStringLiteral("panel.composerExpanded, AppTheme.scaled(140)")), 2);
         QVERIFY(s.contains(QStringLiteral("objectName: \"threadComposerHeightButton\"")));
+        // Both send lanes return the box to normal size.
+        QCOMPARE(s.count(QStringLiteral("panel.composerExpanded = false")), 2);
     }
 
     void bothComposersClaimEscapeFromTheWindowShortcut()

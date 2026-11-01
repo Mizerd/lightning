@@ -3271,13 +3271,6 @@ Item {
                         bubbleRow.height - height))
                 }
                 onVisibleChanged: refreshHeaderPush()
-                Connections {
-                    target: root.timelineView || null
-                    enabled: messageActionBarLoader.visible
-                    function onContentYChanged() {
-                        messageActionBarLoader.refreshHeaderPush()
-                    }
-                }
                 // Top-right corner of the full-width row, as in Element. The
                 // margin clears the overlaid scrollbar.
                 //
@@ -3308,6 +3301,15 @@ Item {
                 visible: root.actionsVisible
                 sourceComponent: Rectangle {
                 id: messageActionBar
+                // In the loaded bar: most rows never build one.
+                Connections {
+                    target: root.timelineView || null
+                    ignoreUnknownSignals: true
+                    enabled: messageActionBarLoader.visible
+                    function onContentYChanged() {
+                        messageActionBarLoader.refreshHeaderPush()
+                    }
+                }
                 // Surface background, 1px borderStrong, radiusTile, 2px
                 // padding.
                 radius: AppTheme.radiusTile

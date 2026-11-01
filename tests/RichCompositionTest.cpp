@@ -469,112 +469,65 @@ private Q_SLOTS:
 
     // QA T-3: a mode switch flattened a four-line draft to one line, because
     // setMarkdown() reads a lone newline as a soft break.
-    void markdownLinesSurviveAModeSwitch_data()
+    void everyLineOfTheBoxIsALineOfTheDocument_data()
     {
         QTest::addColumn<QString>("markdown");
-        QTest::newRow("lines") << QStringLiteral("hello world\nsecond line\nthird\nfourth");
-        QTest::newRow("paragraphs") << QStringLiteral("one\n\ntwo");
-        QTest::newRow("bold across lines")
-            << QStringLiteral("**one**\nand **two**");
-        QTest::newRow("list") << QStringLiteral("- one\n- two");
-        QTest::newRow("fence") << QStringLiteral("```\ncode\nmore\n```");
+        QTest::addColumn<QString>("plain");
+        QTest::newRow("lines") << QStringLiteral("hello world\nsecond\nthird\nfourth")
+                               << QStringLiteral("hello world\nsecond\nthird\nfourth");
+        QTest::newRow("bold then line") << QStringLiteral("**Note:**\nnext line")
+                                        << QStringLiteral("Note:\nnext line");
+        QTest::newRow("line then bold") << QStringLiteral("hello\n**(x)** there")
+                                        << QStringLiteral("hello\n(x) there");
+        QTest::newRow("italic") << QStringLiteral("*wow!*\nmore")
+                                << QStringLiteral("wow!\nmore");
+        QTest::newRow("strike") << QStringLiteral("~~gone.~~\nmore")
+                                << QStringLiteral("gone.\nmore");
     }
-    void markdownLinesSurviveAModeSwitch()
+    void everyLineOfTheBoxIsALineOfTheDocument()
     {
         QFETCH(QString, markdown);
+        QFETCH(QString, plain);
         QTextDocument document;
-        RichComposition::loadMarkdown(&document, markdown);
-        const auto normal = [](QString text) {
-            text.replace(QLatin1String("\n  ```"), QLatin1String("\n```"));
-            return text.trimmed();
-        };
-        QCOMPARE(normal(RichComposition::toMarkdown(document)), markdown);
+        RichComposition::loadMarkdownLines(&document, markdown);
+        const auto composed = compose(document);
+        QCOMPARE(composed.plainBody.trimmed(), plain);
+        QVERIFY(!composed.html.contains(QLatin1Char('*')));
+        QVERIFY(!composed.html.contains(QLatin1Char('~')));
     }
 
-    void aLineOfTheDraftIsALineOfTheDocument()
+    // What a hard break must not reach: the same document as setMarkdown().
+    void structureIsNotTouchedByLineBreaks_data()
     {
-        QTextDocument document;
-        RichComposition::loadMarkdown(
-            &document, QStringLiteral("a  \nb\n> c\n> d\n\n- e\n  f"));
-        const auto composed = RichComposition::compose(document);
-        QCOMPARE(composed.plainBody.trimmed(),
-                 QStringLiteral("a\nb\n> c\nd\n- e\nf"));
-        QVERIFY(composed.html.contains(QStringLiteral("c<br/>d")));
-        QVERIFY(composed.html.contains(QStringLiteral("e<br/>f")));
+        QTest::addColumn<QString>("markdown");
+        QTest::newRow("fence") << QStringLiteral("```\ncode\nmore\n```");
+        QTest::newRow("tilde fence") << QStringLiteral("~~~\ncode\nmore\n~~~");
+        QTest::newRow("setext") << QStringLiteral("Title\n=====\nnext");
+        QTest::newRow("setext dash") << QStringLiteral("Title\n---\nnext");
+        QTest::newRow("table") << QStringLiteral("| a | b |\n|---|---|\n| 1 | 2 |");
+        QTest::newRow("rule") << QStringLiteral("above\n\n---\n\nbelow");
+        QTest::newRow("indented") << QStringLiteral("    code\n    more");
+        QTest::newRow("list") << QStringLiteral("- a\n  - b\n- c");
+        QTest::newRow("task") << QStringLiteral("- [ ] t\n- [x] d");
+        QTest::newRow("start") << QStringLiteral("5. a\n6. b");
+        QTest::newRow("backslash") << QStringLiteral("a\\\nb");
+        QTest::newRow("hard") << QStringLiteral("a  \nb");
     }
-
-    // Qt's writer folds at 80 columns. Read back with T-3's rule every fold
-    // would become a line of its own.
-    void aLongLineIsNotFolded()
+    void structureIsNotTouchedByLineBreaks()
     {
-        const QString words = QStringLiteral("word ").repeated(40).trimmed();
-        QObject owner;
-        QTextDocument *document = docWith(
-            words + QStringLiteral(" **bold words here** ") + words, &owner);
-        const QString markdown = RichComposition::toMarkdown(*document);
-        QVERIFY2(!markdown.trimmed().contains(QLatin1Char('\n')),
-                 qPrintable(markdown));
-        QVERIFY(markdown.contains(QStringLiteral(" **bold words here** ")));
-        // The caller's own document is not touched.
-        QVERIFY(!document->toRawText().contains(QChar(0xE000)));
-
-        QTextDocument again;
-        RichComposition::loadMarkdown(&again, markdown);
-        QCOMPARE(again.toRawText().trimmed(), document->toRawText().trimmed());
-    }
-
-    void aLongLineInsideAStructureIsNotFolded_data()
-    {
-        QTest::addColumn<QString>("prefix");
-        QTest::newRow("list") << QStringLiteral("- ");
-        QTest::newRow("quote") << QStringLiteral("> ");
-    }
-    void aLongLineInsideAStructureIsNotFolded()
-    {
-        QFETCH(QString, prefix);
-        const QString words = QStringLiteral("word ").repeated(40).trimmed();
-        QObject owner;
-        QTextDocument *document = docWith(prefix + words + QStringLiteral(" **b ")
-                                              + words + QStringLiteral("**"),
-                                          &owner);
-        const QString markdown = RichComposition::toMarkdown(*document).trimmed();
-        QVERIFY2(!markdown.contains(QLatin1Char('\n')), qPrintable(markdown));
-        QVERIFY(markdown.startsWith(prefix + QStringLiteral("word")));
-    }
-
-    void aLongWordKeepsEveryCharacter()
-    {
-        const QString token = QStringLiteral("abcdefghij").repeated(30);
-        QObject owner;
-        QTextDocument *document = docWith(
-            QStringLiteral("see ") + token + QStringLiteral(" and **") + token
-                + QStringLiteral("** end"), &owner);
-        QTextDocument again;
-        RichComposition::loadMarkdown(&again, RichComposition::toMarkdown(*document));
-        QCOMPARE(again.toRawText().trimmed(), document->toRawText().trimmed());
-    }
-
-    void aLiteralMarkerStaysLiteral_data()
-    {
-        QTest::addColumn<QString>("text");
-        QTest::newRow("dash") << QStringLiteral("- not a list");
-        QTest::newRow("number") << QStringLiteral("1. not a list");
-        QTest::newRow("hash") << QStringLiteral("## not a heading");
-    }
-    void aLiteralMarkerStaysLiteral()
-    {
-        QFETCH(QString, text);
-        QTextDocument document;
-        QTextCursor(&document).insertText(text);
-        QTextDocument again;
-        RichComposition::loadMarkdown(&again, RichComposition::toMarkdown(document));
-        QVERIFY(!again.begin().textList());
-        QCOMPARE(again.toPlainText(), text);
+        QFETCH(QString, markdown);
+        QTextDocument lines;
+        RichComposition::loadMarkdownLines(&lines, markdown);
+        QTextDocument plain;
+        plain.setMarkdown(markdown, QTextDocument::MarkdownDialectGitHub);
+        QCOMPARE(lines.toMarkdown(QTextDocument::MarkdownDialectGitHub),
+                 plain.toMarkdown(QTextDocument::MarkdownDialectGitHub));
+        QCOMPARE(lines.blockCount(), plain.blockCount());
     }
 
     // QA T-7: a rich-mode send has a plain body, so the edit box showed plain
     // text and saving stripped the message.
-    void anEditSeedKeepsTheFormattingARichBodyDoesNotCarry_data()
+    void anEditSeedSaysExactlyWhatInlineFormattingSaid_data()
     {
         QTest::addColumn<QString>("html");
         QTest::addColumn<QString>("body");
@@ -582,35 +535,73 @@ private Q_SLOTS:
         QTest::newRow("bold") << QStringLiteral("<strong>hello</strong> there")
                               << QStringLiteral("hello there")
                               << QStringLiteral("**hello** there");
-        QTest::newRow("break") << QStringLiteral("<em>a</em><br/>b")
-                               << QStringLiteral("a\nb")
-                               << QStringLiteral("*a*\nb");
-        QTest::newRow("list") << QStringLiteral("<ul><li><strong>a</strong></li><li>b</li></ul>")
-                              << QStringLiteral("- a\n- b")
-                              << QStringLiteral("- **a**\n- b");
-        QTest::newRow("mention")
-            << QStringLiteral("<a href=\"mention:@bob:x\" style=\"color:#fff\">"
-                              "&nbsp;<b>@bob_b</b>&nbsp;</a> <em>hi</em>")
-            << QStringLiteral("@bob_b hi")
-            << QStringLiteral("@bob_b *hi*");
-        QTest::newRow("emoji")
-            << QStringLiteral("<strong>hi</strong> <img src=\"mxc://x/y\" "
-                              "alt=\":blob:\" height=\"20\"/>")
-            << QStringLiteral("hi :blob:")
-            << QStringLiteral("**hi** :blob:");
-        QTest::newRow("code block")
-            << QStringLiteral("<strong>x</strong><pre><code>a\nb\n</code></pre>")
-            << QStringLiteral("x\n```\na\nb\n```")
-            << QStringLiteral("**x**\n\n```\na\nb\n```");
+        QTest::newRow("paragraph") << QStringLiteral("<p><em>a</em> b</p>")
+                                   << QStringLiteral("a b")
+                                   << QStringLiteral("*a* b");
+        QTest::newRow("code") << QStringLiteral("use <code style=\"background-color:#222\">b()</code>")
+                              << QStringLiteral("use b()")
+                              << QStringLiteral("use `b()`");
+        QTest::newRow("strike") << QStringLiteral("<del>x</del> y")
+                                << QStringLiteral("x y")
+                                << QStringLiteral("~~x~~ y");
+        QTest::newRow("link") << QStringLiteral("<a href=\"https://x.y/z\">wiki</a> x")
+                              << QStringLiteral("wiki x")
+                              << QStringLiteral("[wiki](https://x.y/z) x");
+        QTest::newRow("snake") << QStringLiteral("<b>a</b> snake_case")
+                               << QStringLiteral("a snake_case")
+                               << QStringLiteral("**a** snake_case");
     }
-    void anEditSeedKeepsTheFormattingARichBodyDoesNotCarry()
+    void anEditSeedSaysExactlyWhatInlineFormattingSaid()
     {
         QFETCH(QString, html);
         QFETCH(QString, body);
         QFETCH(QString, seed);
-        QString got = RichComposition::markdownFromSanitizedHtml(html, body);
-        got.replace(QLatin1String("\n  ```"), QLatin1String("\n```"));
-        QCOMPARE(got, seed);
+        QCOMPARE(RichComposition::markdownFromSanitizedHtml(html, body), seed);
+    }
+
+    // Everything the seed cannot say exactly opens the plain body.
+    void anEditSeedRefusesWhatItCannotSayExactly_data()
+    {
+        QTest::addColumn<QString>("html");
+        QTest::addColumn<QString>("body");
+        QTest::newRow("mention") << QStringLiteral("<a href=\"mention:@b:x\"><b>@b</b></a> <em>hi</em>")
+                                 << QStringLiteral("@b hi");
+        QTest::newRow("emoji") << QStringLiteral("<b>hi</b> <img src=\"mxc://x/y\" alt=\":b:\"/>")
+                               << QStringLiteral("hi :b:");
+        QTest::newRow("list") << QStringLiteral("<ul><li><b>a</b></li></ul>")
+                              << QStringLiteral("- a");
+        QTest::newRow("table") << QStringLiteral("<table><tr><td><b>a</b></td></tr></table>")
+                               << QStringLiteral("a");
+        QTest::newRow("spoiler") << QStringLiteral("<b>a</b> <a href=\"spoiler:toggle\">s</a>")
+                                 << QStringLiteral("a s");
+        QTest::newRow("sub") << QStringLiteral("<b>a</b> x<sub>2</sub>")
+                             << QStringLiteral("a x2");
+        QTest::newRow("break") << QStringLiteral("<b>a</b><br/>b")
+                               << QStringLiteral("a\nb");
+        QTest::newRow("two paragraphs") << QStringLiteral("<p><b>a</b></p><p>b</p>")
+                                        << QStringLiteral("a\nb");
+        QTest::newRow("pre") << QStringLiteral("<b>x</b><pre><code>a\n</code></pre>")
+                             << QStringLiteral("x\n```\na\n```");
+        QTest::newRow("punctuation flank") << QStringLiteral("<b>Note:</b>next")
+                                           << QStringLiteral("Note:next");
+        QTest::newRow("star") << QStringLiteral("<b>a</b> 2*3*4")
+                              << QStringLiteral("a 2*3*4");
+        QTest::newRow("entity") << QStringLiteral("<b>a</b> &amp;copy;")
+                                << QStringLiteral("a &copy;");
+        QTest::newRow("paren href") << QStringLiteral("<a href=\"https://x.y/a_(b)\">w</a>")
+                                    << QStringLiteral("w");
+        QTest::newRow("tick in code") << QStringLiteral("<code>a`b</code>")
+                                      << QStringLiteral("a`b");
+        QTest::newRow("line opener") << QStringLiteral("- <b>a</b>")
+                                     << QStringLiteral("- a");
+        QTest::newRow("spaces in bold") << QStringLiteral("<b>a </b>b")
+                                        << QStringLiteral("a b");
+    }
+    void anEditSeedRefusesWhatItCannotSayExactly()
+    {
+        QFETCH(QString, html);
+        QFETCH(QString, body);
+        QCOMPARE(RichComposition::markdownFromSanitizedHtml(html, body), QString());
     }
 
     void aBodyThatIsItsOwnMarkdownStaysTheSeed()

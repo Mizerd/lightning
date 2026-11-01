@@ -554,9 +554,11 @@ private Q_SLOTS:
                  "an unchanged rich edit was sent to the server");
         QVERIFY(!m_composer->isEditing());
 
-        // Formatting-only change must still go out.
+        // Formatting-only change must still go out. The editor's mirror moves
+        // with any formatting change, and that is what is compared.
         m_composer->beginEdit(QStringLiteral("$rich2"),
                               QStringLiteral("same body"));
+        m_composer->setText(QStringLiteral("**same body**"));
         m_composer->sendPrepared(QStringLiteral("same body"),
                                  QStringLiteral("<b>same body</b>"),
                                  QStringList());
@@ -568,32 +570,58 @@ private Q_SLOTS:
         m_composer->beginEdit(QStringLiteral("$rich3"),
                               QStringLiteral("same body"),
                               QStringLiteral("<b>same body</b>"));
+        m_composer->setText(QStringLiteral("same body"));
         m_composer->sendPrepared(QStringLiteral("same body"), QString(),
                                  QStringList());
         QCOMPARE(m_client->sends.size(), 1);
         QCOMPARE(m_client->sends.first().kind, QStringLiteral("edit"));
     }
 
-    // C46 review item 1, since QA T-7: a formatted original opens as markdown,
-    // so a save with the box untouched changes nothing and sends nothing, and
-    // taking the markers out is a real edit the guard must not swallow.
-    void aPlainSaveOfAFormattedOriginalIsNotDiscarded()
+    // Retest: the edit banner quoted the box's raw markdown.
+    void theEditBannerQuotesWhatTheMessageReadsAs()
     {
         m_composer->beginEdit(QStringLiteral("$fmt"),
-                              QStringLiteral("bold"),
-                              QStringLiteral("<b>bold</b>"));
-        QCOMPARE(m_composer->text(), QStringLiteral("**bold**"));
+                              QStringLiteral("**line one\nline two**"),
+                              QStringLiteral("<strong>line one<br/>line two</strong>"));
+        QCOMPARE(m_composer->editOriginalText(),
+                 QStringLiteral("line one\nline two"));
+        m_composer->cancelReplyOrEdit();
+        QCOMPARE(m_composer->editOriginalText(), QString());
+    }
+
+    // An unchanged box sends nothing through either editor, whatever the seed:
+    // a seed plainer than the message would otherwise strip it, and a rich
+    // document may read back differently from what was loaded.
+    void anUnchangedSaveOfAFormattedOriginalSendsNothing_data()
+    {
+        QTest::addColumn<QString>("html");
+        QTest::addColumn<QString>("seed");
+        QTest::newRow("seedable") << QStringLiteral("<b>bold</b>")
+                                  << QStringLiteral("**bold**");
+        QTest::newRow("plain seed") << QStringLiteral("<ul><li><b>bold</b></li></ul>")
+                                    << QStringLiteral("bold");
+    }
+    void anUnchangedSaveOfAFormattedOriginalSendsNothing()
+    {
+        QFETCH(QString, html);
+        QFETCH(QString, seed);
+        m_composer->beginEdit(QStringLiteral("$fmt"), QStringLiteral("bold"), html);
+        QCOMPARE(m_composer->text(), seed);
         m_composer->send();
         QVERIFY(m_client->sends.isEmpty());
         QVERIFY(!m_composer->isEditing());
 
-        m_composer->beginEdit(QStringLiteral("$fmt"),
-                              QStringLiteral("bold"),
-                              QStringLiteral("<b>bold</b>"));
-        m_composer->setText(QStringLiteral("bold"));
+        m_composer->beginEdit(QStringLiteral("$fmt"), QStringLiteral("bold"), html);
+        m_composer->sendPrepared(QStringLiteral("bold"), QString(), QStringList());
+        QVERIFY(m_client->sends.isEmpty());
+
+        // Changing the box is a real edit.
+        m_composer->beginEdit(QStringLiteral("$fmt"), QStringLiteral("bold"), html);
+        m_composer->setText(QStringLiteral("bold!"));
         m_composer->send();
         QCOMPARE(m_client->sends.size(), 1);
         QCOMPARE(m_client->sends.first().kind, QStringLiteral("edit"));
+        m_client->sends.clear();
     }
 
 private:

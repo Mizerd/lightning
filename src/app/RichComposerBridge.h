@@ -49,6 +49,9 @@ public:
     // Draft-only mode conversions.
     Q_INVOKABLE void loadMarkdown(QQuickTextDocument *document,
                                   const QString &markdown);
+    // Text whose every newline is a line (see RichComposition).
+    Q_INVOKABLE void loadMarkdownLines(QQuickTextDocument *document,
+                                       const QString &markdown);
     Q_INVOKABLE QString toMarkdown(QQuickTextDocument *document) const;
 
     Q_INVOKABLE bool isSafeLinkTarget(const QString &url) const;

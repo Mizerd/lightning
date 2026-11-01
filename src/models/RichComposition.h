@@ -31,19 +31,22 @@ class QTextDocument;
 // seed.
 namespace RichComposition {
 
-// The composer's markdown <-> document mirror. A line of the draft is a line:
-// Qt's setMarkdown() turns a lone newline into a space (CommonMark's soft
-// break), which flattened a four-line draft on a mode switch, and its
-// toMarkdown() folds at 80 columns, which that newline rule cannot tell from a
-// line.
-void loadMarkdown(QTextDocument *document, const QString &markdown);
-QString toMarkdown(const QTextDocument &document);
+// Loads text whose every newline is a line the reader saw (the markdown box, a
+// message being edited). Qt's setMarkdown() turns a lone newline into a space.
+// Not for the rich editor's own mirror: Qt's toMarkdown() folds at 80 columns
+// and a fold is not a line.
+void loadMarkdownLines(QTextDocument *document, const QString &markdown);
 
-// Markdown for the message box when editing a message whose body does not
-// carry its own formatting (a rich-mode send: body "hi", html "<b>hi</b>").
-// Empty when the plain body is already the right seed: nothing is formatted,
-// or the body is the sender's markdown source and differs from the html's text.
-// `sanitizedHtml` is MessageHtml::sanitize() output.
+// What a formatted message reads as, for a one-line quote. Custom emoji are
+// their shortcodes. `sanitizedHtml` is MessageHtml::sanitize() output.
+QString plainTextOfSanitizedHtml(const QString &sanitizedHtml);
+
+// Markdown for the message box when editing a rich-mode send, whose plain body
+// says nothing of its formatting. Only for a message that is entirely bold,
+// italic, strike, inline code and http(s) links with text that needs no
+// escaping, and only when reading the result back gives exactly those runs.
+// Empty otherwise, and the plain body stays the seed. `sanitizedHtml` is
+// MessageHtml::sanitize() output.
 QString markdownFromSanitizedHtml(const QString &sanitizedHtml,
                                   const QString &plainBody);
 

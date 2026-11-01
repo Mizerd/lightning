@@ -113,7 +113,7 @@ public:
     QString editingEventId()    const { return m_editingEventId; }
     QString threadRootId()      const { return m_threadRootId; }
     QString threadPreview()     const { return m_threadPreview; }
-    QString editOriginalText() const { return m_editSeedText; }
+    QString editOriginalText() const { return m_editPreview; }
     bool isReplying() const { return !m_replyingToEventId.isEmpty(); }
     bool isEditing()  const { return !m_editingEventId.isEmpty(); }
     bool inThread()   const { return !m_threadRootId.isEmpty(); }
@@ -411,9 +411,10 @@ Q_SIGNALS:
     // (synchronously, or later when the portal answered). The bar focuses the
     // editor on it so Return sends.
     void droppedAttachmentsResolved();
-    // Something new left this composer for its timeline, from any path: the
-    // box, a rich document, a command that posts, attachments. An edit is
-    // not one. The timeline returns to the newest on it.
+    // Something new left this composer for its timeline: the box, a rich
+    // document, a command that posts, attachments. An edit is not one, and
+    // GIFs and stickers do not pass through here. The timeline returns to the
+    // newest on it.
     void ownMessageSent();
 
 public:
@@ -496,9 +497,8 @@ private:
     /// unchanged sends nothing (C46 F06).
     QString m_editSeedText;
     QString m_editSeedHtml;
-    // The seed is markdown recovered from a formatted body, so an unchanged
-    // box still says everything the message said.
-    bool m_editSeedIsMarkdown = false;
+    // The edit banner's quote: what the message reads as, no markup.
+    QString m_editPreview;
     /// Where an edit must be sent: the recorded timeline, or this composer's
     /// room when none was recorded.
     QString editTargetTimelineId() const

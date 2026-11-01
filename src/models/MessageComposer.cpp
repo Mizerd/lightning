@@ -745,13 +745,10 @@ void MessageComposer::sendBypassingCommands()
 void MessageComposer::sendInternal(bool allowCommands)
 {
     if (!m_canSend || !m_client) return;
-    // An edit saved with the text it was opened with changes nothing: sending
-    // it would add an "(edited)" mark for no difference (C46 F06). Not for a
-    // plain seed of a formatted message: re-saving that through the plain lane
-    // would change it, so it still goes out.
-    if (!m_editingEventId.isEmpty()
-        && (m_editSeedHtml.isEmpty() || m_editSeedIsMarkdown)
-        && m_text == m_editSeedText) {
+    // An edit saved with the box as it was opened changes nothing, and sending
+    // it would add an "(edited)" mark or, for a seed plainer than the message,
+    // strip it (C46 F06).
+    if (!m_editingEventId.isEmpty() && m_text == m_editSeedText) {
         finishSuccessfulSend();
         return;
     }
@@ -828,15 +825,12 @@ void MessageComposer::sendPrepared(const QString &body, const QString &html,
 {
     if (!m_client || m_roomId.isEmpty() || body.trimmed().isEmpty())
         return;
-    // Rich-mode twin of the guard in sendInternal: an edit saved with the text
-    // (and formatting) it was opened with sends nothing (C46 F06).
-    // Empty html is "unchanged" only when the seed had none either: removing
-    // formatting while keeping the words is a real edit.
+    // Rich-mode twin of the guard in sendInternal. The composer text is the
+    // document's mirror: it moves on every edit, formatting included, so it
+    // and not the document answers "unchanged". The document may read back
+    // differently from what was loaded and must not be sent for that (C46 F06).
     if (!m_editingEventId.isEmpty()
-        && (m_editSeedIsMarkdown ? !html.isEmpty()
-                                       && m_text.trimmed() == m_editSeedText
-                                 : body == m_editSeedText
-                                       && html == m_editSeedHtml)) {
+        && m_text.trimmed() == m_editSeedText.trimmed()) {
         finishSuccessfulSend();
         return;
     }
@@ -1744,7 +1738,7 @@ void MessageComposer::beginReply(const QString &eventId,
     m_editingEventId.clear();
     m_editSeedText.clear();
     m_editSeedHtml.clear();
-    m_editSeedIsMarkdown = false;
+    m_editPreview.clear();
     m_editingTimelineId.clear();
     Q_EMIT editStateChanged();
     m_replyingToEventId = eventId;
@@ -1790,16 +1784,16 @@ void MessageComposer::beginEdit(const QString &eventId,
     // body. Recover the refs from either, or the edit would drop m.mentions.
     const mention::Recovery recovered = mention::recoverFromBody(currentBody);
     // A rich-mode send's body says nothing of its formatting: the edit starts
-    // from the formatted body, or saving it would strip the message plain.
+    // from the formatted body where that can be said exactly.
     const QString formatted = RichComposition::markdownFromSanitizedHtml(
         sanitizedHtml, recovered.text);
-    m_editSeedIsMarkdown = !formatted.isEmpty();
-    m_text = m_editSeedIsMarkdown ? formatted : recovered.text;
+    m_text = formatted.isEmpty() ? recovered.text : formatted;
     m_editSeedText = m_text;
     m_editSeedHtml = sanitizedHtml;
+    m_editPreview = sanitizedHtml.isEmpty()
+        ? recovered.text
+        : RichComposition::plainTextOfSanitizedHtml(sanitizedHtml);
     m_mentionRefs = recovered.refs;
-    if (m_editSeedIsMarkdown)
-        m_mentionRefs.clear();
     if (m_mentionRefs.isEmpty() && !sanitizedHtml.isEmpty()) {
         m_mentionRefs =
             mention::refsFromSanitizedHtml(m_text, sanitizedHtml);
@@ -1823,7 +1817,7 @@ void MessageComposer::beginThreadReply(const QString &rootEventId,
     m_editingEventId.clear();
     m_editSeedText.clear();
     m_editSeedHtml.clear();
-    m_editSeedIsMarkdown = false;
+    m_editPreview.clear();
     m_editingTimelineId.clear();
     Q_EMIT editStateChanged();
     m_replyingToEventId.clear();
@@ -1851,7 +1845,7 @@ void MessageComposer::cancelReplyOrEdit()
     m_editingEventId.clear();
     m_editSeedText.clear();
     m_editSeedHtml.clear();
-    m_editSeedIsMarkdown = false;
+    m_editPreview.clear();
     m_editingTimelineId.clear();
     m_threadRootId.clear();
     m_threadPreview.clear();
