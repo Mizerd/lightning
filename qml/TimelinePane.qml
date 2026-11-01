@@ -6180,6 +6180,16 @@ Rectangle {
                         scrollToEndTimer.restart()
                     }
                 }
+                // Your own message always brings you back to the newest, as in
+                // Element and Discord: the reader sent it to the conversation
+                // and expects to see it land, however far up they were.
+                Connections {
+                    target: app.composer
+                    function onOwnMessageSent() {
+                        if (!timeline.stickToBottom)
+                            timeline.goToLatest()
+                    }
+                }
                 Connections {
                     target: app.settings
                     function onShowRoomActivityChanged() {
@@ -6530,6 +6540,13 @@ Rectangle {
             Item {
                 objectName: "paginationHeader"
                 anchors.top: parent.top
+                // Under the First unread pill, which is centred at the same
+                // spot and sat over it. Clear of it at the corner it moves to.
+                anchors.topMargin: jumpToFirstUnreadButton.visible
+                                   ? jumpToFirstUnreadButton.y
+                                     + jumpToFirstUnreadButton.height
+                                     + AppTheme.spacing4
+                                   : 0
                 anchors.left: parent.left
                 anchors.right: parent.right
                 z: 15

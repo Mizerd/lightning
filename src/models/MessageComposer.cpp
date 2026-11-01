@@ -816,6 +816,7 @@ void MessageComposer::sendInternal(bool allowCommands)
         dispatchAttachments();
         if (!body.isEmpty() && !captioned)
             sendComposed(body, mentionIds, QVariantMap());
+        Q_EMIT ownMessageSent();
     }
     finishSuccessfulSend();
 }
@@ -848,6 +849,7 @@ void MessageComposer::sendPrepared(const QString &body, const QString &html,
     } else {
         dispatchAttachments();
         sendComposed(body, mentionUserIds, spec);
+        Q_EMIT ownMessageSent();
     }
     finishSuccessfulSend();
 }
@@ -1050,6 +1052,7 @@ bool MessageComposer::executeCommand(const SlashCommands::Parse &parsed,
     actions.send = [this](const QString &body, const QStringList &ids,
                           const QVariantMap &spec) {
         sendComposed(body, ids, spec);
+        Q_EMIT ownMessageSent();
     };
     actions.join = [this](const QString &target) {
         m_client->joinRoomByIdOrAlias(target, QStringList());

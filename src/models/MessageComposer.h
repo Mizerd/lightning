@@ -411,6 +411,10 @@ Q_SIGNALS:
     // (synchronously, or later when the portal answered). The bar focuses the
     // editor on it so Return sends.
     void droppedAttachmentsResolved();
+    // Something new left this composer for its timeline, from any path: the
+    // box, a rich document, a command that posts, attachments. An edit is
+    // not one. The timeline returns to the newest on it.
+    void ownMessageSent();
 
 public:
     /// Whether "… is typing" leaves this device (Settings -> Privacy). A seam

@@ -12189,6 +12189,148 @@ private Q_SLOTS:
         QVERIFY(!pill->isVisible());
     }
 
+    // QA T-6: a reader scrolled up in history sends a message and is left
+    // where they were, with their message out of sight below.
+    void sendingYourOwnMessageReturnsToTheNewest()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+        QQuickItem *root = paneWithEvents(
+            controller, engine, window, roomId,
+            textFixture(roomId, 80, QStringLiteral("own"), QStringLiteral("body")),
+            /*paginationPages=*/0, /*viewportHeight=*/600, &timeline);
+        QVERIFY(root != nullptr);
+        QVERIFY(timeline != nullptr);
+        double minY = 0.0;
+        double maxY = 0.0;
+        QVERIFY(wheelBounds(timeline, &minY, &maxY));
+        QVERIFY2(maxY > minY + 600.0, "fixture is not scrollable");
+        QVERIFY(timeline->setProperty("stickToBottom", false));
+        QVERIFY(timeline->setProperty("contentY", maxY));
+        QCoreApplication::processEvents();
+
+        // Someone else's message does not move the reader.
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        int before = controller.timeline()->rowCount();
+        mock->sendTextMessage(roomId, QStringLiteral("from elsewhere"));
+        QTRY_COMPARE_WITH_TIMEOUT(controller.timeline()->rowCount(), before + 1,
+                                  kSignalTimeoutMs);
+        QCOMPARE(timeline->property("stickToBottom").toBool(), false);
+
+        before = controller.timeline()->rowCount();
+        controller.composer()->setText(QStringLiteral("my own message"));
+        controller.composer()->send();
+        QTRY_COMPARE_WITH_TIMEOUT(controller.timeline()->rowCount(), before + 1,
+                                  kSignalTimeoutMs);
+        QTRY_VERIFY_WITH_TIMEOUT(timeline->property("stickToBottom").toBool(),
+                                 2000);
+        QVERIFY(wheelBounds(timeline, &minY, &maxY));
+        QTRY_VERIFY_WITH_TIMEOUT(
+            qAbs(timeline->property("contentY").toDouble() - minY) < 1.0, 2000);
+    }
+
+    // QA T-8: both pills are centred at the top of the timeline, and the
+    // loading chip ended up behind First unread.
+    void theLoadingChipSitsBelowTheFirstUnreadPill()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+        QQuickItem *root = paneWithEvents(
+            controller, engine, window, roomId,
+            textFixture(roomId, 30, QStringLiteral("chip"), QStringLiteral("body")),
+            /*paginationPages=*/0, /*viewportHeight=*/600, &timeline);
+        QVERIFY(root != nullptr);
+        auto *chip = root->findChild<QQuickItem *>(
+            QStringLiteral("paginationHeader"));
+        auto *pill = root->findChild<QQuickItem *>(
+            QStringLiteral("jumpToFirstUnreadButton"));
+        QVERIFY(chip != nullptr);
+        QVERIFY(pill != nullptr);
+        pill->setProperty("visible", true);
+        QTRY_VERIFY(pill->isVisible());
+        QTRY_VERIFY2(chip->mapToScene(QPointF(0, 0)).y()
+                         >= pill->mapToScene(QPointF(0, pill->height())).y(),
+                     "the loading chip shares the pill's place");
+        pill->setProperty("visible", false);
+        QTRY_COMPARE(chip->y(), 0.0);
+    }
+
+    // QA SP-8: a row cut by the top of the timeline drew its hover bar half
+    // under the room header, at the row's own corner.
+    void theActionBarOfACutRowStaysInsideTheTimeline()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+        QQuickItem *root = paneWithEvents(
+            controller, engine, window, roomId,
+            textFixture(roomId, 40, QStringLiteral("bar"),
+                        QStringLiteral("one\ntwo\nthree\nfour\nfive")),
+            /*paginationPages=*/0, /*viewportHeight=*/600, &timeline);
+        QVERIFY(root != nullptr);
+        QVERIFY(timeline != nullptr);
+        QVERIFY(timeline->setProperty("stickToBottom", false));
+        const qreal viewTop = timeline->mapRectToScene(
+            QRectF(0, 0, timeline->width(), timeline->height())).top();
+
+        // Walk the content until one row stands a little over the top edge.
+        QQuickItem *loader = nullptr;
+        QQuickItem *row = nullptr;
+        double minY = 0.0;
+        double maxY = 0.0;
+        QVERIFY(wheelBounds(timeline, &minY, &maxY));
+        for (double y = minY + 100; y < maxY && !loader; y += 5) {
+            timeline->setProperty("contentY", y);
+            QCoreApplication::processEvents();
+            QList<QQuickItem *> loaders;
+            QList<QQuickItem *> stack{ timeline };
+            while (!stack.isEmpty()) {
+                QQuickItem *it = stack.takeLast();
+                if (it->objectName()
+                    == QLatin1String("messageActionBarLoader"))
+                    loaders.append(it);
+                stack.append(it->childItems());
+            }
+            for (QQuickItem *candidate : std::as_const(loaders)) {
+                QQuickItem *host = candidate->parentItem();
+                if (!host || !host->isVisible() || host->height() < 60)
+                    continue;
+                const qreal over = viewTop - host->mapRectToScene(
+                    QRectF(0, 0, host->width(), host->height())).top();
+                if (over >= 10 && over <= 20) {
+                    loader = candidate;
+                    row = host;
+                    break;
+                }
+            }
+        }
+        QVERIFY2(loader, "no row stood over the top of the timeline");
+        QQuickItem *delegate = row;
+        while (delegate && !delegate->property("actionKey").isValid())
+            delegate = delegate->parentItem();
+        QVERIFY(delegate != nullptr);
+        QVERIFY(timeline->setProperty("pinnedActionsKey",
+                                      delegate->property("actionKey")));
+        QTRY_VERIFY(loader->isVisible());
+        QTRY_VERIFY(loader->height() > 0);
+        QTRY_VERIFY2(loader->mapRectToScene(
+                         QRectF(0, 0, loader->width(), loader->height())).top()
+                         >= viewTop,
+                     "the action bar stands over the top of the timeline");
+    }
+
     void contextLoadNewerAtTheEndRestoresTheLivePane_data()
     {
         QTest::addColumn<int>("messageCount");

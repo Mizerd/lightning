@@ -3249,7 +3249,35 @@ Item {
                 objectName: "messageActionBarLoader"
                 anchors.top: parent.top
                 anchors.right: parent.right
-                anchors.topMargin: -3
+                anchors.topMargin: -3 + headerPush
+                // A row cut by the top of the timeline keeps its bar in view:
+                // at the row's corner it stood half under the room header. A
+                // live mapToItem read, so refreshed rather than bound, and only
+                // while the bar shows. The timeline is rotated, so either end
+                // of it may be the top of the screen.
+                property real headerPush: 0
+                function refreshHeaderPush() {
+                    var view = root.timelineView
+                    var overlay = Overlay.overlay
+                    if (!view || !view.mapToItem || !overlay || !visible) {
+                        headerPush = 0
+                        return
+                    }
+                    var viewTop = Math.min(view.mapToItem(overlay, 0, 0).y,
+                                           view.mapToItem(overlay, 0, view.height).y)
+                    var rowTop = bubbleRow.mapToItem(overlay, 0, 0).y
+                    headerPush = Math.max(0, Math.min(
+                        viewTop - rowTop + 3 + AppTheme.spacing2,
+                        bubbleRow.height - height))
+                }
+                onVisibleChanged: refreshHeaderPush()
+                Connections {
+                    target: root.timelineView || null
+                    enabled: messageActionBarLoader.visible
+                    function onContentYChanged() {
+                        messageActionBarLoader.refreshHeaderPush()
+                    }
+                }
                 // Top-right corner of the full-width row, as in Element. The
                 // margin clears the overlaid scrollbar.
                 //
