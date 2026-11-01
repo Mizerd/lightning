@@ -38,6 +38,8 @@ Rectangle {
             ? why : qsTr("You do not have permission to post in this room.")
     }
     function toggleComposerHeight() { composerExpanded = !composerExpanded }
+    // Width the editors keep clear on their right for the height button.
+    readonly property int editorCornerReserve: 26
     function returnShouldSend(modifiers) {
         return ComposerBehavior.returnShouldSend(
             modifiers, app.settings.enterInsertsNewline,
@@ -2090,26 +2092,6 @@ Rectangle {
                             ToolTip.delay: 500
                             onClicked: threadAttachDialog.open()
                         }
-                        IconButton {
-                            objectName: "threadComposerHeightButton"
-                            visible: panel.composerExpanded
-                                     || (panel.richMode ? threadRichInput.lineCount
-                                                        : threadComposerInput.lineCount) > 1
-                            Layout.alignment: panel.composerExpanded ? Qt.AlignBottom : Qt.AlignVCenter
-                            implicitWidth: 24; implicitHeight: 24
-                            radius: AppTheme.radiusControl
-                            iconName: panel.composerExpanded ? "unfold_less" : "unfold_more"
-                            iconSize: 18
-                            Accessible.name: panel.composerExpanded
-                                             ? qsTr("Collapse message box")
-                                             : qsTr("Expand message box")
-                            ToolTip.text: Accessible.name
-                            ToolTip.visible: hovered
-                            onClicked: {
-                                panel.toggleComposerHeight()
-                                Qt.callLater(function() { panel.focusComposer() })
-                            }
-                        }
                         // Rich composer for the thread panel; same growth rules
                         // as threadInputFlick, visibility-exclusive with it.
                         Flickable {
@@ -2176,6 +2158,9 @@ Rectangle {
                                 inputMethodHints: Qt.ImhNone
                                 wrapMode: TextArea.Wrap
                                 enabled: app.thread.state === ThreadController.Ready
+                            // Held for the height button even while it is away, so its
+                            // arrival never rewraps.
+                            rightPadding: panel.editorCornerReserve
                                 background: Rectangle { color: "transparent" }
                                 color: AppTheme.text
                                 font.pixelSize: AppTheme.scaled(13)
@@ -2344,6 +2329,9 @@ Rectangle {
                             wrapMode: TextArea.Wrap
                             enabled: app.thread.state === ThreadController.Ready
                             // The card carries the chrome; the field is bare.
+                            // Held for the height button even while it is away, so its
+                            // arrival never rewraps.
+                            rightPadding: panel.editorCornerReserve
                             background: Rectangle { color: "transparent" }
                             color: AppTheme.text
                             font.pixelSize: AppTheme.scaled(13)
@@ -2862,6 +2850,34 @@ Rectangle {
                             ToolTip.visible: hovered
                             ToolTip.delay: 500
                             onClicked: panel.sendComposerText()
+                        }
+                    }
+
+                    // Over the row, not in it; see composerHeightButton in
+                    // MessageComposerBar.qml.
+                    IconButton {
+                        objectName: "threadComposerHeightButton"
+                        readonly property Item editor: panel.richMode
+                                                       ? threadRichFlick
+                                                       : threadInputFlick
+                        visible: panel.composerExpanded
+                                 || (panel.richMode ? threadRichInput.lineCount
+                                                    : threadComposerInput.lineCount) > 1
+                        x: composerRow.x + editor.x + editor.width - width
+                        y: composerRow.y + editor.y + 2
+                        z: 1
+                        width: 22; height: 22
+                        radius: AppTheme.radiusControl
+                        iconName: panel.composerExpanded ? "unfold_less" : "unfold_more"
+                        iconSize: 16
+                        Accessible.name: panel.composerExpanded
+                                         ? qsTr("Collapse message box")
+                                         : qsTr("Expand message box")
+                        ToolTip.text: Accessible.name
+                        ToolTip.visible: hovered
+                        onClicked: {
+                            panel.toggleComposerHeight()
+                            Qt.callLater(function() { panel.focusComposer() })
                         }
                     }
                 }
@@ -3700,8 +3716,22 @@ Rectangle {
                                       threadRichInput.selectionEnd, format,
                                       argument)
         threadRichInput.forceActiveFocus()
+        panel.reseatCaret(threadRichInput)
         // Structure changes what is drawn without changing characters.
         panel.refreshThreadRichBlank()
+    }
+    // See reseatCaret in MessageComposerBar.qml.
+    function reseatCaret(field) {
+        var start = field.selectionStart
+        var end = field.selectionEnd
+        var at = field.cursorPosition
+        field.cursorPosition = at > 0 ? at - 1 : at + 1
+        if (end === start)
+            field.cursorPosition = at
+        else if (at === start)
+            field.select(end, start)
+        else
+            field.select(start, end)
     }
     function updateThreadRichMentionState() {
         if (!panel.richMode)

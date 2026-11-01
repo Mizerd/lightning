@@ -17,6 +17,8 @@ Item {
     focus: false
     property bool composerExpanded: false
     function toggleComposerHeight() { composerExpanded = !composerExpanded }
+    // Width the editors keep clear on their right for composerHeightButton.
+    readonly property int editorCornerReserve: 26
     implicitHeight: (root.postBlocked ? blockedBar.implicitHeight
                                       : composerCol.implicitHeight)
                     + AppTheme.composerInsetBottom + AppTheme.spacing4
@@ -451,10 +453,27 @@ Item {
                                       richInput.selectionEnd, format,
                                       argument)
         richInput.forceActiveFocus()
+        root.reseatCaret(richInput)
         refreshFormatState()
         // List/quote/code toggles change what is drawn without changing
         // characters.
         root.refreshRichBlank()
+    }
+    // A format change widens the text around a caret that did not move, and
+    // TextEdit keeps the old cursor rectangle until the position changes: Bold
+    // left the caret drawn inside the last word. Step it off and back, keeping
+    // the selection and its direction.
+    function reseatCaret(field) {
+        var start = field.selectionStart
+        var end = field.selectionEnd
+        var at = field.cursorPosition
+        field.cursorPosition = at > 0 ? at - 1 : at + 1
+        if (end === start)
+            field.cursorPosition = at
+        else if (at === start)
+            field.select(end, start)
+        else
+            field.select(start, end)
     }
     // Completion popups (mention, slash command, emoji shortcode) are placed
     // above the composer card, not the text field, so they never cover the
@@ -2473,29 +2492,6 @@ Item {
                         ToolTip.delay: 500
                     }
 
-                    IconButton {
-                        objectName: "composerHeightButton"
-                        // Multi-line only, like Element: a fixed extra button
-                        // beside the field reads as a spaced-out bar.
-                        visible: root.composerExpanded
-                                 || (root.richMode ? richInput.lineCount
-                                                   : input.lineCount) > 1
-                        Layout.alignment: root.composerExpanded ? Qt.AlignBottom : Qt.AlignVCenter
-                        implicitWidth: 28; implicitHeight: 28
-                        radius: AppTheme.radiusControl
-                        iconName: root.composerExpanded ? "unfold_less" : "unfold_more"
-                        iconSize: 18
-                        Accessible.name: root.composerExpanded
-                                         ? qsTr("Collapse message box")
-                                         : qsTr("Expand message box")
-                        ToolTip.text: Accessible.name
-                        ToolTip.visible: hovered
-                        onClicked: {
-                            root.toggleComposerHeight()
-                            Qt.callLater(function() { root.focusEditor() })
-                        }
-                    }
-
                     // Format toggle: opens/closes the formatting toolbar.
                     IconButton {
                         objectName: "composerFormatToggleButton"
@@ -2632,6 +2628,12 @@ Item {
                             color: AppTheme.composerText
                             font: app.textFontWithEmoji(AppTheme.uiFont,
                                                         AppTheme.scaled(14))
+                            // Text starts against the Aa button; the style's
+                            // default left padding read as a dead gap. The
+                            // right side is held for the height button even
+                            // while it is away, so its arrival never rewraps.
+                            leftPadding: 2
+                            rightPadding: root.editorCornerReserve
                             topPadding: AppTheme.spacing6
                             bottomPadding: AppTheme.spacing6
                             topInset: 0
@@ -2874,6 +2876,9 @@ Item {
                         // face: QML cannot express a families list, and Qt
                         // 6.8's automatic fallback picks a monochrome face.
                         font: app.textFontWithEmoji(AppTheme.uiFont, AppTheme.scaled(14))
+                        // See richInput.
+                        leftPadding: 2
+                        rightPadding: root.editorCornerReserve
                         // Explicit, symmetric vertical padding: the platform
                         // style's padding is asymmetric and placed a single
                         // line below centre.
@@ -3528,6 +3533,35 @@ Item {
                         // menu's height as 0 and cover the bar.
                         onClicked: sendOptionsMenu.open()
                     }
+                }
+            }
+
+            // Top-right corner of the editor, over the row rather than in it:
+            // a button in the row moved the text sideways as it came and went
+            // (QA T-2). Multi-line only, like Element. The editors hold
+            // editorCornerReserve clear on their right, so it covers no text.
+            IconButton {
+                id: composerHeightButton
+                objectName: "composerHeightButton"
+                readonly property Item editor: root.richMode ? richFlick : inputFlick
+                visible: root.composerExpanded
+                         || (root.richMode ? richInput.lineCount
+                                           : input.lineCount) > 1
+                x: cardColumn.x + inputRow.x + editor.x + editor.width - width
+                y: cardColumn.y + inputRow.y + editor.y + 2
+                z: 1
+                width: 22; height: 22
+                radius: AppTheme.radiusControl
+                iconName: root.composerExpanded ? "unfold_less" : "unfold_more"
+                iconSize: 16
+                Accessible.name: root.composerExpanded
+                                 ? qsTr("Collapse message box")
+                                 : qsTr("Expand message box")
+                ToolTip.text: Accessible.name
+                ToolTip.visible: hovered
+                onClicked: {
+                    root.toggleComposerHeight()
+                    Qt.callLater(function() { root.focusEditor() })
                 }
             }
             }

@@ -15,14 +15,13 @@ class Gui5cRegressions(unittest.TestCase):
     def test_tall_composer_controls_move_to_bottom(self):
         for qml, state, controls in (
             ("MessageComposerBar.qml", "root.composerExpanded", (
-                "composerAttachButton", "composerHeightButton",
+                "composerAttachButton",
                 "composerFormatToggleButton", "composerEmojiButton",
                 "composerMediaButton", "composerMicButton",
                 "composerOverflowButton", "composerSendButton",
                 "composerSendOptionsButton")),
             ("ThreadPanel.qml", "panel.composerExpanded", (
-                "threadAttachButton", "threadComposerHeightButton",
-                "threadSendButton")),
+                "threadAttachButton", "threadSendButton")),
         ):
             text = source("qml/" + qml)
             for name in controls:

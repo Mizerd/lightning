@@ -461,8 +461,7 @@ private slots:
             bar->setProperty("composerExpanded", false);
         });
         const char *order[] = {
-            "composerAttachButton", "composerHeightButton",
-            "composerFormatToggleButton",
+            "composerAttachButton", "composerFormatToggleButton",
             "composerInput", "composerEmojiButton",
             // One button for GIFs and stickers; "send later" is a chevron
             // right of Send.
@@ -480,19 +479,52 @@ private slots:
     }
 
     // Live 2026-11-01 on 0.10.3: a fixed third button left of the field read
-    // as the bar having been spaced out. Multi-line only, like Element.
-    void heightButtonStandsOnlyForAMultiLineBox()
+    // as the bar having been spaced out, and once it came and went with the
+    // line count it moved the text sideways (QA T-2). It floats in the
+    // editor's corner now, multi-line only, and nothing in the row moves.
+    void heightButtonFloatsInTheEditorCornerAndMovesNothing()
     {
         auto *bar = item("composerBar");
         auto *button = item("composerHeightButton");
         auto *input = item("composerInput");
-        QVERIFY(bar && button && input);
+        auto *flick = item("composerInputFlick");
+        auto *format = item("composerFormatToggleButton");
+        QVERIFY(bar && button && input && flick && format);
         bar->setProperty("composerExpanded", false);
         input->setProperty("text", QString());
         QTest::qWait(30);
         QVERIFY(!button->isVisible());
+        const qreal textXAlone = input->mapToScene(QPointF(0, 0)).x()
+            + input->property("leftPadding").toReal();
+        const qreal widthAlone = flick->width();
+
         input->setProperty("text", QStringLiteral("one\ntwo"));
         QTRY_VERIFY(button->isVisible());
+        QTest::qWait(30);
+        QCOMPARE(input->mapToScene(QPointF(0, 0)).x()
+                     + input->property("leftPadding").toReal(),
+                 textXAlone);
+        QCOMPARE(flick->width(), widthAlone);
+
+        // In the editor's top-right corner, and over the part of the field the
+        // text keeps clear of.
+        const QRectF box = button->mapRectToScene(
+            QRectF(0, 0, button->width(), button->height()));
+        const QRectF field = flick->mapRectToScene(
+            QRectF(0, 0, flick->width(), flick->height()));
+        QVERIFY2(field.contains(box), "the button left the editor");
+        QVERIFY(field.right() - box.right() < 1.0);
+        QVERIFY(box.top() - field.top() < 4.0);
+        const qreal textRight = input->mapToScene(QPointF(input->width(), 0)).x()
+            - input->property("rightPadding").toReal();
+        QVERIFY2(box.left() >= textRight, "the button stands over text");
+
+        // No dead gap after Aa: the row's own spacing and a caret's room.
+        const qreal formatRight =
+            format->mapToScene(QPointF(format->width(), 0)).x();
+        QVERIFY2(textXAlone - formatRight <= 14.0,
+                 qPrintable(QString::number(textXAlone - formatRight)));
+
         bar->setProperty("composerExpanded", true);
         input->setProperty("text", QString());
         QTest::qWait(30);
