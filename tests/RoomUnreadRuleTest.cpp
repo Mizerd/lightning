@@ -348,6 +348,19 @@ private Q_SLOTS:
                  "the flyout claims a saved rule for 'follow account default'");
     }
 
+    void theMenuOffersMarkReadForACountedRoomWithoutAReceiptFlag()
+    {
+        QFile f(QStringLiteral(SOURCE_DIR "/qml/RoomDelegate.qml"));
+        QVERIFY(f.open(QIODevice::ReadOnly));
+        const QString row = QString::fromUtf8(f.readAll());
+        const int at = row.indexOf(QStringLiteral("property bool canMarkRead:"));
+        QVERIFY(at >= 0);
+        const QString decl = row.mid(at, 200);
+        QVERIFY(decl.contains(QStringLiteral("model.unreadCount > 0")));
+        QVERIFY(decl.contains(QStringLiteral("model.highlightCount > 0")));
+        QCOMPARE(row.count(QStringLiteral("isUnread: root.canMarkRead")), 2);
+    }
+
     void refreshTrayUnreadUsesTheSharedRule()
     {
         QFile f(QStringLiteral(SOURCE_DIR "/src/app/AppController.cpp"));

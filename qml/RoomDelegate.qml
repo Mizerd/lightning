@@ -65,6 +65,13 @@ Item {
 
     // Read rows are dimmed and lighter; unread or selected rows keep full ink.
     readonly property bool isUnread: model.hasUnread || model.markedUnread
+    // Whether the menu offers "Mark as read". hasUnread is the receipt flag
+    // alone and is false for a room whose count the server reports without
+    // one (a 13-unread room offered only "Mark as unread"), so the counts
+    // decide too, as RoomUnreadRule's rawUnread does. Separate from isUnread:
+    // that one drives the row's weight and must not change.
+    readonly property bool canMarkRead:
+        isUnread || model.unreadCount > 0 || model.highlightCount > 0
 
     // Mute state. roomNotificationMode is a Q_INVOKABLE, so it is re-queried
     // when the id changes (rows are recycled) and when settings announce a
@@ -592,7 +599,7 @@ Item {
             isDirect: model.isDirect === true,
             isFavourite: model.isFavourite === true,
             isLowPriority: model.isLowPriority === true,
-            isUnread: root.isUnread
+            isUnread: root.canMarkRead
         }
     }
     function openRowMenu() {
@@ -672,7 +679,7 @@ Item {
             isDirect: model.isDirect === true
             isFavourite: model.isFavourite === true
             isLowPriority: model.isLowPriority === true
-            isUnread: root.isUnread
+            isUnread: root.canMarkRead
             onMarkRead: root.markRead()
             onMarkUnread: root.markUnread()
             onSetFavourite: on => root.setFavourite(on)
