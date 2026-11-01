@@ -3365,6 +3365,8 @@ Rectangle {
                         return
                     viewAnchorScheduled = true
                     Qt.callLater(function() {
+                        // The pane may be gone by the time this runs.
+                        if (!timeline) return
                         viewAnchorScheduled = false
                         timeline.maintainViewAnchor()
                     })
@@ -5167,6 +5169,8 @@ Rectangle {
                         return
                     nearTopCheckScheduled = true
                     Qt.callLater(function() {
+                        // The pane may be gone by the time this runs.
+                        if (!timeline) return
                         nearTopCheckScheduled = false
                         var ui = nearTopCheckUserInitiated
                         nearTopCheckUserInitiated = false
@@ -5414,6 +5418,8 @@ Rectangle {
                     app.pagination.saveFollowingLatest(app.currentRoomId)
                     positionViewAtLatest()
                     Qt.callLater(function() {
+                        // The pane may be gone by the time this runs.
+                        if (!timeline) return
                         positionViewAtLatest()
                         app.readReceipts.reevaluate()
                         diagNavigationShape("latest-settled")
@@ -5908,6 +5914,8 @@ Rectangle {
                         return
                     viewportFillCheckScheduled = true
                     Qt.callLater(function() {
+                        // The pane may be gone by the time this runs.
+                        if (!timeline) return
                         viewportFillCheckScheduled = false
                         if (app.currentRoomId === ""
                             || contentHeight >= height) {
@@ -6107,6 +6115,8 @@ Rectangle {
                                         ? app.timeline.stableIdAt(row) : ""
                         var epoch = timeline.navigationEpoch
                         Qt.callLater(function() {
+                            // The pane may be gone by the time this runs.
+                            if (!timeline) return
                             // Re-validated when it runs, not only when it was
                             // queued: input in between owns the view now. A later explicit jump re-arms
                             // normally; this cancels only the obsolete one.
@@ -6150,6 +6160,8 @@ Rectangle {
                         // rather than waiting for onContentHeightChanged.
                         timeline.captureViewAnchor()
                         Qt.callLater(function() {
+                            // The pane may be gone by the time this runs.
+                            if (!timeline) return
                             timeline.maintainViewAnchor()
                             timeline.maybeFillViewport()
                         })
@@ -6350,7 +6362,11 @@ Rectangle {
                                 app.currentRoomId,
                                 app.settings.conversationReturnMode)
                         })
-                        Qt.callLater(timeline.maybeFillViewport)
+                        Qt.callLater(function() {
+                            // The pane may be gone by the time this runs.
+                            if (timeline)
+                                timeline.maybeFillViewport()
+                        })
                         presentationResetSettledTimer.restart()
                     }
                 }
@@ -7259,7 +7275,11 @@ Rectangle {
             target: app.eventContext
             function onStateChanged() {
                 if (!app.eventContext.active && app.currentRoomId !== "")
-                    Qt.callLater(function() { messageComposer.focusEditor() })
+                    Qt.callLater(function() {
+                        // The pane may be gone by the time this runs.
+                        if (messageComposer)
+                            messageComposer.focusEditor()
+                    })
             }
             // "Jump to latest" in the context view promises the newest
             // message. Closing the overlay alone uncovered the live timeline
