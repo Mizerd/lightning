@@ -604,48 +604,61 @@ FocusScope {
         x: trackButton.mirrored ? 0 : Math.round(trackButton.width - width)
         y: -Math.max(height, rows * AppTheme.menuItemHeight + topPadding
                                 + bottomPadding) - 4
-        AppMenuItem {
-            text: qsTr("Audio")
-            enabled: false
-            visible: bar.audioTracks.length > 1
-            height: visible ? implicitHeight : 0
-        }
+        // ONE Repeater, in menu order. Repeater delegates are appended after
+        // every statically declared item, so separate headings above separate
+        // Repeaters rendered both headings first and every track after them.
         Repeater {
-            model: bar.audioTracks.length > 1 ? bar.audioTracks : []
-            AppMenuItem {
-                required property var modelData
-                required property int index
-                objectName: "videoAudioTrack" + index
-                text: bar.trackLabel(modelData, index)
-                iconName: bar.player && bar.player.activeAudioTrack === index
-                          ? "check" : ""
-                onTriggered: if (bar.player) bar.player.activeAudioTrack = index
+            model: {
+                var rows = []
+                if (bar.audioTracks.length > 1) {
+                    rows.push({ kind: "heading", label: qsTr("Audio") })
+                    for (var i = 0; i < bar.audioTracks.length; ++i)
+                        rows.push({ kind: "audio", index: i,
+                                    meta: bar.audioTracks[i] })
+                }
+                if (bar.subtitleTracks.length > 0) {
+                    rows.push({ kind: "heading", label: qsTr("Subtitles") })
+                    rows.push({ kind: "subtitleOff" })
+                    for (var j = 0; j < bar.subtitleTracks.length; ++j)
+                        rows.push({ kind: "subtitle", index: j,
+                                    meta: bar.subtitleTracks[j] })
+                }
+                return rows
             }
-        }
-        AppMenuItem {
-            text: qsTr("Subtitles")
-            enabled: false
-            visible: bar.subtitleTracks.length > 0
-            height: visible ? implicitHeight : 0
-        }
-        AppMenuItem {
-            objectName: "videoSubtitleOff"
-            visible: bar.subtitleTracks.length > 0
-            height: visible ? implicitHeight : 0
-            text: qsTr("Off")
-            iconName: bar.player && bar.player.activeSubtitleTrack < 0 ? "check" : ""
-            onTriggered: if (bar.player) bar.player.activeSubtitleTrack = -1
-        }
-        Repeater {
-            model: bar.subtitleTracks
             AppMenuItem {
                 required property var modelData
-                required property int index
-                objectName: "videoSubtitleTrack" + index
-                text: bar.trackLabel(modelData, index)
-                iconName: bar.player && bar.player.activeSubtitleTrack === index
-                          ? "check" : ""
-                onTriggered: if (bar.player) bar.player.activeSubtitleTrack = index
+                readonly property bool heading: modelData.kind === "heading"
+                objectName: modelData.kind === "audio"
+                            ? "videoAudioTrack" + modelData.index
+                            : modelData.kind === "subtitle"
+                              ? "videoSubtitleTrack" + modelData.index
+                              : modelData.kind === "subtitleOff"
+                                ? "videoSubtitleOff" : "videoTracksHeading"
+                enabled: !heading
+                text: heading ? modelData.label
+                      : modelData.kind === "subtitleOff" ? qsTr("Off")
+                      : bar.trackLabel(modelData.meta, modelData.index)
+                iconName: {
+                    if (!bar.player) return ""
+                    if (modelData.kind === "audio")
+                        return bar.player.activeAudioTrack === modelData.index
+                               ? "check" : ""
+                    if (modelData.kind === "subtitleOff")
+                        return bar.player.activeSubtitleTrack < 0 ? "check" : ""
+                    if (modelData.kind === "subtitle")
+                        return bar.player.activeSubtitleTrack === modelData.index
+                               ? "check" : ""
+                    return ""
+                }
+                onTriggered: {
+                    if (!bar.player) return
+                    if (modelData.kind === "audio")
+                        bar.player.activeAudioTrack = modelData.index
+                    else if (modelData.kind === "subtitleOff")
+                        bar.player.activeSubtitleTrack = -1
+                    else if (modelData.kind === "subtitle")
+                        bar.player.activeSubtitleTrack = modelData.index
+                }
             }
         }
     }
