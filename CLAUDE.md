@@ -26,23 +26,20 @@ frontend.
 
 ## 2. Current release and development state
 
-Release 0.10.3 is PREPARED on `main` (version bumped, notes in
-`docs/releases/v0.10.3.md`) and is NOT published until its pipeline passes;
-what follows describes the last PUBLISHED release.
-
-Latest published release: **Lightning 0.10.2** (`v0.10.2` -> `a32229a6`),
-tagged 2026-10-21 by **project 6** pipeline **344, 30/30 first attempt**
-(macOS attached; Flathub PR #3 opened by `flathub-update-pr`). Notes in
-`docs/releases/v0.10.2.md`. **Anonymous verification bar PASSED IN FULL on
-2026-10-22** (11 links, signature verified, 11 mirror assets; result in
-`docs/release-operations.md`). Before it: 0.10.1 (`712ed6dd`, pipeline 315,
+Latest published release: **Lightning 0.10.3** (`v0.10.3` -> `485ec7e2`),
+tagged 2026-11-01 by **project 6** pipeline **349, 30/30 first attempt**
+(macOS attached; Flathub PR #4 opened by `flathub-update-pr`). Notes in
+`docs/releases/v0.10.3.md`. **Anonymous verification bar PASSED IN FULL on
+2026-11-01** (11 links, signature verified, 11 mirror assets; result in
+`docs/release-operations.md`). Before it: 0.10.2 (`a32229a6`, pipeline 344,
+30/30), 0.10.1 (`712ed6dd`, pipeline 315,
 30/30) and 0.10.0 (`1e808997`, pipeline 284, 28/28, the first release whose
 pipeline opened the Flathub PR itself). Round record: `docs/round-history.md`.
 `tests/VersionConsistencyTest.cpp` compares five locations so a bump cannot
 half-land — **and there is a SIXTH it does NOT compare, the AppStream
 metainfo; see §14.** The root Flathub manifest is a SEVENTH, re-pinned to
 the new tag after each release (`test-flathub-manifest-pin.py` waits for it);
-it names `v0.10.2` / `a32229a6…`. Media from encrypted rooms is kept
+it names `v0.10.3` / `485ec7e2…`. Media from encrypted rooms is kept
 encrypted at rest (a per-account key in the keyring; §6's plaintext rule
 holds for media).
 

@@ -291,8 +291,8 @@ modules:
     sources:
       - type: git
         url: https://github.com/Mizerd/lightning.git
-        tag: v0.10.2
-        commit: a32229a61f1d590a1273376155fa5e8f5e18ff1c
+        tag: v0.10.3
+        commit: 485ec7e2611788d48083413fcf06633618086407
         x-checker-data:
           type: git
           tag-pattern: '^v([\d.]+)$'

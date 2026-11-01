@@ -20,6 +20,7 @@ pipelines.
 
 | Version | Commit | Deploy pipeline | Notes file |
 |---|---|---|---|
+| 0.10.3 | `485ec7e2` | **project 6** 349, **30/30 green first attempt** (Flathub PR #4); bar PASSED IN FULL 2026-11-01: 11 links, signature verified, one-field copy rejected, 11 mirror assets, tag peels to the release commit | `docs/releases/v0.10.3.md` |
 | 0.10.2 | `a32229a6` | **project 6** 344, **30/30 green first attempt** (Flathub PR #3) | `docs/releases/v0.10.2.md` |
 | 0.10.1 | `712ed6dd` | **project 6** 315, 30/30 | `docs/releases/v0.10.1.md` |
 | 0.10.0 | `1e808997` | **project 6** 284, 28/28 (281 cancelled before publishing) | `docs/releases/v0.10.0.md` |
