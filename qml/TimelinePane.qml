@@ -158,7 +158,11 @@ Rectangle {
         function onThreadPresentationChanged() {
             var rootId = app.timeline.threadFilterRootId || ""
             if (rootId !== "" && rootId !== lastRoot)
-                Qt.callLater(root.focusComposerForTyping)
+                Qt.callLater(function() {
+                    // The pane may be gone by the time this runs.
+                    if (root)
+                        root.focusComposerForTyping()
+                })
             lastRoot = rootId
         }
     }
