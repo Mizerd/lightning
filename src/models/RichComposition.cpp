@@ -505,7 +505,7 @@ QString comparableText(QString text)
     static const QRegularExpression linkTarget(
         QStringLiteral("\\]\\((?:[^()\\s]|\\([^()\\s]*\\))*\\)"));
     static const QRegularExpression fenceLine(
-        QStringLiteral("^ {0,3}(?:> ?)*(?:```|~~~).*$"),
+        QStringLiteral("^ {0,3}(?:> ?)*(?:`{3,}|~{3,})[ \\t]*\\S*[ \\t]*$"),
         QRegularExpression::MultilineOption);
     static const QRegularExpression markup(QStringLiteral("[\\s*_~`#>\\-+=|\\[\\]\\\\]"));
     text.remove(fenceLine);

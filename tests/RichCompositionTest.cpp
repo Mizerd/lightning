@@ -525,6 +525,8 @@ private Q_SLOTS:
     {
         QTest::addColumn<QString>("text");
         QTest::newRow("tag") << QStringLiteral("use <foo> now");
+        QTest::newRow("fence words") << QStringLiteral("a\n\n~~~ note to self\nb\n~~~\nc");
+        QTest::newRow("info string") << QStringLiteral("```python secret words\nprint(1)\n```");
         QTest::newRow("br") << QStringLiteral("a<br>b");
         QTest::newRow("comment") << QStringLiteral("a <!-- b --> c");
         QTest::newRow("html") << QStringLiteral("a <b>x</b> c");

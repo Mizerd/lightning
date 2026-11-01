@@ -25,8 +25,8 @@ namespace lightning {
 //
 // The fixed threshold has one price: a block above it costs a mapping and its
 // page faults on every malloc, and a call allocates one 1080p frame per
-// received frame. So a live call lifts the thresholds above any frame and the
-// last one ending puts them back. CallAllocatorHold is the only writer.
+// received frame. So a live call lifts the thresholds as far as glibc allows,
+// above any frame up to 4K, and the last one ending puts them back. CallAllocatorHold is the only writer.
 inline constexpr int kIdleMmapThresholdBytes = 128 * 1024;
 inline constexpr int kCallMmapThresholdBytes = 32 * 1024 * 1024; // glibc's ceiling
 inline constexpr int kIdleTrimThresholdBytes = 2 * 1024 * 1024;
