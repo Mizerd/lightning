@@ -206,6 +206,7 @@ Item {
 
         delegate: RoomDelegate {
             id: rowDelegate
+            sharedRowMenu: sharedRowMenuHost
             width: ListView.view.width
             selected: model.roomId === app.currentRoomId
                       || (app.roomBatch.selectionCount >= 0 && app.roomBatch.isSelected(model.roomId))
@@ -421,6 +422,50 @@ Item {
         function onAccountSwitchingChanged() {
             if (app.accountSwitching)
                 middleClickScroller.stop()
+        }
+    }
+
+    // One room menu for the whole list, incubated in the background: a menu per
+    // row cost 633 QObjects a row, and building one on the first right-click
+    // made that click visibly slower.
+    Loader {
+        id: sharedRowMenuHost
+        objectName: "sharedRoomMenuHost"
+        asynchronous: true
+        property Item row: null
+        property var state: ({})
+        function openFor(target) {
+            row = target
+            state = target.rowMenuState()
+            // A click that beats the incubator finishes it now.
+            asynchronous = false
+            if (item)
+                item.popup()
+        }
+        sourceComponent: RoomActionsMenu {
+            objectName: "roomContextMenu"
+            roomId: sharedRowMenuHost.state.roomId || ""
+            roomName: sharedRowMenuHost.state.roomName || ""
+            canonicalAlias: sharedRowMenuHost.state.canonicalAlias || ""
+            isDirect: sharedRowMenuHost.state.isDirect === true
+            isFavourite: sharedRowMenuHost.state.isFavourite === true
+            isLowPriority: sharedRowMenuHost.state.isLowPriority === true
+            onMarkRead: if (sharedRowMenuHost.row) sharedRowMenuHost.row.markRead()
+            onMarkUnread: if (sharedRowMenuHost.row) sharedRowMenuHost.row.markUnread()
+            onSetFavourite: on => {
+                if (sharedRowMenuHost.row) sharedRowMenuHost.row.setFavourite(on)
+            }
+            onSetLowPriority: on => {
+                if (sharedRowMenuHost.row) sharedRowMenuHost.row.setLowPriority(on)
+            }
+            onSetNotificationMode: mode => {
+                if (sharedRowMenuHost.row) sharedRowMenuHost.row.setNotificationMode(mode)
+            }
+            onCopyRoomLink: if (sharedRowMenuHost.row) sharedRowMenuHost.row.copyRoomLink()
+            onLeaveRoomRequested: if (sharedRowMenuHost.row) sharedRowMenuHost.row.leaveRoomRequested()
+            onChatBackgroundRequested: if (sharedRowMenuHost.row) sharedRowMenuHost.row.chatBackgroundRequested()
+            onInviteRequested: if (sharedRowMenuHost.row) sharedRowMenuHost.row.inviteRequested()
+            onSelectRoomRequested: if (sharedRowMenuHost.row) sharedRowMenuHost.row.selectRoomRequested()
         }
     }
 }

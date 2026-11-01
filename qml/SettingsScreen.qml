@@ -43,10 +43,15 @@ Item {
             Qt.callLater(root.ensurePageFocus)
         }
     }
-    // The keyboard rows are by far the most of this warm screen: built on the
-    // page's first visit, then kept, because panes are never destroyed
-    // (anchorCache relies on it).
+    // The keyboard rows are by far the most of this warm screen, so they follow
+    // it: incubated shortly after it, or at once if the page opens first, then
+    // kept, because panes are never destroyed (anchorCache relies on it).
     property bool shortcutRowsBuilt: false
+    Timer {
+        interval: 1500
+        running: !root.shortcutRowsBuilt
+        onTriggered: root.shortcutRowsBuilt = true
+    }
     onSectionChanged: {
         if (root.section === "shortcuts")
             root.shortcutRowsBuilt = true
@@ -6077,6 +6082,9 @@ Item {
                                             active: model.shortcutCategory
                                                     === shortcutCategoryCard.modelData
                                             visible: active
+                                            // In the background until the page
+                                            // shows: a first visit finds them built.
+                                            asynchronous: root.section !== "shortcuts"
                                             Layout.fillWidth: true
                                             sourceComponent: ShortcutRow {
                                                 // ShortcutRegistry::roleNames prefixes

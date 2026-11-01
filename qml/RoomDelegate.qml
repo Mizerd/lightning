@@ -567,7 +567,24 @@ Item {
     readonly property string inviterUserId: model.inviterUserId || ""
     // Both row menus are built on first use: the whole list shares one pointer,
     // so a menu per row would cost hundreds of QObjects that never open.
+    // The list's one shared room menu, when the host provides one; it is built
+    // ahead of time, so a first right-click costs what a later one does.
+    property Item sharedRowMenu: null
+    function rowMenuState() {
+        return {
+            roomId: model.roomId,
+            roomName: model.name || "",
+            canonicalAlias: model.canonicalAlias || "",
+            isDirect: model.isDirect === true,
+            isFavourite: model.isFavourite === true,
+            isLowPriority: model.isLowPriority === true
+        }
+    }
     function openRowMenu() {
+        if (!root.isInviteRow && root.sharedRowMenu) {
+            root.sharedRowMenu.openFor(root)
+            return
+        }
         const host = root.isInviteRow ? inviteMenuLoader : roomMenuLoader
         host.active = true
         if (host.item)
