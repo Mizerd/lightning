@@ -31,11 +31,21 @@ class QTextDocument;
 // seed.
 namespace RichComposition {
 
-// Loads text whose every newline is a line the reader saw (the markdown box, a
-// message being edited). Qt's setMarkdown() turns a lone newline into a space.
-// Not for the rich editor's own mirror: Qt's toMarkdown() folds at 80 columns
-// and a fold is not a line.
+// Loading user text into the rich document. Both keep every word: what Qt's
+// reader would lose (`use <foo> now`) or compose() could not send (images,
+// rules, tables, task marks, nested lists, a list not starting at 1) opens as
+// the literal text.
+//
+// loadMarkdownLines: text whose every newline is a line the reader saw (the
+// markdown box, a message being edited). Qt's setMarkdown() turns a lone
+// newline into a space. loadMarkdown: the editor's own mirror, as a restored
+// draft may be, where Qt's toMarkdown() has folded at 80 columns.
+void loadMarkdown(QTextDocument *document, const QString &markdown);
 void loadMarkdownLines(QTextDocument *document, const QString &markdown);
+
+// The document as markdown for the plain box: Qt's mirror without its folds,
+// so a long line stays one line.
+QString markdownForPlainBox(const QTextDocument &document);
 
 // What a formatted message reads as, for a one-line quote. Custom emoji are
 // their shortcodes. `sanitizedHtml` is MessageHtml::sanitize() output.

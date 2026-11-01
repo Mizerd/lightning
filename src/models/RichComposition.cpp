@@ -9,6 +9,8 @@
 #include <QTextList>
 #include <QUrl>
 
+#include <memory>
+
 namespace RichComposition {
 
 namespace {
@@ -495,6 +497,120 @@ QString hardBreaksForNewlines(const QString &markdown)
     return out;
 }
 
+// What survives of text once markup is set aside, for comparing text with
+// what a load made of it. Link targets and fence lines are markup; a language
+// tag is not text the reader wrote.
+QString comparableText(QString text)
+{
+    static const QRegularExpression linkTarget(
+        QStringLiteral("\\]\\((?:[^()\\s]|\\([^()\\s]*\\))*\\)"));
+    static const QRegularExpression fenceLine(
+        QStringLiteral("^ {0,3}(?:> ?)*(?:```|~~~).*$"),
+        QRegularExpression::MultilineOption);
+    static const QRegularExpression markup(QStringLiteral("[\\s*_~`#>\\-+=|\\[\\]\\\\]"));
+    text.remove(fenceLine);
+    text.replace(linkTarget, QStringLiteral("]"));
+    text.remove(markup);
+    return text;
+}
+
+// True when the document holds something compose() cannot send, or lost text:
+// images, rules, tables, task marks, nested lists, or a list that does not
+// start at 1 all reach the wire differently from what the box said.
+bool loadLostSomething(const QTextDocument &document, const QString &text)
+{
+    if (!document.rootFrame()->childFrames().isEmpty())
+        return true;
+    for (QTextBlock block = document.begin(); block.isValid(); block = block.next()) {
+        const QTextBlockFormat format = block.blockFormat();
+        for (auto it = block.begin(); !it.atEnd(); ++it) {
+            // compose() would send the words without an unsafe target.
+            const QTextCharFormat run = it.fragment().charFormat();
+            if (run.isAnchor() && !RichComposition::isSafeLinkTarget(run.anchorHref()))
+                return true;
+        }
+        if (block.text().contains(QChar::ObjectReplacementCharacter)
+            || format.hasProperty(QTextFormat::BlockTrailingHorizontalRulerWidth)
+            || format.marker() != QTextBlockFormat::MarkerType::NoMarker)
+            return true;
+        if (QTextList *list = block.textList()) {
+            if (list->format().indent() > 1 || list->format().start() != 1)
+                return true;
+        }
+    }
+    const QString plain = RichComposition::compose(document).plainBody;
+    if (plain.trimmed().isEmpty() != text.trimmed().isEmpty())
+        return true;
+    return comparableText(plain) != comparableText(text);
+}
+
+// A load of user text never drops any of it: what Qt's reader would lose or
+// compose() could not send opens as the literal text instead.
+void keepTextIfLoadLostIt(QTextDocument *document, const QString &text)
+{
+    if (loadLostSomething(*document, text))
+        document->setPlainText(text);
+}
+
+// The quote markers a line of markdown opens with.
+QString quotePrefixOf(const QString &line)
+{
+    static const QRegularExpression prefix(QStringLiteral("^ {0,3}(?:> ?)+"));
+    return prefix.match(line).captured();
+}
+
+// A line that opens a new block rather than continuing a paragraph.
+bool opensBlock(const QString &content)
+{
+    static const QRegularExpression opener(QStringLiteral(
+        "^ {0,3}(?:[-+*]\\s|\\d{1,9}[.)]\\s|#{1,6}(?:\\s|$)|```|~~~|\\|"
+        "|[-=_*:|\\s]{3,}$)"));
+    return opener.match(content).hasMatch();
+}
+
+// Joins the lines of each paragraph of Qt's writer output: inside one, a single
+// newline is a fold at 80 columns. Code, tables and block openers stay.
+QString unfolded(const QString &markdown)
+{
+    static const QRegularExpression fence(QStringLiteral("^ {0,3}(`{3,}|~{3,})"));
+    const QStringList lines = markdown.split(QLatin1Char('\n'));
+    QString out;
+    out.reserve(markdown.size());
+    QChar openFence;
+    bool joined = false;
+    for (qsizetype i = 0; i < lines.size(); ++i) {
+        const QString &line = lines.at(i);
+        const QString prefix = quotePrefixOf(line);
+        const QString content = line.mid(prefix.size());
+        out += joined ? content.trimmed() : line;
+        joined = false;
+        const QRegularExpressionMatch marker = fence.match(content);
+        if (!openFence.isNull()) {
+            if (marker.hasMatch() && marker.captured(1).at(0) == openFence)
+                openFence = QChar();
+        } else if (marker.hasMatch()) {
+            openFence = marker.captured(1).at(0);
+        } else if (i + 1 < lines.size() && !content.trimmed().isEmpty()
+                   && !content.startsWith(QLatin1Char('|'))
+                   && !content.startsWith(QLatin1String("    "))
+                   && !content.trimmed().startsWith(QLatin1Char('#'))) {
+            const QString &next = lines.at(i + 1);
+            const QString nextContent = next.mid(prefix.size());
+            joined = quotePrefixOf(next) == prefix
+                && !nextContent.trimmed().isEmpty()
+                && !opensBlock(nextContent);
+        }
+        if (joined) {
+            while (out.endsWith(QLatin1Char(' ')))
+                out.chop(1);
+            out += QLatin1Char(' ');
+        } else if (i + 1 < lines.size()) {
+            out += QLatin1Char('\n');
+        }
+    }
+    return out;
+}
+
 // One run of a seed: text with the inline formats markdown can say exactly.
 struct SeedRun {
     QString text;
@@ -632,12 +748,55 @@ QString seedMarkdownFrom(const QList<SeedRun> &runs)
 
 } // namespace
 
+void RichComposition::loadMarkdown(QTextDocument *document,
+                                   const QString &markdown)
+{
+    if (!document)
+        return;
+    document->setMarkdown(markdown, QTextDocument::MarkdownDialectGitHub);
+    if (!loadLostSomething(*document, markdown))
+        return;
+    // The mirror's own escapes are not the reader's text.
+    static const QRegularExpression escape(
+        QStringLiteral("\\\\([!-/:-@\\[-`{-~])"));
+    QString literal = markdown;
+    literal.replace(escape, QStringLiteral("\\1"));
+    document->setPlainText(literal.trimmed());
+}
+
 void RichComposition::loadMarkdownLines(QTextDocument *document,
                                         const QString &markdown)
 {
-    if (document)
-        document->setMarkdown(hardBreaksForNewlines(markdown),
-                              QTextDocument::MarkdownDialectGitHub);
+    if (!document)
+        return;
+    document->setMarkdown(hardBreaksForNewlines(markdown),
+                          QTextDocument::MarkdownDialectGitHub);
+    keepTextIfLoadLostIt(document, markdown);
+}
+
+QString RichComposition::markdownForPlainBox(const QTextDocument &document)
+{
+    constexpr auto dialect = QTextDocument::MarkdownDialectGitHub;
+    const QString mirror = document.toMarkdown(dialect);
+    // A line break the reader made must not read as a fold: carried through
+    // the writer as a private-use character.
+    const QString raw = document.toRawText();
+    QChar lineBreak(0xE000);
+    while (raw.contains(lineBreak))
+        lineBreak = QChar(ushort(lineBreak.unicode() + 1));
+    std::unique_ptr<QTextDocument> copy(document.clone());
+    copy->setUndoRedoEnabled(false);
+    QTextCursor cursor(copy.get());
+    while (!(cursor = copy->find(QString(QChar::LineSeparator))).isNull())
+        cursor.insertText(QString(lineBreak));
+    QString out = unfolded(copy->toMarkdown(dialect));
+    out.replace(lineBreak, QLatin1Char('\n'));
+    // Should unfolding ever cost text, the folded mirror is still every word.
+    QTextDocument check;
+    check.setMarkdown(out, dialect);
+    return comparableText(compose(check).plainBody)
+            == comparableText(compose(document).plainBody)
+        ? out : mirror;
 }
 
 QString RichComposition::plainTextOfSanitizedHtml(const QString &sanitizedHtml)

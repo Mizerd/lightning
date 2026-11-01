@@ -368,6 +368,13 @@ Item {
             commandPopup.close()
             Qt.callLater(function () { richInput.forceActiveFocus() })
         } else {
+            // The text is still the document's mirror, folded at 80 columns:
+            // in the plain box a fold would be a real line. A text that was
+            // only loaded and never edited is the reader's own already.
+            if (app.richComposer.toMarkdown(richInput.textDocument).trim()
+                    === app.composer.text.trim())
+                app.composer.text =
+                    app.richComposer.markdownForPlainBox(richInput.textDocument)
             root.richTextAtLeave = app.composer.text
             mentionPopup.tokenActive = false
             mentionPopup.close()

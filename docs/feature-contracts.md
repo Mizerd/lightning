@@ -3201,9 +3201,18 @@ live, and the server answers presence. Research and design: vault note
   does not. GIFs and stickers do not pass through the composer and do not yet.
 - Switching from Markdown to rich text keeps the draft's lines as CommonMark
   hard breaks, and so does opening a message for edit in rich mode
-  (`RichComposition::loadMarkdownLines`). The markdown mirror stays Qt's
-  writer: it folds at 80 columns, so a draft restored in rich mode still loads
-  with soft breaks and a multi-line one comes back flattened. Known limit.
+  (`RichComposition::loadMarkdownLines`). Rich to Markdown shows the mirror
+  without Qt's 80-column folds (`markdownForPlainBox`), and a return with the
+  box untouched keeps the document.
+- No load of user text into the rich document may lose any of it: text Qt's
+  reader would drop (`use <foo> now`, `a<br>b`, comments) or compose() could
+  not send (images, rules, tables, task marks, nested lists, a list not
+  starting at 1) opens as the literal text, so the reader sees it before
+  sending. Known limits: a restored rich draft still loads with soft breaks, so
+  a multi-line one flattens; a typed `>foo` in such a draft comes back as a
+  quote with its words intact, and `_x_`, `*x*` or an indented line typed there
+  may come back formatted; the comparison ignores markup characters themselves.
+  LOW: `|` lines do not join in the plain box.
 - Editing a rich-mode send seeds the box with markdown only when the message is
   entirely bold, italic, strike, inline code and http(s) links, with text that
   needs no escaping, and only when the seed reads back as exactly those runs.

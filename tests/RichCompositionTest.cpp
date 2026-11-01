@@ -503,13 +503,7 @@ private Q_SLOTS:
         QTest::newRow("fence") << QStringLiteral("```\ncode\nmore\n```");
         QTest::newRow("tilde fence") << QStringLiteral("~~~\ncode\nmore\n~~~");
         QTest::newRow("setext") << QStringLiteral("Title\n=====\nnext");
-        QTest::newRow("setext dash") << QStringLiteral("Title\n---\nnext");
-        QTest::newRow("table") << QStringLiteral("| a | b |\n|---|---|\n| 1 | 2 |");
-        QTest::newRow("rule") << QStringLiteral("above\n\n---\n\nbelow");
         QTest::newRow("indented") << QStringLiteral("    code\n    more");
-        QTest::newRow("list") << QStringLiteral("- a\n  - b\n- c");
-        QTest::newRow("task") << QStringLiteral("- [ ] t\n- [x] d");
-        QTest::newRow("start") << QStringLiteral("5. a\n6. b");
         QTest::newRow("backslash") << QStringLiteral("a\\\nb");
         QTest::newRow("hard") << QStringLiteral("a  \nb");
     }
@@ -523,6 +517,124 @@ private Q_SLOTS:
         QCOMPARE(lines.toMarkdown(QTextDocument::MarkdownDialectGitHub),
                  plain.toMarkdown(QTextDocument::MarkdownDialectGitHub));
         QCOMPARE(lines.blockCount(), plain.blockCount());
+    }
+
+    // Review F3, F4: on either load route, what Qt's reader would lose or
+    // compose() could not send opens as the literal text, never blank.
+    void aLoadThatWouldLoseTextOpensItLiterally_data()
+    {
+        QTest::addColumn<QString>("text");
+        QTest::newRow("tag") << QStringLiteral("use <foo> now");
+        QTest::newRow("br") << QStringLiteral("a<br>b");
+        QTest::newRow("comment") << QStringLiteral("a <!-- b --> c");
+        QTest::newRow("html") << QStringLiteral("a <b>x</b> c");
+        QTest::newRow("div") << QStringLiteral("<div>x</div>");
+        QTest::newRow("typed html") << QStringLiteral("<b>x</b> <foo>");
+        QTest::newRow("entity") << QStringLiteral("AT&amp;T &copy; &#65;");
+        QTest::newRow("image") << QStringLiteral("![alt](https://x.y/a.png) text");
+        QTest::newRow("image only") << QStringLiteral("![alt](https://x.y/a.png)");
+        QTest::newRow("typed image") << QStringLiteral("![a](b)");
+        QTest::newRow("rule") << QStringLiteral("above\n\n---\n\nbelow");
+        QTest::newRow("rule only") << QStringLiteral("---");
+        QTest::newRow("star rule") << QStringLiteral("a\n\n***\n\nb");
+        QTest::newRow("task") << QStringLiteral("- [ ] todo\n- [x] done");
+        QTest::newRow("table") << QStringLiteral("| a | b |\n|---|---|\n| 1 | 2 |");
+        QTest::newRow("start") << QStringLiteral("5. a\n6. b");
+        QTest::newRow("nested") << QStringLiteral("- a\n  - b\n- c");
+        QTest::newRow("reference") << QStringLiteral("[a][r]\n\n[r]: https://x.y");
+        QTest::newRow("code with tag") << QStringLiteral("<foo> x\n---\ny");
+    }
+    void aLoadThatWouldLoseTextOpensItLiterally()
+    {
+        QFETCH(QString, text);
+        QTextDocument lines;
+        RichComposition::loadMarkdownLines(&lines, text);
+        QCOMPARE(lines.toPlainText(), text);
+        QTextDocument draft;
+        RichComposition::loadMarkdown(&draft, text);
+        QCOMPARE(draft.toPlainText(), text);
+        QCOMPARE(compose(lines).plainBody, text);
+    }
+
+    // A draft is the rich mirror, and Qt's writer escapes what was typed.
+    void aRestoredDraftOpensAsTyped_data()
+    {
+        QTest::addColumn<QString>("mirror");
+        QTest::addColumn<QString>("typed");
+        QTest::newRow("html") << QStringLiteral("\\<b>x</b> \\<foo>\n\n")
+                              << QStringLiteral("<b>x</b> <foo>");
+        QTest::newRow("image") << QStringLiteral("\\![a](b) \\[c](d)\n\n")
+                               << QStringLiteral("![a](b) [c](d)");
+    }
+    void aRestoredDraftOpensAsTyped()
+    {
+        QFETCH(QString, mirror);
+        QFETCH(QString, typed);
+        QTextDocument document;
+        RichComposition::loadMarkdown(&document, mirror);
+        QCOMPARE(document.toPlainText(), typed);
+    }
+
+    // The guard must not take formatting from what loads faithfully.
+    void aLoadThatKeepsEverythingStaysFormatted_data()
+    {
+        QTest::addColumn<QString>("text");
+        QTest::addColumn<QString>("fragment");
+        QTest::newRow("bold") << QStringLiteral("**a** b") << QStringLiteral("<strong>");
+        QTest::newRow("link") << QStringLiteral("[a](https://x.y/z) b")
+                              << QStringLiteral("<a href");
+        QTest::newRow("paren link") << QStringLiteral("[a](https://x.y/a_(b)) z")
+                                    << QStringLiteral("<a href");
+        QTest::newRow("list") << QStringLiteral("- a\n- b") << QStringLiteral("<ul>");
+        QTest::newRow("ordered") << QStringLiteral("1. a\n2. b") << QStringLiteral("<ol>");
+        QTest::newRow("quote") << QStringLiteral("> a") << QStringLiteral("<blockquote>");
+        QTest::newRow("fence") << QStringLiteral("```cpp\nint a;\n```")
+                               << QStringLiteral("<pre>");
+        QTest::newRow("heading") << QStringLiteral("# h\ntext") << QStringLiteral("<h1>");
+    }
+    void aLoadThatKeepsEverythingStaysFormatted()
+    {
+        QFETCH(QString, text);
+        QFETCH(QString, fragment);
+        QTextDocument lines;
+        RichComposition::loadMarkdownLines(&lines, text);
+        QVERIFY2(compose(lines).html.contains(fragment),
+                 qPrintable(compose(lines).html));
+    }
+
+    // Review F2: to the plain box and back with one character changed; the
+    // folds of a 40-word line must not come back as lines.
+    void theMirrorIsUnfoldedForThePlainBox_data()
+    {
+        QTest::addColumn<QString>("markdown");
+        const QString words = QStringLiteral("word ").repeated(40).trimmed();
+        QTest::newRow("paragraph") << words;
+        QTest::newRow("bold") << words + QStringLiteral(" **b** ") + words;
+        QTest::newRow("list") << QStringLiteral("- ") + words;
+        QTest::newRow("quote") << QStringLiteral("> ") + words;
+    }
+    void theMirrorIsUnfoldedForThePlainBox()
+    {
+        QFETCH(QString, markdown);
+        QTextDocument document;
+        document.setMarkdown(markdown, QTextDocument::MarkdownDialectGitHub);
+        QString box = RichComposition::markdownForPlainBox(document).trimmed();
+        QVERIFY2(!box.contains(QLatin1Char('\n')), qPrintable(box));
+        box.append(QLatin1Char('x'));
+        QTextDocument back;
+        RichComposition::loadMarkdownLines(&back, box);
+        QCOMPARE(back.blockCount(), document.blockCount());
+    }
+
+    void aLineTheReaderMadeStaysALineInThePlainBox()
+    {
+        QTextDocument document;
+        QTextCursor cursor(&document);
+        cursor.insertText(QStringLiteral("one"));
+        cursor.insertText(QString(QChar::LineSeparator));
+        cursor.insertText(QStringLiteral("two"));
+        QCOMPARE(RichComposition::markdownForPlainBox(document).trimmed(),
+                 QStringLiteral("one\ntwo"));
     }
 
     // QA T-7: a rich-mode send has a plain body, so the edit box showed plain

@@ -2483,6 +2483,52 @@ private slots:
         QCOMPARE(m_controller->composer()->text().trimmed(), draft);
     }
 
+    // Review F3, F4 through the real routes: a draft switched to rich, a message
+    // opened for edit in rich, and a draft restored in rich all open with
+    // every word, never empty.
+    void richKeepsEveryWordOnEveryRoute_data()
+    {
+        QTest::addColumn<QString>("text");
+        QTest::newRow("tag") << QStringLiteral("use <foo> now");
+        QTest::newRow("br") << QStringLiteral("a<br>b");
+        QTest::newRow("code tag") << QStringLiteral("<foo> x\n---\ny");
+        QTest::newRow("image") << QStringLiteral("![alt](https://x.y/a.png)");
+        QTest::newRow("rule") << QStringLiteral("---");
+        QTest::newRow("table") << QStringLiteral("| a | b |\n|---|---|\n| 1 | 2 |");
+        QTest::newRow("task") << QStringLiteral("- [ ] todo");
+        QTest::newRow("start") << QStringLiteral("5. a\n6. b");
+    }
+    void richKeepsEveryWordOnEveryRoute()
+    {
+        QFETCH(QString, text);
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        auto *settings = m_controller->findChild<SettingsManager *>();
+        ModeScope scope{ settings, settings->composerMode(),
+                         m_controller->composer() };
+        auto *composer = m_controller->composer();
+        const auto plainOfRich = [this] {
+            return item("composerRichInput")->property("textDocument")
+                .value<QQuickTextDocument *>()->textDocument()->toPlainText();
+        };
+        QVERIFY(editorFor(QStringLiteral("markdown")));
+        composer->setText(text);
+        settings->setComposerMode(QStringLiteral("rich"));
+        QTest::qWait(40);
+        QCOMPARE(plainOfRich(), text);
+
+        composer->clear();
+        QTest::qWait(20);
+        composer->beginEdit(QStringLiteral("$e"), text);
+        QTest::qWait(20);
+        QCOMPARE(plainOfRich(), text);
+        composer->cancelReplyOrEdit();
+        QTest::qWait(20);
+
+        composer->setText(text);
+        QTest::qWait(20);
+        QCOMPARE(plainOfRich(), text);
+    }
+
     // There and back with the box untouched leaves a long rich paragraph one
     // paragraph: the mirror is folded at 80 columns and a fold is not a line.
     void aLongRichLineSurvivesAnUntouchedTripThroughMarkdown()

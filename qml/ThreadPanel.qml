@@ -3627,6 +3627,11 @@ Rectangle {
             threadMentionPopup.close()
             Qt.callLater(function () { threadRichInput.forceActiveFocus() })
         } else {
+            // See the room composer.
+            if (app.richComposer.toMarkdown(threadRichInput.textDocument).trim()
+                    === app.thread.text.trim())
+                app.thread.text = app.richComposer.markdownForPlainBox(
+                    threadRichInput.textDocument)
             panel.richTextAtLeave = app.thread.text
             threadMentionPopup.tokenActive = false
             threadMentionPopup.close()
