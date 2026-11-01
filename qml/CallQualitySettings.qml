@@ -137,7 +137,8 @@ ColumnLayout {
         text: qsTr("Auto is 720p for the camera and 1080p at 30 fps for a "
                    + "screen share. A bitrate limit only ever lowers the "
                    + "share's quality, which helps on a slow connection. "
-                   + "Changes apply to the next camera or share you start.")
+                   + "A new frame rate applies at once; the other changes "
+                   + "apply to the next camera or share you start.")
     }
 
     Label {
