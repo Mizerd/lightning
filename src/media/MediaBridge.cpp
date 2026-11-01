@@ -2522,21 +2522,6 @@ void MediaBridge::clear()
         m_activeSaves.clear();
         Q_EMIT activeSavesChanged();
     }
-    // A request refused locally (opId 0) while the session was restoring or
-    // the account switching is not a verdict about the file. Remember which
-    // ones this clear drops so the caller can ask the consumers to try again
-    // once the account transition has finished (retryRefused). NEVER emit from
-    // here: a clear runs in the middle of an add-account transition, where the
-    // previous account's delegates are still alive, and a synchronous retry
-    // would send that account's mxc:// through the new session.
-    // Accumulated, not replaced: one account transition clears more than once
-    // (when the old session detaches, then again at login), and the refusal
-    // is recorded by the first while the retry is asked after the last.
-    for (auto it = m_failed.constBegin(); it != m_failed.constEnd(); ++it)
-        if (it->category == QLatin1String("unavailable")
-            && !m_refusedAcrossClear.contains(it.key()))
-            m_refusedAcrossClear.append(it.key());
-    ++m_clearGeneration;
     m_failed.clear();
     m_animatedFiles.clear();
     m_animatedSizes.clear();
@@ -2594,17 +2579,18 @@ void MediaBridge::clear()
     lightning::portable::holdScratchDirLive(m_animatedDir->path());
 }
 
-void MediaBridge::retryRefused(quint64 generation)
+void MediaBridge::retryAvatar(const QString &mxcUri)
 {
-    // Another clear (another transition) has happened since the caller
-    // captured the generation: those keys belong to a session that is gone.
-    if (generation != m_clearGeneration) {
-        m_refusedAcrossClear.clear();
+    // One key, named by the caller from the ACTIVE account's own record: the
+    // cache clear of an account transition drops a refused (opId 0) avatar
+    // request without telling its consumer, and this asks that consumer again.
+    // Never a list of whatever was refused before: that would let another
+    // account's mxc:// be requested through this session.
+    if (mxcUri.isEmpty())
         return;
-    }
-    const QStringList refused = std::exchange(m_refusedAcrossClear, {});
-    for (const QString &cacheKey : refused)
-        Q_EMIT mediaRetryable(cacheKey);
+    const QString cacheKey = mxcCacheKey(mxcUri, kAvatarCanonicalEdge);
+    m_failed.remove(cacheKey);
+    Q_EMIT mediaRetryable(cacheKey);
 }
 
 void MediaBridge::onLoggedOut()

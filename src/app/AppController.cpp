@@ -7666,15 +7666,18 @@ void AppController::onLoginSucceeded()
             m_roomClosure->resetForAccountChange();
         if (m_spaceModeration)
             m_spaceModeration->resetForAccountChange();
-        // Avatars refused while the session was coming up were dropped by the
-        // cache clear above. Ask again one turn later, when the previous
-        // account's delegates have been torn down by the resets above; a
-        // second transition in between voids it.
+        // The new account's own picture may have been requested before its
+        // session was ready; the cache clear dropped that refusal. One turn
+        // later, ask for THAT avatar only, read from the active account's own
+        // record and only if it is still the active one.
         if (m_mediaBridge) {
-            const quint64 generation = m_mediaBridge->clearGeneration();
-            QTimer::singleShot(0, this, [this, generation] {
-                if (m_mediaBridge)
-                    m_mediaBridge->retryRefused(generation);
+            QTimer::singleShot(0, this, [this, uid] {
+                if (!m_mediaBridge || !m_settings
+                    || m_settings->activeAccountUserId() != uid)
+                    return;
+                m_mediaBridge->retryAvatar(
+                    m_settings->accountRecord(uid)
+                        .value(QStringLiteral("avatarUrl")).toString());
             });
         }
     }

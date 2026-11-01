@@ -786,67 +786,46 @@ private Q_SLOTS:
         QVERIFY(!bridge.avatarSource(kMxc, 64).isEmpty());
     }
 
-    // A clear() during a switch drops the refused marks. Consumers hear about
-    // it only when the caller asks AFTER the transition (retryRefused), never
-    // from inside clear(): on the add-account path the previous account's
-    // delegates are still alive then, and a consumer that re-requests on
-    // mediaRetryable would send the old account's mxc:// through the new
-    // session.
-    void clearDoesNotRetryByItselfAndRetryRefusedDoesAfterTheTransition()
+    // The cache clear of an account transition drops a refused avatar request.
+    // Only the ACTIVE account's own avatar is asked for again, by key, and
+    // nothing that was refused before is ever re-requested through the new
+    // session (another account's mxc:// must not reach the new homeserver).
+    void retryAvatarAsksForOneKeyAndNeverForAnOlderAccountsAvatar()
     {
+        const QString oldMxc = QStringLiteral("mxc://old.example/avatar");
         FakeClient client;
         client.rejectFetches = true;
         MediaBridge bridge;
         bridge.setClient(&client);
         // A consumer as the QML Avatar behaves: ask again on every retryable.
-        int reRequests = 0;
+        QStringList reRequested;
         QObject::connect(&bridge, &MediaBridge::mediaRetryable, &bridge,
-                         [&](const QString &) {
-                             ++reRequests;
-                             bridge.avatarSource(kMxc, 64);
+                         [&](const QString &cacheKey) {
+                             reRequested.append(cacheKey);
                          });
 
-        bridge.avatarSource(kMxc, 64);
-        QCOMPARE(bridge.avatarFailureCategory(kMxc),
+        // The previous account's avatar was refused, then the transitions run:
+        // sign-out, login, add-account (each clears).
+        bridge.avatarSource(oldMxc, 64);
+        QCOMPARE(bridge.avatarFailureCategory(oldMxc),
                  QStringLiteral("unavailable"));
         client.rejectFetches = false;
-        const quint64 generation = bridge.clearGeneration();
-        // The add-account order: the cache clear runs while the old
-        // delegates are alive.
         bridge.clear();
-        QCOMPARE(reRequests, 0);
-        QCOMPARE(client.fetches.size(), 0);
-        QVERIFY(bridge.clearGeneration() != generation);
-        // A stale caller (another transition began) re-requests nothing.
-        bridge.retryRefused(generation);
-        QCOMPARE(reRequests, 0);
-        QCOMPARE(client.fetches.size(), 0);
-    }
+        bridge.clear();
+        bridge.clear();
+        QVERIFY(reRequested.isEmpty());
 
-    void retryRefusedAsksAgainOnceTheTransitionIsOver()
-    {
-        FakeClient client;
-        client.rejectFetches = true;
-        MediaBridge bridge;
-        bridge.setClient(&client);
-        QSignalSpy retryable(&bridge, &MediaBridge::mediaRetryable);
-
-        bridge.avatarSource(kMxc, 64);
-        client.rejectFetches = false;
-        // A transition clears twice (the old session detaching, then login);
-        // the refusal is recorded by the first and asked after the second.
-        bridge.clear();
-        bridge.clear();
-        const quint64 generation = bridge.clearGeneration();
-        QCOMPARE(retryable.count(), 0);
-        bridge.retryRefused(generation);
-        QCOMPARE(retryable.count(), 1);
-        QCOMPARE(bridge.avatarFailureCategory(kMxc), QString());
+        // The new account's own avatar, asked for after the transition.
+        bridge.retryAvatar(kMxc);
+        QCOMPARE(reRequested.size(), 1);
+        QVERIFY(reRequested.first().endsWith(QLatin1Char(':') + kMxc));
+        QVERIFY(!reRequested.first().contains(oldMxc));
+        // An empty record asks for nothing.
+        bridge.retryAvatar(QString());
+        QCOMPARE(reRequested.size(), 1);
+        // And the request goes through the current session.
         bridge.avatarSource(kMxc, 64);
         QCOMPARE(client.fetches.size(), 1);
-        // Said once.
-        bridge.retryRefused(generation);
-        QCOMPARE(retryable.count(), 1);
     }
 
     // The watchdog sweeps expired transient marks and emits mediaRetryable,
