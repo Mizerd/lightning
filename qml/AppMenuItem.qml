@@ -62,11 +62,16 @@ MenuItem {
 
     contentItem: RowLayout {
         spacing: AppTheme.menuIconGap
-        StormNode {
-            visible: root.radio
-            size: 16
-            complete: root.radioSelected
-            iconName: root.radioSelected ? "check" : ""
+        // Built only on a radio row: a StormNode is fifteen QObjects and most
+        // menu rows are not radios.
+        Loader {
+            active: root.radio
+            visible: active
+            sourceComponent: StormNode {
+                size: 16
+                complete: root.radioSelected
+                iconName: root.radioSelected ? "check" : ""
+            }
         }
         Icon {
             visible: !root.radio && root.iconName.length > 0

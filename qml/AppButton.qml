@@ -129,13 +129,18 @@ AbstractButton {
             spacing: (root.iconName.length > 0 || root.busy)
                      ? AppTheme.buttonIconGap : 0
 
-            AppBusyIndicator {
-                objectName: "buttonBusy"
-                visible: root.busy
-                running: root.busy
-                size: root.size === "sm" ? 13 : 15
-                color: root._ink
+            // Built only while busy: a spinner is a dozen QObjects, and this
+            // button is on every settings row and in every dialog.
+            Loader {
+                active: root.busy
+                visible: active
                 anchors.verticalCenter: parent.verticalCenter
+                sourceComponent: AppBusyIndicator {
+                    objectName: "buttonBusy"
+                    running: root.busy
+                    size: root.size === "sm" ? 13 : 15
+                    color: root._ink
+                }
             }
 
             Icon {

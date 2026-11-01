@@ -69,40 +69,47 @@ TextField {
         acceptedButtons: Qt.RightButton
         onClicked: (mouse) => {
             root.forceActiveFocus(Qt.PopupFocusReason)
-            textFieldEditMenu.popup(mouse.x, mouse.y)
+            textFieldEditMenuLoader.active = true
+            textFieldEditMenuLoader.item.popup(mouse.x, mouse.y)
         }
     }
-    AppMenu {
-        id: textFieldEditMenu
-        objectName: "textFieldEditMenu"
-        menuWidth: AppTheme.menuWidthFlyout
-        readonly property bool _secret:
-            root.echoMode !== TextInput.Normal
-        AppMenuItem {
-            objectName: "textFieldCut"
-            text: qsTr("Cut")
-            enabled: !root.readOnly && !textFieldEditMenu._secret
-                     && root.selectedText.length > 0
-            onTriggered: root.cut()
-        }
-        AppMenuItem {
-            objectName: "textFieldCopy"
-            text: qsTr("Copy")
-            enabled: !textFieldEditMenu._secret && root.selectedText.length > 0
-            onTriggered: root.copy()
-        }
-        AppMenuItem {
-            objectName: "textFieldPaste"
-            text: qsTr("Paste")
-            enabled: !root.readOnly && root.canPaste
-            onTriggered: root.paste()
-        }
-        AppMenuSeparator {}
-        AppMenuItem {
-            objectName: "textFieldSelectAll"
-            text: qsTr("Select all")
-            enabled: root.length > 0
-            onTriggered: root.selectAll()
+    // Built on first use: this field is on every form, and an idle menu per
+    // field was 130 QObjects a piece.
+    Loader {
+        id: textFieldEditMenuLoader
+        active: false
+        sourceComponent: AppMenu {
+            id: textFieldEditMenu
+            objectName: "textFieldEditMenu"
+            menuWidth: AppTheme.menuWidthFlyout
+            readonly property bool _secret:
+                root.echoMode !== TextInput.Normal
+            AppMenuItem {
+                objectName: "textFieldCut"
+                text: qsTr("Cut")
+                enabled: !root.readOnly && !textFieldEditMenu._secret
+                         && root.selectedText.length > 0
+                onTriggered: root.cut()
+            }
+            AppMenuItem {
+                objectName: "textFieldCopy"
+                text: qsTr("Copy")
+                enabled: !textFieldEditMenu._secret && root.selectedText.length > 0
+                onTriggered: root.copy()
+            }
+            AppMenuItem {
+                objectName: "textFieldPaste"
+                text: qsTr("Paste")
+                enabled: !root.readOnly && root.canPaste
+                onTriggered: root.paste()
+            }
+            AppMenuSeparator {}
+            AppMenuItem {
+                objectName: "textFieldSelectAll"
+                text: qsTr("Select all")
+                enabled: root.length > 0
+                onTriggered: root.selectAll()
+            }
         }
     }
 
