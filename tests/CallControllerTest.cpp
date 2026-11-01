@@ -4102,6 +4102,23 @@ private Q_SLOTS:
         QCOMPARE(calls.lastRefusal(), QStringLiteral("rtc_unsupported"));
     }
 
+    // A connection lost in a running call is not "could not be set up".
+    void theMediaFailureNoticeNamesWhatHappened()
+    {
+        const auto text = [](const char *category, bool active) {
+            return CallController::mediaFailureNotice(
+                QString::fromLatin1(category), active);
+        };
+        const QString setup = text("media_pipeline", false);
+        const QString stopped = text("media_pipeline", true);
+        const QString lost = text("media_connection", true);
+        const QString cannotConnect = text("media_connection", false);
+        QCOMPARE(text("media_receive", true), lost);
+        QVERIFY(setup != stopped && setup != lost && setup != cannotConnect);
+        QVERIFY(stopped != lost && lost != cannotConnect);
+        QVERIFY2(!lost.contains(QLatin1String("set up")), qPrintable(lost));
+    }
+
     void mediaFailureDuringInviteAnnouncesAndEnds()
     {
         RecordingCallClient client;
@@ -4118,6 +4135,7 @@ private Q_SLOTS:
         media.deliverFailure(callId, QStringLiteral("device"));
         QCOMPARE(ended.count(), 1);
         QCOMPARE(ended.first().at(0).toString(), QStringLiteral("device"));
+        QCOMPARE(ended.first().at(1).toBool(), false);
         QCOMPARE(calls.state(), CallController::State::Ended);
         QCOMPARE(calls.endReason(), CallController::EndReason::MediaFailed);
         QVERIFY(client.sent.isEmpty());

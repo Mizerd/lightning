@@ -1512,8 +1512,24 @@ void CallController::onMediaFailed(const QString &callId,
                                      QStringLiteral("user_media_failed")),
                 m_session.callId);
     }
+    const bool wasActive = m_state == State::Active;
     endSession(EndReason::MediaFailed);
-    Q_EMIT mediaFailureEnded(category);
+    Q_EMIT mediaFailureEnded(category, wasActive);
+}
+
+QString CallController::mediaFailureNotice(const QString &category,
+                                           bool wasActive)
+{
+    const bool lostConnection = category == QLatin1String("media_connection")
+        || category == QLatin1String("media_receive");
+    if (wasActive) {
+        return lostConnection
+            ? tr("The call ended because the connection was lost.")
+            : tr("The call ended because its audio or video stopped working.");
+    }
+    return lostConnection
+        ? tr("The call could not connect.")
+        : tr("The call ended because its audio or video could not be set up.");
 }
 
 bool CallController::matchesSession(const CallSignal &signal) const

@@ -786,9 +786,44 @@ private Q_SLOTS:
         QVERIFY(!bridge.avatarSource(kMxc, 64).isEmpty());
     }
 
-    // A clear() during a switch drops the refused marks and says so, instead
-    // of leaving the account's own avatar a letter for the retry window.
-    void clearTellsConsumersOfRefusedRequestsToAskAgain()
+    // A clear() during a switch drops the refused marks. Consumers hear about
+    // it only when the caller asks AFTER the transition (retryRefused), never
+    // from inside clear(): on the add-account path the previous account's
+    // delegates are still alive then, and a consumer that re-requests on
+    // mediaRetryable would send the old account's mxc:// through the new
+    // session.
+    void clearDoesNotRetryByItselfAndRetryRefusedDoesAfterTheTransition()
+    {
+        FakeClient client;
+        client.rejectFetches = true;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        // A consumer as the QML Avatar behaves: ask again on every retryable.
+        int reRequests = 0;
+        QObject::connect(&bridge, &MediaBridge::mediaRetryable, &bridge,
+                         [&](const QString &) {
+                             ++reRequests;
+                             bridge.avatarSource(kMxc, 64);
+                         });
+
+        bridge.avatarSource(kMxc, 64);
+        QCOMPARE(bridge.avatarFailureCategory(kMxc),
+                 QStringLiteral("unavailable"));
+        client.rejectFetches = false;
+        const quint64 generation = bridge.clearGeneration();
+        // The add-account order: the cache clear runs while the old
+        // delegates are alive.
+        bridge.clear();
+        QCOMPARE(reRequests, 0);
+        QCOMPARE(client.fetches.size(), 0);
+        QVERIFY(bridge.clearGeneration() != generation);
+        // A stale caller (another transition began) re-requests nothing.
+        bridge.retryRefused(generation);
+        QCOMPARE(reRequests, 0);
+        QCOMPARE(client.fetches.size(), 0);
+    }
+
+    void retryRefusedAsksAgainOnceTheTransitionIsOver()
     {
         FakeClient client;
         client.rejectFetches = true;
@@ -797,15 +832,18 @@ private Q_SLOTS:
         QSignalSpy retryable(&bridge, &MediaBridge::mediaRetryable);
 
         bridge.avatarSource(kMxc, 64);
-        QCOMPARE(bridge.avatarFailureCategory(kMxc),
-                 QStringLiteral("unavailable"));
         client.rejectFetches = false;
-        // The switch's own clear() drops the mark: consumers must hear it.
         bridge.clear();
+        const quint64 generation = bridge.clearGeneration();
+        QCOMPARE(retryable.count(), 0);
+        bridge.retryRefused(generation);
         QCOMPARE(retryable.count(), 1);
         QCOMPARE(bridge.avatarFailureCategory(kMxc), QString());
         bridge.avatarSource(kMxc, 64);
         QCOMPARE(client.fetches.size(), 1);
+        // Said once.
+        bridge.retryRefused(generation);
+        QCOMPARE(retryable.count(), 1);
     }
 
     // The watchdog sweeps expired transient marks and emits mediaRetryable,

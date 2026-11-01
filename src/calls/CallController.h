@@ -255,6 +255,11 @@ public:
     /// only when this holds.
     bool noticeAllowed(const QString &roomId, const QString &senderId) const;
 
+    /// What the reader is told when a call's media pipeline failed and ended it:
+    /// by failure category, and by whether the call had already connected (a
+    /// lost connection in a running call is not "could not be set up").
+    static QString mediaFailureNotice(const QString &category, bool wasActive);
+
 Q_SIGNALS:
     void audioStateChanged();
     void videoStateChanged();
@@ -263,7 +268,8 @@ Q_SIGNALS:
     void cameraFailed(const QString &category);
     // The call's media pipeline failed and the call ended; the reader has
     // to be told, since a failure here ends it with no other trace.
-    void mediaFailureEnded(const QString &category);
+    // `wasActive`: the call had connected before the pipeline failed.
+    void mediaFailureEnded(const QString &category, bool wasActive);
     void callerDisplayNameChanged();
     void mediaBackendAvailableChanged();
     // remainingMs is the invite's real remaining validity.

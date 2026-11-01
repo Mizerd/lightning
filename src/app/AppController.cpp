@@ -1535,10 +1535,10 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             });
     // A legacy call whose media pipeline failed ended with no visible trace.
     connect(m_calls.get(), &CallController::mediaFailureEnded, this,
-            [this](const QString &) {
+            [this](const QString &category, bool wasActive) {
                 if (const auto report = m_callNotice.failed(
-                        tr("The call ended because its audio or video "
-                           "could not be set up."))) {
+                        CallController::mediaFailureNotice(category,
+                                                           wasActive))) {
                     m_callStatusNotice = *report;
                     Q_EMIT errorReported(*report);
                 }
@@ -7666,6 +7666,17 @@ void AppController::onLoginSucceeded()
             m_roomClosure->resetForAccountChange();
         if (m_spaceModeration)
             m_spaceModeration->resetForAccountChange();
+        // Avatars refused while the session was coming up were dropped by the
+        // cache clear above. Ask again one turn later, when the previous
+        // account's delegates have been torn down by the resets above; a
+        // second transition in between voids it.
+        if (m_mediaBridge) {
+            const quint64 generation = m_mediaBridge->clearGeneration();
+            QTimer::singleShot(0, this, [this, generation] {
+                if (m_mediaBridge)
+                    m_mediaBridge->retryRefused(generation);
+            });
+        }
     }
     // Stamp notifications with this account so actions taken after a later
     // switch can be refused. Set after the cache clear.

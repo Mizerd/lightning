@@ -361,6 +361,12 @@ public:
     QString cachedFullContentHash(const QString &mediaKey) const;
 
     Q_INVOKABLE void clear();
+    /// Counts clear() calls. A deferred retryRefused() captures it.
+    quint64 clearGeneration() const { return m_clearGeneration; }
+    /// Ask consumers to request again what the LAST clear() dropped as refused
+    /// locally (opId 0, "unavailable"). Does nothing when another clear has run
+    /// since `generation` was read.
+    void retryRefused(quint64 generation);
 
     // Shared with MediaImageProvider (QML render thread).
     QByteArray cachedBytes(const QString &cacheKey) const;
@@ -575,6 +581,8 @@ private:
         qint64 retryAfterMs = 0;
     };
     QHash<QString, FailureMark> m_failed;
+    QStringList m_refusedAcrossClear;
+    quint64 m_clearGeneration = 0;
     QElapsedTimer m_failureClock;
     qint64 m_failureRetryMs = 60 * 1000;
 

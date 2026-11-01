@@ -2523,14 +2523,17 @@ void MediaBridge::clear()
         Q_EMIT activeSavesChanged();
     }
     // A request refused locally (opId 0) while the session was restoring or
-    // the account switching is not a verdict about the file: the session this
-    // clear belongs to is the one that can answer it now. Tell the consumers
-    // once the state is empty, instead of leaving them on the failure mark
-    // that is being dropped here (an account's own avatar stayed a letter).
-    QStringList refused;
+    // the account switching is not a verdict about the file. Remember which
+    // ones this clear drops so the caller can ask the consumers to try again
+    // once the account transition has finished (retryRefused). NEVER emit from
+    // here: a clear runs in the middle of an add-account transition, where the
+    // previous account's delegates are still alive, and a synchronous retry
+    // would send that account's mxc:// through the new session.
+    m_refusedAcrossClear.clear();
     for (auto it = m_failed.constBegin(); it != m_failed.constEnd(); ++it)
         if (it->category == QLatin1String("unavailable"))
-            refused.append(it.key());
+            m_refusedAcrossClear.append(it.key());
+    ++m_clearGeneration;
     m_failed.clear();
     m_animatedFiles.clear();
     m_animatedSizes.clear();
@@ -2586,7 +2589,18 @@ void MediaBridge::clear()
         + QStringLiteral("/lightning-animated-XXXXXX"));
     // The replacement is a new directory and needs its own mark.
     lightning::portable::holdScratchDirLive(m_animatedDir->path());
-    for (const QString &cacheKey : std::as_const(refused))
+}
+
+void MediaBridge::retryRefused(quint64 generation)
+{
+    // Another clear (another transition) has happened since the caller
+    // captured the generation: those keys belong to a session that is gone.
+    if (generation != m_clearGeneration) {
+        m_refusedAcrossClear.clear();
+        return;
+    }
+    const QStringList refused = std::exchange(m_refusedAcrossClear, {});
+    for (const QString &cacheKey : refused)
         Q_EMIT mediaRetryable(cacheKey);
 }
 
