@@ -36,18 +36,16 @@ implement the filter would answer with an empty set.
 - A-obs: "rtp stats: no audio leaving ... outbound=0" every 5 s after the first
   mute and unmute while audio flows. Not located in the code or reproduced; the
   only producer is `GstCallMediaBackend::handleStats`.
-- B09: the track menu now lists each heading above its tracks (verified live).
-  Selecting a track does not stick, and the cause is narrower than "a Qt
-  limit": measured 2026-11-01 with a temporary log in the menu's handler, a
-  pick on the real card DOES write `activeAudioTrack` (before 0, after 1, with
-  the clip paused and `mediaStatus` BufferedMedia), and about three seconds
-  later the player's `source` changes again (`sourceChanged` fires, the card
-  restarts it), which drops the choice back to the default track. Plain Qt
-  Multimedia 6.11 on the same file keeps `activeAudioTrack` and
-  `activeSubtitleTrack` (measured). So the open question is what re-sets the
-  card's `player.source` after a pick (`VideoPlayerCard.start()` and
-  `resetPlayback()` are the only writers); not found, not fixed. The subtitle
-  pick was not measured separately.
+- B09: the track menu now lists each heading above its tracks (verified
+  live). A pick does not stick, and it is NOT a Qt Multimedia limit: a plain
+  `MediaPlayer` on the same file keeps `activeAudioTrack` after a pick while
+  playing and while paused (measured 2026-11-01, six steps in a standalone
+  QML run). On the real card the property reads the new value straight after
+  the write and the menu then shows the old track with NO player source
+  change in that case (a source change only appears when the 6 s clip ends:
+  `handleEndOfMedia` then `resetPlayback`, which is intended). The
+  `activeTracksChanged` signal was not logged, so what restores the default is
+  undetermined. Not found, not fixed.
 
 ## 2026-11-01 — KNOWN LIMIT: DMs created before 0.10.3 keep stock call power levels
 
