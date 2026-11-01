@@ -593,9 +593,11 @@ Rectangle {
                 // `Layout.minimumWidth: 0` alone does nothing: without
                 // fillWidth an item's horizontal size policy is fixed (min =
                 // preferred = max). The maximum caps growth at the natural size
-                // so wide windows are unchanged. Once compact there is nothing
-                // left to give: squeezing the cell further only moves the bar
-                // over its neighbours, so they give way instead.
+                // so wide windows are unchanged. Expanded, the cell may shrink
+                // below the bar's width: the bar is anchored to the cell's
+                // right edge and spills LEFT over the label (which has already
+                // given way down to nothing), so the controls that matter most
+                // (hang-up, collapse) stay inside the pane.
                 // Cramped and expanded is the narrow pane (640 px window: the
                 // pane is 320). A minimum of implicitWidth there made the
                 // column's minimum wider than the pane, so the whole stage,
