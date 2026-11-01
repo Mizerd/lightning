@@ -53,6 +53,37 @@ VoicePreviewBar { objectName: "bar" }
     }
 
 private Q_SLOTS:
+    // B07: the seek tooltip's clock went past an hour as "62:23".
+    void theSeekTooltipClockHasAnHoursBranch()
+    {
+        QQmlApplicationEngine engine;
+        auto *controller = new AppController(AppController::MockBackend, false,
+                                             &engine);
+        engine.rootContext()->setContextProperty(QStringLiteral("app"),
+                                                 controller);
+        QQmlComponent component(&engine);
+        component.setData(QByteArrayLiteral(R"(
+import QtQuick
+import MatrixClient
+VoiceSeekBar { objectName: "bar" }
+)"), QUrl(QStringLiteral("qrc:/voiceSeekClock.qml")));
+        QVERIFY2(component.errors().isEmpty(), qPrintable(component.errorString()));
+        std::unique_ptr<QObject> bar(component.create(engine.rootContext()));
+        QVERIFY(bar);
+        auto clock = [&](int ms, bool round) {
+            QVariant out;
+            QMetaObject::invokeMethod(bar.get(), "clock",
+                                      Q_RETURN_ARG(QVariant, out),
+                                      Q_ARG(QVariant, ms), Q_ARG(QVariant, round));
+            return out.toString();
+        };
+        QCOMPARE(clock(3743000, false), QStringLiteral("1:02:23"));
+        QCOMPARE(clock(3600000, false), QStringLiteral("1:00:00"));
+        QCOMPARE(clock(125400, false), QStringLiteral("2:05"));
+        QCOMPARE(clock(25700, true), QStringLiteral("0:26"));
+        QCOMPARE(clock(25700, false), QStringLiteral("0:25"));
+    }
+
     void theWidthDoesNotFollowThePlaybackLabel_data()
     {
         QTest::addColumn<bool>("compact");

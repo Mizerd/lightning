@@ -51,9 +51,7 @@ Slider {
     function clock(ms, round) {
         if (!ms || ms < 0) ms = 0
         var t = round ? Math.round(ms / 1000) : Math.floor(ms / 1000)
-        var m = Math.floor(t / 60)
-        var s = t % 60
-        return m + ":" + (s < 10 ? "0" : "") + s
+        return AppTheme.clockText(t)
     }
 
     from: 0
