@@ -983,6 +983,16 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <location filename="../src/app/AppController.cpp" line="+0"/>
+        <source>Joined %1</source>
+        <translation>Joined %1</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Joined the space</source>
+        <translation>Joined the space</translation>
+    </message>
+    <message>
         <location filename="../src/app/NotificationNotices.h" line="+248"/>
         <location line="+79"/>
         <location line="+32"/>
@@ -19086,6 +19096,14 @@ Signing out and signing in again is the only fix.</source>
         <source>Lightning</source>
         <translation type="unfinished"></translation>
     </message>
+    <message numerus="yes">
+        <location filename="../qml/RoomsPanel.qml" line="+0"/>
+        <source>%n room(s) updated</source>
+        <translation>
+            <numerusform>%n room updated</numerusform>
+            <numerusform>%n rooms updated</numerusform>
+        </translation>
+    </message>
     <message>
         <location line="-5"/>
         <source>Home</source>
@@ -20264,6 +20282,31 @@ Signing out and signing in again is the only fix.</source>
 </context>
 <context>
     <name>SearchPanel</name>
+    <message>
+        <location filename="../qml/SearchPanel.qml" line="+0"/>
+        <source>Indexing this room's history…</source>
+        <translation>Indexing this room's history…</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Nothing is indexed yet.</source>
+        <translation>Nothing is indexed yet.</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Searching %1 messages Lightning has indexed, including encrypted ones.</source>
+        <translation>Searching %1 messages Lightning has indexed, including encrypted ones.</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Index this room</source>
+        <translation>Index this room</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Fetch this room's older messages so they can be searched</source>
+        <translation>Fetch this room's older messages so they can be searched</translation>
+    </message>
     <message>
         <location filename="../qml/SearchPanel.qml" line="+162"/>
         <source>Use dates in YYYY-MM-DD format.</source>
@@ -27515,6 +27558,16 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SpaceSettingsDialog</name>
     <message>
+        <location filename="../qml/SpaceSettingsDialog.qml" line="+0"/>
+        <source>Leave Space</source>
+        <translation>Leave Space</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Leaving does not remove the rooms inside it.</source>
+        <translation>Leaving does not remove the rooms inside it.</translation>
+    </message>
+    <message>
         <location filename="../qml/SpaceSettingsDialog.qml" line="+190"/>
         <source>General</source>
         <translation type="unfinished"></translation>
@@ -28287,6 +28340,11 @@ Note: importing keys does not verify this session.</source>
 </context>
 <context>
     <name>SpaceTextEditRow</name>
+    <message>
+        <location filename="../qml/SpaceTextEditRow.qml" line="+0"/>
+        <source>Only Space admins can change this.</source>
+        <translation>Only Space admins can change this.</translation>
+    </message>
     <message>
         <location filename="../qml/SpaceTextEditRow.qml" line="+33"/>
         <source>Save</source>
@@ -31680,6 +31738,11 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>TimelinePane</name>
     <message>
+        <location filename="../qml/TimelinePane.qml" line="+0"/>
+        <source>Only Space admins can change this.</source>
+        <translation>Only Space admins can change this.</translation>
+    </message>
+    <message>
         <location filename="../qml/TimelinePane.qml" line="+880"/>
         <source>Seen by 1 person</source>
         <translation type="unfinished"></translation>
@@ -31811,11 +31874,6 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+100"/>
         <source>Chat background…</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+9"/>
-        <source>Room settings</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

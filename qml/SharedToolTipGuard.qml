@@ -53,14 +53,21 @@ Item {
     }
 
     // The cap: the tooltip is as wide as its text up to this, then the text
-    // wraps. The Text's implicit width stays the unwrapped width, so the cap
-    // does not feed back into itself.
-    Binding {
-        target: ToolTip.toolTip
-        property: "width"
-        when: ToolTip.toolTip !== null && ToolTip.toolTip !== undefined
-        value: Math.min(ToolTip.toolTip ? ToolTip.toolTip.implicitWidth : 0,
-                        AppTheme.scaled(420))
+    // wraps. Applied each time it is about to show, because Popup.show()
+    // resets the width, so a binding or a single assignment is lost on the
+    // second showing of the same text. The Text's implicit width stays the
+    // unwrapped width, so the cap does not feed back into itself.
+    function capToolTipWidth() {
+        const shared = sharedToolTipGuard.ToolTip.toolTip
+        if (!shared)
+            return
+        shared.width = Math.min(shared.implicitWidth, AppTheme.scaled(420))
+    }
+    Connections {
+        target: sharedToolTipGuard.ToolTip.toolTip
+        ignoreUnknownSignals: true
+        function onAboutToShow() { sharedToolTipGuard.capToolTipWidth() }
+        function onOpened() { sharedToolTipGuard.capToolTipWidth() }
     }
 
     Connections {

@@ -18,6 +18,9 @@ Item {
     // Its model: anything with attentionRowFrom(fromRow, step, mentionsOnly).
     property var attentionModel: null
 
+    // The pinned section header's band at the top of the list: the "above"
+    // pill sits below it, never over its text or its right edge.
+    property real pinnedHeaderInset: 34
     property int attentionAboveRow: -1
     property int attentionBelowRow: -1
     property bool attentionAboveIsMention: false
@@ -90,8 +93,10 @@ Item {
         focusPolicy: Qt.StrongFocus
         hoverEnabled: true
         implicitHeight: 24
-        implicitWidth: 24
-        ToolTip.visible: hovered
+        // Wider for a mention, which also carries an @ glyph: the two kinds
+        // differ by shape, not by colour alone.
+        implicitWidth: mention ? 42 : 24
+        ToolTip.visible: hovered || visualFocus
         ToolTip.delay: 400
         ToolTip.text: text
         text: below ? (mention ? qsTr("Mention below") : qsTr("Unread below"))
@@ -111,7 +116,18 @@ Item {
         contentItem: Item {
             id: pillRow
             Icon {
-                anchors.centerIn: parent
+                id: pillMention
+                visible: pill.mention
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.left: parent.left
+                anchors.leftMargin: 5
+                name: "alternate_email"
+                size: 14
+                color: AppTheme.mentionBadgeText
+            }
+            Icon {
+                anchors.verticalCenter: parent.verticalCenter
+                x: pill.mention ? parent.width - width - 5 : (parent.width - width) / 2
                 name: pill.below ? "expand_more" : "expand_less"
                 size: 16
                 color: pill.mention ? AppTheme.mentionBadgeText
@@ -131,7 +147,7 @@ Item {
     AttentionPill {
         objectName: "roomListAttentionAbove"
         anchors.top: parent.top
-        anchors.topMargin: AppTheme.spacing6
+        anchors.topMargin: root.pinnedHeaderInset + AppTheme.spacing6
         targetRow: root.attentionAboveRow
         mention: root.attentionAboveIsMention
     }

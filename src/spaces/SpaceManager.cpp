@@ -34,6 +34,8 @@ void SpaceManager::setClient(MatrixClient *client)
     if (m_client)
         m_client->disconnect(this);
     m_client = client;
+    // A pending selection belongs to the account that joined.
+    m_pendingJoinedSpaceId.clear();
     if (m_client) {
         connect(m_client, &MatrixClient::roomsChanged,
                 this, &SpaceManager::rebuild);
@@ -1030,8 +1032,10 @@ void SpaceManager::rebuild()
     if (!m_pendingJoinedSpaceId.isEmpty()
         && m_pendingJoinedSpaceId == m_activeSpaceId) {
         const auto it = byId.constFind(m_activeSpaceId);
+        // Not listed yet: wait. Listed as a joined room that is not a Space
+        // (a banner target can be any room): nothing to wait for.
         awaitingJoinedSpace = it == byId.constEnd()
-            || it->membership == RoomInfo::Joined;
+            || (it->membership == RoomInfo::Joined && it->isSpace);
         if (!awaitingJoinedSpace)
             m_pendingJoinedSpaceId.clear();
     }

@@ -95,15 +95,15 @@ private Q_SLOTS:
             import MatrixClient
             Window {
                 width: 1400; height: 300; visible: true
-                property string roomName: ""
                 SharedToolTipGuard { }
                 Item {
+                    id: row
                     objectName: "row"
                     width: 200; height: 40
-                    ToolTip.text: roomName
-                    ToolTip.visible: roomName.length > 0
-                    ToolTip.delay: 0
                 }
+                // ToolTip.show() is the path that resets the popup's width.
+                function showTip(text) { row.ToolTip.show(text) }
+                function hideTip() { row.ToolTip.hide() }
             }
         )QML", QUrl(QStringLiteral("tooltipwrap.qml")));
         std::unique_ptr<QObject> root(component.create());
@@ -111,21 +111,31 @@ private Q_SLOTS:
         auto *window = qobject_cast<QQuickWindow *>(root.get());
         QVERIFY(window);
         QVERIFY(QTest::qWaitForWindowExposed(window));
-        root->setProperty("roomName", QString(120, QLatin1Char('w')).replace(
+        const QString name = QString(120, QLatin1Char('w')).replace(
             5, 1, QLatin1Char(' ')).replace(11, 1, QLatin1Char(' '))
-            .append(QStringLiteral(" the extremely long room name number one two three four five six seven eight nine ten")));
+            .append(QStringLiteral(" the extremely long room name number one two three four five six seven eight nine ten"));
         auto *row = root->findChild<QQuickItem *>(QStringLiteral("row"));
         QVERIFY(row);
         QQmlExpression tipExpr(qmlContext(row), row, QStringLiteral("ToolTip.toolTip"));
         auto *tip = tipExpr.evaluate().value<QObject *>();
         QVERIFY(tip);
-        QTRY_VERIFY(tip->property("visible").toBool());
-        QTRY_VERIFY2(tip->property("width").toReal() <= 460,
-                     qPrintable(QString::number(tip->property("width").toReal())));
-        auto *content = tip->property("contentItem").value<QObject *>();
-        QVERIFY(content);
-        // More than one line: the text wrapped rather than ran on.
-        QTRY_VERIFY(content->property("lineCount").toInt() > 1);
+        // Show, hide, show again with the same text: Popup.show() resets the
+        // width, so the cap must be re-applied on every showing.
+        for (int pass = 0; pass < 3; ++pass) {
+            if (pass > 0) {
+                QMetaObject::invokeMethod(root.get(), "hideTip");
+                QTRY_VERIFY(!tip->property("visible").toBool());
+            }
+            QMetaObject::invokeMethod(root.get(), "showTip", Q_ARG(QVariant, name));
+            QTRY_VERIFY(tip->property("visible").toBool());
+            QTRY_VERIFY2(tip->property("width").toReal() <= 460,
+                         qPrintable(QStringLiteral("pass %1 width %2").arg(pass)
+                                        .arg(tip->property("width").toReal())));
+            auto *content = tip->property("contentItem").value<QObject *>();
+            QVERIFY(content);
+            QTRY_VERIFY2(content->property("lineCount").toInt() > 1,
+                         qPrintable(QStringLiteral("pass %1").arg(pass)));
+        }
     }
 
     // Main.qml keeps the guard.

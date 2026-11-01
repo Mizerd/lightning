@@ -610,14 +610,13 @@ private Q_SLOTS:
         client.announce();
         QVERIFY(spaces.activeSpaceId().isEmpty());
 
-        // Listed, but not yet known to be a Space.
-        client.mirror.append(room(fresh, QStringLiteral("Fresh")));
+        // Not listed yet: the selection waits for it.
         spaces.selectJoinedSpace(fresh);
         client.announce();
         QCOMPARE(spaces.activeSpaceId(), fresh);
 
         // It arrives as a Space: still selected, and now a normal selection.
-        client.mirror.last() = spaceRoom(fresh, QStringLiteral("Fresh"), {});
+        client.mirror.append(spaceRoom(fresh, QStringLiteral("Fresh"), {}));
         client.announce();
         QCOMPARE(spaces.activeSpaceId(), fresh);
 
@@ -625,6 +624,42 @@ private Q_SLOTS:
         client.mirror.last().membership = RoomInfo::Left;
         client.announce();
         QVERIFY(spaces.activeSpaceId().isEmpty());
+    }
+
+    // A banner target can be an ordinary room: once it is listed as one there
+    // is nothing to wait for, and the selection must not stay on it.
+    void aPendingSelectionIsDroppedForAnOrdinaryRoom()
+    {
+        FakeClient client;
+        client.mirror = workspace();
+        SpaceManager spaces;
+        spaces.setClient(&client);
+        const QString plain = QStringLiteral("!plain:x");
+        spaces.selectJoinedSpace(plain);
+        client.announce();
+        QCOMPARE(spaces.activeSpaceId(), plain);   // not listed yet
+        client.mirror.append(room(plain, QStringLiteral("Plain")));
+        client.announce();
+        QVERIFY(spaces.activeSpaceId().isEmpty());
+    }
+
+    // The pending selection belongs to the account that joined.
+    void aPendingSelectionDoesNotSurviveAnAccountSwitch()
+    {
+        FakeClient client;
+        client.mirror = workspace();
+        SpaceManager spaces;
+        spaces.setClient(&client);
+        const QString fresh = QStringLiteral("!fresh:x");
+        spaces.selectJoinedSpace(fresh);
+        client.announce();
+        QCOMPARE(spaces.activeSpaceId(), fresh);
+        FakeClient next;
+        next.mirror = workspace();
+        spaces.setClient(&next);
+        next.announce();
+        QVERIFY2(spaces.activeSpaceId().isEmpty(),
+                 "the previous account's pending Space kept the selection");
     }
 
 private:

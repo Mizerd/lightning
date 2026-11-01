@@ -491,8 +491,7 @@ Rectangle {
         rememberMemberPanel()
     }
 
-    // Room information on its overview section, opened (never toggled shut):
-    // the header's "Room information" row.
+    // Room information on its overview section, opened (never toggled shut).
     function openRoomOverview() {
         if (app.currentRoomId === "" || !app.roomInfo.supported)
             return
@@ -1876,13 +1875,6 @@ Rectangle {
                             onTriggered: roomChatBackgroundDialog.openForRoom(
                                              app.currentRoomId,
                                              root.currentRoom.name || "")
-                        }
-                        AppMenuItem {
-                            objectName: "roomHeaderRoomSettings"
-                            visible: app.roomInfo.supported
-                            iconName: "info"
-                            text: qsTr("Room information")
-                            onTriggered: root.openRoomOverview()
                         }
                     }
                     // Hosted here; a Popup costs the row no width.

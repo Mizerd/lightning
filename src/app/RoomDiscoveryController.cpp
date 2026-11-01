@@ -105,7 +105,10 @@ void RoomDiscoveryController::joinInternal(const QString &target,
 {
     const quint64 opId = m_client->joinRoomByIdOrAlias(target, via);
     if (opId == 0) {
-        setError(describeJoinCategory(QStringLiteral("network")));
+        const QString message = describeJoinCategory(QStringLiteral("network"));
+        setError(message);
+        // A refused dispatch fails the join too: the banner waits on this.
+        Q_EMIT joinFailed(target, message);
         return;
     }
     m_joinOp = opId;

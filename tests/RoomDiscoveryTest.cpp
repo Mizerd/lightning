@@ -211,6 +211,29 @@ private Q_SLOTS:
         QCOMPARE(inPlace.count(), 1);
     }
 
+    // joinRoomByIdOrAlias returning 0 (dispatch refused) answers nothing, so
+    // the banner stayed on "Joining..." for ever unless joinFailed fires.
+    void aRefusedJoinDispatchStillReportsJoinFailed()
+    {
+        struct Refusing : MockMatrixClient {
+            quint64 joinRoomByIdOrAlias(const QString &,
+                                        const QStringList &) override
+            {
+                return 0;
+            }
+        } client;
+        QVERIFY(login(client));
+        RoomDiscoveryController controller;
+        controller.setClient(&client);
+        QSignalSpy failed(&controller, &RoomDiscoveryController::joinFailed);
+        controller.joinSpaceKeepingRoom(QStringLiteral("!space:mock.local"), {});
+        QCOMPARE(failed.count(), 1);
+        QCOMPARE(failed.first().first().toString(),
+                 QStringLiteral("!space:mock.local"));
+        QVERIFY(!failed.first().at(1).toString().isEmpty());
+        QVERIFY(!controller.busy());
+    }
+
     void joinFailureCategoriesAreHonest()
     {
         MockMatrixClient client;

@@ -1006,7 +1006,10 @@ Rectangle {
                     }
                     ListView {
                         objectName: "roomBatchOutcomes"
-                        width: parent.width
+                        // Inset like the action bar above, so a failure line
+                        // never touches the window edge.
+                        x: AppTheme.spacing8
+                        width: parent.width - AppTheme.spacing8 * 2
                         height: Math.min(contentHeight, 96)
                         // Only the rooms that need attention; the summary line
                         // carries the counts.

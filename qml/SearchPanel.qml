@@ -385,6 +385,58 @@ Rectangle {
                 wrapMode: Text.Wrap
             }
 
+            // What the indexed search covers, and the way to widen it: the
+            // same line and action the Ctrl+F find bar offers, so an
+            // unindexed room is not left at "No matching messages".
+            RowLayout {
+                objectName: "roomSearchCoverageRow"
+                visible: root.historyAvailable && root.activeSource === "local"
+                Layout.fillWidth: true
+                Layout.leftMargin: AppTheme.spacing12
+                Layout.rightMargin: AppTheme.spacing12
+                spacing: AppTheme.spacingS
+                Label {
+                    objectName: "roomSearchCoverage"
+                    Layout.fillWidth: true
+                    wrapMode: Text.Wrap
+                    textFormat: Text.PlainText
+                    color: AppTheme.textMuted
+                    font.pixelSize: AppTheme.textMeta
+                    text: {
+                        if (app.messageSearch.indexing)
+                            return qsTr("Indexing this room's history…")
+                        var n = app.messageSearch.indexedMessages
+                        // Stats arrive on their own signal: a zero count while
+                        // results are shown is not an empty index.
+                        if (n <= 0 && app.messageSearch.count > 0)
+                            return ""
+                        if (n <= 0)
+                            return qsTr("Nothing is indexed yet.")
+                        return qsTr("Searching %1 messages Lightning has "
+                                    + "indexed, including encrypted ones.")
+                                   .arg(n)
+                    }
+                }
+                AppBusyIndicator {
+                    visible: app.messageSearch.indexing
+                    implicitWidth: 16
+                    implicitHeight: 16
+                }
+                AppButton {
+                    objectName: "roomSearchIndexRoomButton"
+                    text: qsTr("Index this room")
+                    kind: "ghost"
+                    enabled: !app.messageSearch.indexing
+                             && app.currentRoomId !== ""
+                    ToolTip.text: qsTr("Fetch this room's older messages so "
+                                       + "they can be searched")
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 500
+                    onClicked: app.messageSearch.indexRoomHistory(
+                                   app.currentRoomId)
+                }
+            }
+
             // Absorbs slack when the results list is hidden (the usual case in
             // encrypted rooms): a layout needs one item that can grow, or it
             // spreads the children evenly down the panel.
