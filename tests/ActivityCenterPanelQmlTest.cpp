@@ -217,6 +217,31 @@ private Q_SLOTS:
         QCOMPARE(f.activity->property("searchQuery").toString(), QString());
     }
 
+    // The field sat between the empty-state line and the list, so a search
+    // with no match moved it 30 px under the typist's hands.
+    void searchFieldStaysPutWhenNothingMatches()
+    {
+        Fixture f;
+        QVERIFY(make(f));
+        auto *field = f.panel->findChild<QQuickItem *>(QStringLiteral("activitySearch"));
+        QVERIFY(field);
+        const qreal before = field->mapToScene(QPointF(0, 0)).y();
+        f.activity->setProperty("searchQuery", QStringLiteral("zzzzqqq-no-match"));
+        settle();
+        QCOMPARE(field->mapToScene(QPointF(0, 0)).y(), before);
+        // Structurally: above the lines that appear and vanish, not below.
+        for (const char *name : {"activityEmptyState", "activityHistoryUnavailable"}) {
+            auto *line = f.panel->findChild<QQuickItem *>(QString::fromLatin1(name));
+            QVERIFY(line);
+            QVERIFY(line->parentItem() == field->parentItem());
+            const auto siblings = field->parentItem()->childItems();
+            QVERIFY2(siblings.indexOf(field) < siblings.indexOf(line), name);
+        }
+        f.activity->setProperty("searchQuery", QString());
+        settle();
+        QCOMPARE(field->mapToScene(QPointF(0, 0)).y(), before);
+    }
+
     void olderHighlightsCanBeLoadedFromTheMainActivityList()
     {
         Fixture f;

@@ -258,7 +258,14 @@ Dialog {
                     y: activityOptionsButton.height + 4
                     menuWidth: 280
 
-                    MenuSectionLabel { text: qsTr("Hide read activity older than") }
+                    // Inset like the rows below, not against the popup edge.
+                    MenuSectionLabel {
+                        text: qsTr("Hide read activity older than")
+                        leftPadding: AppTheme.spacing12
+                        rightPadding: AppTheme.spacing12
+                        topPadding: AppTheme.spacing4
+                        bottomPadding: AppTheme.spacing4
+                    }
                     Repeater {
                         model: root.horizonChoices
                         delegate: AppMenuItem {
@@ -279,6 +286,10 @@ Dialog {
                     }
                     MenuSectionLabel {
                         text: qsTr("Unread rows are always shown")
+                        leftPadding: AppTheme.spacing12
+                        rightPadding: AppTheme.spacing12
+                        topPadding: AppTheme.spacing4
+                        bottomPadding: AppTheme.spacing4
                     }
                 }
             }
@@ -389,6 +400,18 @@ Dialog {
             && root.activity.filter !== "keywords"
             && !root.showingThreads
 
+        // Above the hint and the empty-state line, so the field the user is
+        // typing into never moves when they appear or vanish.
+        TextField {
+            id: activitySearch
+            objectName: "activitySearch"
+            Layout.fillWidth: true
+            placeholderText: qsTr("Search loaded activity")
+            Accessible.name: placeholderText
+            text: root.activity ? root.activity.searchQuery : ""
+            onTextEdited: if (root.activity) root.activity.searchQuery = text
+        }
+
         Label {
             objectName: "activityHistoryUnavailable"
             visible: panelColumn.historyHintApplies && listView.count > 0
@@ -432,16 +455,6 @@ Dialog {
                 default: return qsTr("Nothing here yet. Mentions, replies and reactions to you will show up as they arrive.")
                 }
             }
-        }
-
-        TextField {
-            id: activitySearch
-            objectName: "activitySearch"
-            Layout.fillWidth: true
-            placeholderText: qsTr("Search loaded activity")
-            Accessible.name: placeholderText
-            text: root.activity ? root.activity.searchQuery : ""
-            onTextEdited: if (root.activity) root.activity.searchQuery = text
         }
 
         Item {

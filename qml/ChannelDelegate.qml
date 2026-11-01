@@ -457,6 +457,7 @@ ItemDelegate {
             isFavourite: root.isFavourite
             isLowPriority: root.isLowPriority
             isInvite: root.isInvite
+            isUnread: root.readsUnread
             onAcceptInviteRequested: root.acceptInvite()
             onRejectInviteRequested: root.rejectInvite()
             onMarkRead: root.markRead()

@@ -1161,6 +1161,20 @@ ApplicationWindow {
                 QVERIFY(measured >= 6);
             }
         }
+
+        // "Mark as read" is offered only on a room with something to read;
+        // the "Select room" and "Mark as read" rows no longer share a glyph.
+        auto *markRead = scene->findChild<QQuickItem *>(QStringLiteral("roomMarkReadItem"));
+        auto *select = scene->findChild<QQuickItem *>(QStringLiteral("roomSelectItem"));
+        QVERIFY(markRead);
+        QVERIFY(select);
+        QVERIFY(markRead->isVisible());
+        QVERIFY(markRead->property("iconName").toString()
+                != select->property("iconName").toString());
+        menu->setProperty("isUnread", false);
+        QTRY_VERIFY(!markRead->isVisible());
+        menu->setProperty("isUnread", true);
+        QTRY_VERIFY(markRead->isVisible());
     }
 
     void theRealRoomNotificationsFlyoutFitsItsOwnText()

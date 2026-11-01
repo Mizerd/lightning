@@ -339,7 +339,9 @@ Item {
 
                 Label {
                     objectName: "roomPreviewLabel"
-                    visible: !root.compactRows
+                    // An invitation has no preview; the empty label held a
+                    // blank line between the title and the invitation text.
+                    visible: !root.compactRows && model.membership !== "invited"
                     text: model.lastMessagePreview
                     color: selected ? AppTheme.roomSelectedPreview : AppTheme.roomPreview
                     opacity: selected ? 0.9 : 1.0
@@ -463,12 +465,16 @@ Item {
                     Layout.fillWidth: true
                     // The inviter first, so a long name elides the generic
                     // tail rather than the one part that says who it is.
-                    text: model.inviter
+                    // Whitespace collapsed: a name carrying a trailing space
+                    // read as a double space before the tail.
+                    readonly property string inviterName:
+                        String(model.inviter || "").replace(/\s+/g, " ").trim()
+                    text: inviterName
                           ? (model.isSpace
-                             ? qsTr("%1 invited you to a Space").arg(model.inviter)
+                             ? qsTr("%1 invited you to a Space").arg(inviterName)
                              : (model.isDirect
-                                ? qsTr("%1 invited you to chat").arg(model.inviter)
-                                : qsTr("%1 invited you to a room").arg(model.inviter)))
+                                ? qsTr("%1 invited you to chat").arg(inviterName)
+                                : qsTr("%1 invited you to a room").arg(inviterName)))
                           : (model.isSpace ? qsTr("Space invitation")
                                            : (model.isDirect
                                               ? qsTr("Direct message invitation")
@@ -622,6 +628,7 @@ Item {
         isDirect: model.isDirect === true
         isFavourite: model.isFavourite === true
         isLowPriority: model.isLowPriority === true
+        isUnread: root.isUnread
         onMarkRead: root.markRead()
         onMarkUnread: root.markUnread()
         onSetFavourite: on => root.setFavourite(on)

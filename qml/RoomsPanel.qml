@@ -629,17 +629,53 @@ Rectangle {
             color: sidebarGround.hasGradient ? "transparent" : AppTheme.roomList
             implicitHeight: filterChips.implicitHeight + AppTheme.spacing6 * 2
             // storm: false, like MenuKeycap here.
-            SegmentedControl {
-                id: filterChips
-                objectName: "roomFilterChips"
+            // The chips keep their natural width so no label is elided; a
+            // column narrower than the five of them scrolls sideways (wheel,
+            // drag) and keeps the selected chip in view.
+            Flickable {
+                id: chipsFlick
+                objectName: "roomFilterChipsFlick"
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.leftMargin: AppTheme.spacing12
                 anchors.rightMargin: AppTheme.spacing12
                 anchors.verticalCenter: parent.verticalCenter
+                height: filterChips.implicitHeight
+                contentWidth: Math.max(filterChips.implicitWidth, width)
+                contentHeight: height
+                flickableDirection: Flickable.HorizontalFlick
+                boundsBehavior: Flickable.StopAtBounds
+                clip: true
+                function revealSelected() {
+                    for (let i = 0; i < filterChips.children.length; ++i) {
+                        const c = filterChips.children[i]
+                        if (c.selected === true) {
+                            if (c.x < contentX)
+                                contentX = c.x
+                            else if (c.x + c.width > contentX + width)
+                                contentX = c.x + c.width - width
+                            return
+                        }
+                    }
+                }
+                onWidthChanged: Qt.callLater(revealSelected)
+                WheelHandler {
+                    // A vertical wheel over the row moves it sideways.
+                    acceptedDevices: PointerDevice.Mouse
+                    onWheel: (event) => {
+                        const d = event.angleDelta.x !== 0 ? event.angleDelta.x
+                                                           : event.angleDelta.y
+                        chipsFlick.contentX = Math.max(0, Math.min(
+                            chipsFlick.contentWidth - chipsFlick.width,
+                            chipsFlick.contentX - d / 2))
+                    }
+                }
+            SegmentedControl {
+                id: filterChips
+                objectName: "roomFilterChips"
+                width: chipsFlick.contentWidth
                 dense: true
-                // Compacts to fit a resizable column and translated labels.
-                fitWidth: true
+                onCurrentChanged: Qt.callLater(chipsFlick.revealSelected)
                 // Channels drops People and Rooms: the rail's Home and Direct
                 // Messages tabs are that split. The stored preference is not
                 // rewritten, so switching back to Classic restores it; it is
@@ -691,6 +727,7 @@ Rectangle {
                 onActivated: (value) => {
                     app.settings.roomFilterMode = value
                 }
+            }
             }
         }
         Binding {
@@ -937,11 +974,33 @@ Rectangle {
                             AppButton { text: qsTr("Leave…"); enabled: app.roomBatch.selectionCount > 0 && !app.roomBatch.busy; onClicked: app.roomBatch.requestLeave() }
                             AppButton { text: qsTr("Retry failed"); visible: app.roomBatch.canRetry; enabled: !app.roomBatch.busy; onClicked: app.roomBatch.retryFailed() }
                             AppButton { text: qsTr("Done"); onClicked: app.roomBatch.exitSelection() }
+                            // One summary line. When everything succeeded it
+                            // dismisses itself; failures stay, with their rooms
+                            // listed below.
+                            property bool summaryDismissed: false
+                            readonly property bool allDone:
+                                app.roomBatch.outcomes.length > 0
+                                && app.roomBatch.failed === 0
+                                && app.roomBatch.pending === 0
+                            onAllDoneChanged: {
+                                summaryDismissed = false
+                                if (allDone)
+                                    summaryTimer.restart()
+                            }
+                            Timer {
+                                id: summaryTimer
+                                interval: 4000
+                                onTriggered: batchActions.summaryDismissed = true
+                            }
                             Label {
+                                objectName: "roomBatchSummary"
                                 visible: app.roomBatch.outcomes.length > 0
-                                text: qsTr("%1 succeeded · %2 failed · %3 pending")
-                                      .arg(app.roomBatch.succeeded).arg(app.roomBatch.failed).arg(app.roomBatch.pending)
-                                color: AppTheme.textMuted
+                                         && !batchActions.summaryDismissed
+                                text: batchActions.allDone
+                                      ? qsTr("%n room(s) updated", "", app.roomBatch.succeeded)
+                                      : qsTr("%1 succeeded · %2 failed · %3 pending")
+                                        .arg(app.roomBatch.succeeded).arg(app.roomBatch.failed).arg(app.roomBatch.pending)
+                                color: app.roomBatch.failed > 0 ? AppTheme.error : AppTheme.textMuted
                             }
                         }
                     }
@@ -949,9 +1008,12 @@ Rectangle {
                         objectName: "roomBatchOutcomes"
                         width: parent.width
                         height: Math.min(contentHeight, 96)
-                        visible: app.roomBatch.outcomes.length > 0
+                        // Only the rooms that need attention; the summary line
+                        // carries the counts.
+                        visible: model.length > 0
                         clip: true
-                        model: app.roomBatch.outcomes
+                        model: app.roomBatch.outcomes.filter(
+                                   (o) => o.status === "failed")
                         delegate: Label {
                             required property var modelData
                             width: ListView.view.width

@@ -120,6 +120,16 @@ Item {
             policy: ScrollBar.AsNeeded
         }
 
+        // A different filter is a different list: it opens at its top, not at
+        // the old offset (which hid the first rows, e.g. the Invites, and read
+        // as rows missing).
+        Connections {
+            target: app.roomList
+            function onFilterModeChanged() {
+                Qt.callLater(() => roomList.positionViewAtBeginning())
+            }
+        }
+
         // Sections from the "category" role; C++ sorts by the same
         // RoomListModel::orderRankOf(), so sort and headers cannot disagree.
         section.property: "category"

@@ -16,6 +16,8 @@ AppMenu {
     property bool isDirect: false
     property bool isFavourite: false
     property bool isLowPriority: false
+    /// Anything to mark read: "Mark as read" is not offered on a read room.
+    property bool isUnread: true
     /// A pending invitation: the menu offers Accept and Reject in place of
     /// Leave (the Channels row has no other invite actions; GitHub #28).
     property bool isInvite: false
@@ -39,7 +41,7 @@ AppMenu {
     AppMenuItem {
         objectName: "roomSelectItem"
         visible: !root.isInvite
-        iconName: "check"
+        iconName: "check_circle"
         text: qsTr("Select room")
         onTriggered: root.selectRoomRequested()
     }
@@ -85,7 +87,7 @@ AppMenu {
         objectName: "roomLowPriorityItem"
         visible: app.roomList.roomFavouritesSupported && !root.isInvite
         enabled: visible
-        iconName: "tag"
+        iconName: "expand_more"
         text: root.isLowPriority ? qsTr("Remove from low priority")
                                  : qsTr("Move to low priority")
         onTriggered: root.setLowPriority(!root.isLowPriority)
@@ -98,10 +100,10 @@ AppMenu {
     // nothing to act on until it is accepted (C06 F06).
     AppMenuItem {
         objectName: "roomMarkReadItem"
-        visible: !root.isInvite
+        visible: !root.isInvite && root.isUnread
         // Hidden rows must not take the keyboard (MASTER-3 M6).
         enabled: visible
-        iconName: "check"
+        iconName: "done_all"
         text: qsTr("Mark as read")
         onTriggered: root.markRead()
     }

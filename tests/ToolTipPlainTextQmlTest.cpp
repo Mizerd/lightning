@@ -82,6 +82,52 @@ private Q_SLOTS:
                  "a tooltip fetched an image named in a room name");
     }
 
+    // A 120-character room name was one ~960 px line across the window: the
+    // shared tooltip is capped and the text wraps inside the cap.
+    void aLongRoomNameWrapsInsideTheTooltipCap()
+    {
+        QQmlEngine engine;
+        QQmlComponent component(&engine);
+        component.setData(R"QML(
+            import QtQuick
+            import QtQuick.Controls
+            import QtQuick.Window
+            import MatrixClient
+            Window {
+                width: 1400; height: 300; visible: true
+                property string roomName: ""
+                SharedToolTipGuard { }
+                Item {
+                    objectName: "row"
+                    width: 200; height: 40
+                    ToolTip.text: roomName
+                    ToolTip.visible: roomName.length > 0
+                    ToolTip.delay: 0
+                }
+            }
+        )QML", QUrl(QStringLiteral("tooltipwrap.qml")));
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.get());
+        QVERIFY(window);
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        root->setProperty("roomName", QString(120, QLatin1Char('w')).replace(
+            5, 1, QLatin1Char(' ')).replace(11, 1, QLatin1Char(' '))
+            .append(QStringLiteral(" the extremely long room name number one two three four five six seven eight nine ten")));
+        auto *row = root->findChild<QQuickItem *>(QStringLiteral("row"));
+        QVERIFY(row);
+        QQmlExpression tipExpr(qmlContext(row), row, QStringLiteral("ToolTip.toolTip"));
+        auto *tip = tipExpr.evaluate().value<QObject *>();
+        QVERIFY(tip);
+        QTRY_VERIFY(tip->property("visible").toBool());
+        QTRY_VERIFY2(tip->property("width").toReal() <= 460,
+                     qPrintable(QString::number(tip->property("width").toReal())));
+        auto *content = tip->property("contentItem").value<QObject *>();
+        QVERIFY(content);
+        // More than one line: the text wrapped rather than ran on.
+        QTRY_VERIFY(content->property("lineCount").toInt() > 1);
+    }
+
     // Main.qml keeps the guard.
     void theApplicationWindowCarriesTheGuard()
     {

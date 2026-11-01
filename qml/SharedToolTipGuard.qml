@@ -43,7 +43,24 @@ Item {
         if (shared && shared.contentItem
                 && shared.contentItem.textFormat !== undefined)
             shared.contentItem.textFormat = Text.PlainText
+        // A long name wraps instead of running as one line across the window
+        // (a 120-character room name was ~960 px wide); see the width cap
+        // below.
+        if (shared && shared.contentItem
+                && shared.contentItem.wrapMode !== undefined)
+            shared.contentItem.wrapMode = Text.Wrap
         applyToolTipChrome()
+    }
+
+    // The cap: the tooltip is as wide as its text up to this, then the text
+    // wraps. The Text's implicit width stays the unwrapped width, so the cap
+    // does not feed back into itself.
+    Binding {
+        target: ToolTip.toolTip
+        property: "width"
+        when: ToolTip.toolTip !== null && ToolTip.toolTip !== undefined
+        value: Math.min(ToolTip.toolTip ? ToolTip.toolTip.implicitWidth : 0,
+                        AppTheme.scaled(420))
     }
 
     Connections {

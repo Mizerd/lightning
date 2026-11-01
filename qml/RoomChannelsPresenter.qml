@@ -138,6 +138,14 @@ Item {
         // the first row after a fast wheel burst.
         boundsBehavior: Flickable.StopAtBounds
 
+        // A different filter opens at its top (see RoomListClassicPresenter).
+        Connections {
+            target: app.spaceChannels
+            function onFilterModeChanged() {
+                Qt.callLater(() => channelList.positionViewAtBeginning())
+            }
+        }
+
         ScrollBar.vertical: AppScrollBar {
             policy: ScrollBar.AsNeeded
         }

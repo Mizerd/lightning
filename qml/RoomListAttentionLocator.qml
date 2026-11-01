@@ -81,11 +81,19 @@ Item {
         // is debounced.
         visible: targetRow >= 0 && root.list !== null && root.list.count > 0
         z: 30
-        anchors.horizontalCenter: parent.horizontalCenter
+        // A round icon on the right edge, where the pinned section headers
+        // and a row's name and buttons are not; centred and worded it covered
+        // "Favourites" and an invitation's Accept button. The words are the
+        // accessible name and the tooltip.
+        anchors.right: parent.right
+        anchors.rightMargin: AppTheme.spacing6
         focusPolicy: Qt.StrongFocus
         hoverEnabled: true
-        implicitHeight: 26
-        implicitWidth: pillRow.implicitWidth + 20
+        implicitHeight: 24
+        implicitWidth: 24
+        ToolTip.visible: hovered
+        ToolTip.delay: 400
+        ToolTip.text: text
         text: below ? (mention ? qsTr("Mention below") : qsTr("Unread below"))
                     : (mention ? qsTr("Mention above") : qsTr("Unread above"))
         Accessible.role: Accessible.Button
@@ -100,24 +108,14 @@ Item {
                  : pill.down ? AppTheme.accentPressed
                  : pill.hovered ? AppTheme.accentHover : AppTheme.accent
         }
-        contentItem: Row {
+        contentItem: Item {
             id: pillRow
-            spacing: AppTheme.spacingXS
             Icon {
-                anchors.verticalCenter: parent.verticalCenter
+                anchors.centerIn: parent
                 name: pill.below ? "expand_more" : "expand_less"
                 size: 16
                 color: pill.mention ? AppTheme.mentionBadgeText
                                     : AppTheme.accentText
-            }
-            Label {
-                anchors.verticalCenter: parent.verticalCenter
-                text: pill.text
-                color: pill.mention ? AppTheme.mentionBadgeText
-                                    : AppTheme.accentText
-                font.family: AppTheme.uiFont
-                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
-                font.weight: AppTheme.weightBold
             }
         }
         Rectangle {

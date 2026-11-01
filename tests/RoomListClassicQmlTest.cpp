@@ -171,10 +171,10 @@ private Q_SLOTS:
         const QByteArray menuSource = menu.readAll();
         const auto selectAt = menuSource.indexOf("objectName: \"roomSelectItem\"");
         QVERIFY(selectAt >= 0);
-        QVERIFY(menuSource.mid(selectAt, 160).contains("iconName: \"check\""));
+        QVERIFY(menuSource.mid(selectAt, 160).contains("iconName: \"check_circle\""));
         QFile icons(QStringLiteral(LIGHTNING_SOURCE_DIR "/qml/Icon.qml"));
         QVERIFY(icons.open(QIODevice::ReadOnly));
-        QVERIFY(icons.readAll().contains("\"check\": "));
+        QVERIFY(icons.readAll().contains("\"check_circle\": "));
     }
 
     void pointerSelectionKeepsRowsStillAndEscapeClosesIt()
