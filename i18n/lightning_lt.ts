@@ -599,12 +599,12 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
     </message>
     <message>
         <location line="+50"/>
-        <location line="+246"/>
+        <location line="+251"/>
         <source>Activity</source>
         <translation>Veikla</translation>
     </message>
     <message numerus="yes">
-        <location line="-236"/>
+        <location line="-241"/>
         <source>%n new</source>
         <translation>
             <numerusform>%n nauja</numerusform>
@@ -661,7 +661,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
         <translation>Uždaryti</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+14"/>
         <source>All</source>
         <translation>Visi</translation>
     </message>
@@ -681,7 +681,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
         <translation>Gijos</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="+4"/>
         <source>Reactions</source>
         <translation>Reakcijos</translation>
     </message>
@@ -696,7 +696,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
         <translation>Raktažodžiai</translation>
     </message>
     <message>
-        <location line="+24"/>
+        <location line="+25"/>
         <source>Unread</source>
         <translation>Neskaityta</translation>
     </message>
@@ -820,12 +820,12 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
         <translation>Paminėjimas</translation>
     </message>
     <message>
-        <location line="-633"/>
+        <location line="-638"/>
         <source>encrypted message</source>
         <translation>šifruota žinutė</translation>
     </message>
     <message>
-        <location line="+228"/>
+        <location line="+233"/>
         <source>Keywords are managed in Settings, under Notifications.</source>
         <translation>Raktažodžiai tvarkomi nustatymų skiltyje „Pranešimai“.</translation>
     </message>
@@ -855,7 +855,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
 <context>
     <name>ActivityModel</name>
     <message>
-        <location filename="../src/models/ActivityModel.cpp" line="+919"/>
+        <location filename="../src/models/ActivityModel.cpp" line="+923"/>
         <location line="+85"/>
         <source>Encrypted message</source>
         <translation type="unfinished">Šifruota žinutė</translation>
@@ -990,7 +990,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+8460"/>
+        <location filename="../src/app/AppController.cpp" line="+8494"/>
         <source>Room invitation</source>
         <translation>Kvietimas į kambarį</translation>
     </message>
@@ -1112,7 +1112,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
         <translation>Įeinantis skambutis</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-6483"/>
+        <location filename="../src/app/AppController.cpp" line="-6507"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>Atsijungimas atšauktas, nes paskyra pasikeitė. Nieko iš naujo nenustatyta.</translation>
     </message>
@@ -1142,7 +1142,7 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
         <translation>Kambarys buvo sukurtas, bet nepavyko nustatyti jo paveikslo.</translation>
     </message>
     <message>
-        <location line="+120"/>
+        <location line="+144"/>
         <source>Could not switch accounts — returning to the previous account.</source>
         <translation>Nepavyko perjungti paskyrų – grįžtama į ankstesnę paskyrą.</translation>
     </message>
@@ -1268,13 +1268,13 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
         <translation>Naudokite tikras datas formatu YYYY-MM-DD, kai „Nuo“ nėra vėlesnė už „Iki“.</translation>
     </message>
     <message>
-        <location line="-5689"/>
-        <location line="+3319"/>
+        <location line="-5723"/>
+        <location line="+3353"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-3318"/>
+        <location line="-3352"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>Tai bandomasis pranešimas. Jei jį matote, darbalaukio pranešimai veikia.</translation>
     </message>
@@ -1284,12 +1284,17 @@ Jūsų šifravimo raktai, prisijungimas ir serveryje esančios žinutės nebus p
         <translation>Nauji paminėjimai</translation>
     </message>
     <message>
-        <location line="+678"/>
+        <location line="+447"/>
+        <source>The call ended because its audio or video could not be set up.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+241"/>
         <source>Call started</source>
         <translation>Skambutis prasidėjo</translation>
     </message>
     <message>
-        <location line="+2208"/>
+        <location line="+2232"/>
         <source>That notification was for a different account, so nothing was sent. Switch back to that account and try again.</source>
         <translation>Tas pranešimas buvo skirtas kitai paskyrai, todėl nieko neišsiųsta. Grįžkite į tą paskyrą ir bandykite dar kartą.</translation>
     </message>
@@ -11875,7 +11880,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+160"/>
+        <location line="+171"/>
         <source>Volume %1%</source>
         <translation>Garsumas %1%</translation>
     </message>
@@ -19620,7 +19625,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <location line="+215"/>
         <location line="+61"/>
         <location line="+151"/>
-        <location line="+5133"/>
+        <location line="+5138"/>
         <location line="+96"/>
         <location line="+13"/>
         <location line="+50"/>
@@ -19629,15 +19634,15 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Neprisijungęs.</translation>
     </message>
     <message>
-        <location line="-5534"/>
+        <location line="-5539"/>
         <location line="+61"/>
         <location line="+151"/>
-        <location line="+5328"/>
+        <location line="+5333"/>
         <source>Unknown room: %1</source>
         <translation>Nežinomas kambarys: %1</translation>
     </message>
     <message>
-        <location line="-5536"/>
+        <location line="-5541"/>
         <location line="+61"/>
         <location line="+151"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -19645,13 +19650,13 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     </message>
     <message>
         <location line="+796"/>
-        <location line="+2920"/>
+        <location line="+2925"/>
         <location line="+73"/>
         <source>The sticker could not be sent.</source>
         <translation>Nepavyko išsiųsti lipduko.</translation>
     </message>
     <message>
-        <location line="-1611"/>
+        <location line="-1616"/>
         <source>Lightning cannot send that yet.</source>
         <translation>„Lightning“ to dar negali išsiųsti.</translation>
     </message>
@@ -19701,7 +19706,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Kvietimo veiksmas nepavyko. Bandykite dar kartą.</translation>
     </message>
     <message>
-        <location line="+361"/>
+        <location line="+366"/>
         <location line="+45"/>
         <source>The reaction could not be applied.</source>
         <translation>Nepavyko pritaikyti reakcijos.</translation>
@@ -19743,7 +19748,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Nepavyko atlikti apklausos veiksmo.</translation>
     </message>
     <message>
-        <location line="-7390"/>
+        <location line="-7395"/>
         <source>This account&apos;s data is still in use by a background session. Wait a moment and try again.</source>
         <translation>Šios paskyros duomenis vis dar naudoja fonu veikiantis seansas. Palaukite akimirką ir bandykite dar kartą.</translation>
     </message>
@@ -19773,7 +19778,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Įveskite slaptažodį.</translation>
     </message>
     <message>
-        <location line="+6331"/>
+        <location line="+6336"/>
         <source>Message could not be sent. You can retry from the message&apos;s Retry action.</source>
         <translation>Nepavyko išsiųsti žinutės. Galite bandyti dar kartą naudodami žinutės veiksmą Bandyti iš naujo.</translation>
     </message>
@@ -26246,7 +26251,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Skambučio garsas sustojo: šio kompiuterio garso išvestis atsijungė. Jis tęsis, kai išvestis vėl bus prieinama; jei ne, išeikite iš skambučio ir prisijunkite iš naujo.</translation>
     </message>
     <message>
-        <location line="+2430"/>
+        <location line="+2441"/>
         <source>Screen-share sound is off: this package lacks the audio capture plugins it needs.</source>
         <translation>Bendrinant ekraną garsas išjungtas: šiame pakete nėra reikiamų garso fiksavimo papildinių.</translation>
     </message>
@@ -26331,7 +26336,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation type="unfinished">Dalyvis</translation>
     </message>
     <message>
-        <location line="-5195"/>
+        <location line="-5206"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>Šis kambarys yra užšifruotas, o šifruoti skambučiai šioje versijoje dar nepasiekiami.</translation>
     </message>
@@ -31835,12 +31840,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-558"/>
         <location filename="../qml/TimelinePane.qml" line="+389"/>
-        <location line="+6739"/>
+        <location line="+6750"/>
         <source>Space</source>
         <translation>Erdvė</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-6738"/>
+        <location filename="../qml/TimelinePane.qml" line="-6749"/>
         <source>Home</source>
         <translation>Pradžia</translation>
     </message>
@@ -31933,12 +31938,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+5012"/>
+        <location line="+5023"/>
         <source>Room information</source>
         <translation>Informacija apie kambarį</translation>
     </message>
     <message>
-        <location line="-4996"/>
+        <location line="-5007"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation>Daugiau kambario veiksmų</translation>
@@ -32159,7 +32164,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Paieškos užbaigti nepavyko.</translation>
     </message>
     <message>
-        <location line="+3775"/>
+        <location line="+3786"/>
         <location line="+501"/>
         <source>Loading older messages…</source>
         <translation>Įkeliamos senesnės žinutės…</translation>
@@ -32604,13 +32609,13 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Atšaukti</translation>
     </message>
     <message>
-        <location line="-7395"/>
+        <location line="-7406"/>
         <location line="+92"/>
         <source>View profile</source>
         <translation>Peržiūrėti profilį</translation>
     </message>
     <message>
-        <location line="+6525"/>
+        <location line="+6536"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation>Paveikslėliai (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
@@ -32681,7 +32686,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Numeskite failus, kuriuos norite pridėti</translation>
     </message>
     <message>
-        <location line="-6768"/>
+        <location line="-6779"/>
         <source>Part of %1</source>
         <translation>Erdvės %1 dalis</translation>
     </message>
@@ -34018,7 +34023,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
 <context>
     <name>VoiceSeekBar</name>
     <message>
-        <location filename="../qml/VoiceSeekBar.qml" line="+110"/>
+        <location filename="../qml/VoiceSeekBar.qml" line="+108"/>
         <source>Playback position</source>
         <translation>Atkūrimo pozicija</translation>
     </message>

@@ -592,12 +592,12 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
     </message>
     <message>
         <location line="+50"/>
-        <location line="+246"/>
+        <location line="+251"/>
         <source>Activity</source>
         <translation>Actividad</translation>
     </message>
     <message numerus="yes">
-        <location line="-236"/>
+        <location line="-241"/>
         <source>%n new</source>
         <translation>
             <numerusform>%n nueva</numerusform>
@@ -651,7 +651,7 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
         <translation>Cerrar</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+14"/>
         <source>All</source>
         <translation>Todo</translation>
     </message>
@@ -671,7 +671,7 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
         <translation>Hilos</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="+4"/>
         <source>Reactions</source>
         <translation>Reacciones</translation>
     </message>
@@ -686,7 +686,7 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
         <translation>Palabras clave</translation>
     </message>
     <message>
-        <location line="+24"/>
+        <location line="+25"/>
         <source>Unread</source>
         <translation>Sin leer</translation>
     </message>
@@ -810,12 +810,12 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
         <translation>Mención</translation>
     </message>
     <message>
-        <location line="-633"/>
+        <location line="-638"/>
         <source>encrypted message</source>
         <translation>mensaje cifrado</translation>
     </message>
     <message>
-        <location line="+228"/>
+        <location line="+233"/>
         <source>Keywords are managed in Settings, under Notifications.</source>
         <translation>Las palabras clave se gestionan en Ajustes, en Notificaciones.</translation>
     </message>
@@ -845,7 +845,7 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
 <context>
     <name>ActivityModel</name>
     <message>
-        <location filename="../src/models/ActivityModel.cpp" line="+919"/>
+        <location filename="../src/models/ActivityModel.cpp" line="+923"/>
         <location line="+85"/>
         <source>Encrypted message</source>
         <translation type="unfinished">Mensaje cifrado</translation>
@@ -980,7 +980,7 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+8460"/>
+        <location filename="../src/app/AppController.cpp" line="+8494"/>
         <source>Room invitation</source>
         <translation>Invitación a una sala</translation>
     </message>
@@ -1101,7 +1101,7 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
         <translation>Llamada entrante</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-6483"/>
+        <location filename="../src/app/AppController.cpp" line="-6507"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>El cierre de sesión se canceló porque la cuenta cambió. No se restableció nada.</translation>
     </message>
@@ -1131,7 +1131,7 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
         <translation>La sala se creó, pero no se pudo establecer su imagen.</translation>
     </message>
     <message>
-        <location line="+120"/>
+        <location line="+144"/>
         <source>Could not switch accounts — returning to the previous account.</source>
         <translation>No se pudo cambiar de cuenta; se vuelve a la cuenta anterior.</translation>
     </message>
@@ -1257,13 +1257,13 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
         <translation>Usa fechas reales en formato YYYY-MM-DD, con «Desde» no posterior a «Hasta».</translation>
     </message>
     <message>
-        <location line="-5689"/>
-        <location line="+3319"/>
+        <location line="-5723"/>
+        <location line="+3353"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-3318"/>
+        <location line="-3352"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>Esta es una notificación de prueba. Si puedes leerla, las notificaciones de escritorio funcionan.</translation>
     </message>
@@ -1273,12 +1273,17 @@ No toca tus claves de cifrado, tu inicio de sesión ni ningún mensaje del servi
         <translation>Menciones nuevas</translation>
     </message>
     <message>
-        <location line="+678"/>
+        <location line="+447"/>
+        <source>The call ended because its audio or video could not be set up.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+241"/>
         <source>Call started</source>
         <translation>Llamada iniciada</translation>
     </message>
     <message>
-        <location line="+2208"/>
+        <location line="+2232"/>
         <source>That notification was for a different account, so nothing was sent. Switch back to that account and try again.</source>
         <translation>Esa notificación era de otra cuenta, así que no se envió nada. Vuelve a esa cuenta e inténtalo de nuevo.</translation>
     </message>
@@ -11833,7 +11838,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+160"/>
+        <location line="+171"/>
         <source>Volume %1%</source>
         <translation>Volumen %1 %</translation>
     </message>
@@ -19552,7 +19557,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <location line="+215"/>
         <location line="+61"/>
         <location line="+151"/>
-        <location line="+5133"/>
+        <location line="+5138"/>
         <location line="+96"/>
         <location line="+13"/>
         <location line="+50"/>
@@ -19561,15 +19566,15 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>No has iniciado sesión.</translation>
     </message>
     <message>
-        <location line="-5534"/>
+        <location line="-5539"/>
         <location line="+61"/>
         <location line="+151"/>
-        <location line="+5328"/>
+        <location line="+5333"/>
         <source>Unknown room: %1</source>
         <translation>Sala desconocida: %1</translation>
     </message>
     <message>
-        <location line="-5536"/>
+        <location line="-5541"/>
         <location line="+61"/>
         <location line="+151"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -19577,13 +19582,13 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
     </message>
     <message>
         <location line="+796"/>
-        <location line="+2920"/>
+        <location line="+2925"/>
         <location line="+73"/>
         <source>The sticker could not be sent.</source>
         <translation>No se pudo enviar la pegatina.</translation>
     </message>
     <message>
-        <location line="-1611"/>
+        <location line="-1616"/>
         <source>Lightning cannot send that yet.</source>
         <translation>Lightning todavía no puede enviar eso.</translation>
     </message>
@@ -19633,7 +19638,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>La invitación falló. Inténtalo de nuevo.</translation>
     </message>
     <message>
-        <location line="+361"/>
+        <location line="+366"/>
         <location line="+45"/>
         <source>The reaction could not be applied.</source>
         <translation>No se pudo aplicar la reacción.</translation>
@@ -19675,7 +19680,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>No se pudo completar la acción de la encuesta.</translation>
     </message>
     <message>
-        <location line="-7390"/>
+        <location line="-7395"/>
         <source>This account&apos;s data is still in use by a background session. Wait a moment and try again.</source>
         <translation>Los datos de esta cuenta siguen en uso por una sesión en segundo plano. Espera un momento e inténtalo de nuevo.</translation>
     </message>
@@ -19705,7 +19710,7 @@ La única solución es cerrar sesión y volver a iniciarla.</translation>
         <translation>Introduce tu contraseña.</translation>
     </message>
     <message>
-        <location line="+6331"/>
+        <location line="+6336"/>
         <source>Message could not be sent. You can retry from the message&apos;s Retry action.</source>
         <translation>No se pudo enviar el mensaje. Puedes volver a intentarlo con la acción Reintentar del mensaje.</translation>
     </message>
@@ -26160,7 +26165,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>El audio de la llamada se detuvo: la salida de sonido de este equipo se desconectó. Se reanuda cuando haya una salida disponible; si no lo hace, sal de la llamada y vuelve a entrar.</translation>
     </message>
     <message>
-        <location line="+2430"/>
+        <location line="+2441"/>
         <source>Screen-share sound is off: this package lacks the audio capture plugins it needs.</source>
         <translation>El sonido de la pantalla compartida está desactivado: a este paquete le faltan los complementos de captura de audio necesarios.</translation>
     </message>
@@ -26245,7 +26250,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation type="unfinished">Participante</translation>
     </message>
     <message>
-        <location line="-5195"/>
+        <location line="-5206"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>Esta sala está cifrada y las llamadas cifradas aún no están disponibles en esta compilación.</translation>
     </message>
@@ -31697,12 +31702,12 @@ Nota: importar claves no verifica esta sesión.</translation>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-558"/>
         <location filename="../qml/TimelinePane.qml" line="+389"/>
-        <location line="+6739"/>
+        <location line="+6750"/>
         <source>Space</source>
         <translation>Espacio</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-6738"/>
+        <location filename="../qml/TimelinePane.qml" line="-6749"/>
         <source>Home</source>
         <translation>Inicio</translation>
     </message>
@@ -31795,12 +31800,12 @@ Nota: importar claves no verifica esta sesión.</translation>
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+5012"/>
+        <location line="+5023"/>
         <source>Room information</source>
         <translation>Información de la sala</translation>
     </message>
     <message>
-        <location line="-4996"/>
+        <location line="-5007"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation>Más acciones de la sala</translation>
@@ -32021,7 +32026,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>No se pudo completar la búsqueda.</translation>
     </message>
     <message>
-        <location line="+3775"/>
+        <location line="+3786"/>
         <location line="+501"/>
         <source>Loading older messages…</source>
         <translation>Cargando mensajes anteriores…</translation>
@@ -32459,13 +32464,13 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>Cancelar</translation>
     </message>
     <message>
-        <location line="-7395"/>
+        <location line="-7406"/>
         <location line="+92"/>
         <source>View profile</source>
         <translation>Ver perfil</translation>
     </message>
     <message>
-        <location line="+6525"/>
+        <location line="+6536"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation>Imágenes (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
@@ -32536,7 +32541,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>Suelta archivos para adjuntarlos</translation>
     </message>
     <message>
-        <location line="-6768"/>
+        <location line="-6779"/>
         <source>Part of %1</source>
         <translation>Parte de %1</translation>
     </message>
@@ -33872,7 +33877,7 @@ Nota: importar claves no verifica esta sesión.</translation>
 <context>
     <name>VoiceSeekBar</name>
     <message>
-        <location filename="../qml/VoiceSeekBar.qml" line="+110"/>
+        <location filename="../qml/VoiceSeekBar.qml" line="+108"/>
         <source>Playback position</source>
         <translation>Posición de reproducción</translation>
     </message>

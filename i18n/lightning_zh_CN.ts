@@ -585,12 +585,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+50"/>
-        <location line="+246"/>
+        <location line="+251"/>
         <source>Activity</source>
         <translation>动态</translation>
     </message>
     <message numerus="yes">
-        <location line="-236"/>
+        <location line="-241"/>
         <source>%n new</source>
         <translation>
             <numerusform>%n 条新消息</numerusform>
@@ -641,7 +641,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>关闭</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+14"/>
         <source>All</source>
         <translation>全部</translation>
     </message>
@@ -661,7 +661,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>话题</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="+4"/>
         <source>Reactions</source>
         <translation>表情回应</translation>
     </message>
@@ -676,7 +676,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>关键词</translation>
     </message>
     <message>
-        <location line="+24"/>
+        <location line="+25"/>
         <source>Unread</source>
         <translation>未读</translation>
     </message>
@@ -800,12 +800,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>提及</translation>
     </message>
     <message>
-        <location line="-633"/>
+        <location line="-638"/>
         <source>encrypted message</source>
         <translation>加密消息</translation>
     </message>
     <message>
-        <location line="+228"/>
+        <location line="+233"/>
         <source>Keywords are managed in Settings, under Notifications.</source>
         <translation>关键词在“设置”的“通知”中管理。</translation>
     </message>
@@ -835,7 +835,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>ActivityModel</name>
     <message>
-        <location filename="../src/models/ActivityModel.cpp" line="+919"/>
+        <location filename="../src/models/ActivityModel.cpp" line="+923"/>
         <location line="+85"/>
         <source>Encrypted message</source>
         <translation type="unfinished">加密消息</translation>
@@ -970,7 +970,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+8460"/>
+        <location filename="../src/app/AppController.cpp" line="+8494"/>
         <source>Room invitation</source>
         <translation>房间邀请</translation>
     </message>
@@ -1090,7 +1090,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>来电</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-6483"/>
+        <location filename="../src/app/AppController.cpp" line="-6507"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>因账号已变更，退出登录已取消。未重置任何内容。</translation>
     </message>
@@ -1120,7 +1120,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>房间已创建，但未能设置房间图片。</translation>
     </message>
     <message>
-        <location line="+120"/>
+        <location line="+144"/>
         <source>Could not switch accounts — returning to the previous account.</source>
         <translation>无法切换账号，已返回上一个账号。</translation>
     </message>
@@ -1246,13 +1246,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>请使用真实日期，格式为 YYYY-MM-DD，且“从”不能晚于“到”。</translation>
     </message>
     <message>
-        <location line="-5689"/>
-        <location line="+3319"/>
+        <location line="-5723"/>
+        <location line="+3353"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-3318"/>
+        <location line="-3352"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>这是一条测试通知。如果你能看到它，说明桌面通知可以正常工作。</translation>
     </message>
@@ -1262,12 +1262,17 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>新提及</translation>
     </message>
     <message>
-        <location line="+678"/>
+        <location line="+447"/>
+        <source>The call ended because its audio or video could not be set up.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+241"/>
         <source>Call started</source>
         <translation>通话已开始</translation>
     </message>
     <message>
-        <location line="+2208"/>
+        <location line="+2232"/>
         <source>That notification was for a different account, so nothing was sent. Switch back to that account and try again.</source>
         <translation>该通知属于另一个账号，因此未发送。请切换回该账号后重试。</translation>
     </message>
@@ -11791,7 +11796,7 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+160"/>
+        <location line="+171"/>
         <source>Volume %1%</source>
         <translation>音量 %1%</translation>
     </message>
@@ -19484,7 +19489,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+215"/>
         <location line="+61"/>
         <location line="+151"/>
-        <location line="+5133"/>
+        <location line="+5138"/>
         <location line="+96"/>
         <location line="+13"/>
         <location line="+50"/>
@@ -19493,15 +19498,15 @@ Signing out and signing in again is the only fix.</source>
         <translation>未登录。</translation>
     </message>
     <message>
-        <location line="-5534"/>
+        <location line="-5539"/>
         <location line="+61"/>
         <location line="+151"/>
-        <location line="+5328"/>
+        <location line="+5333"/>
         <source>Unknown room: %1</source>
         <translation>未知房间：%1</translation>
     </message>
     <message>
-        <location line="-5536"/>
+        <location line="-5541"/>
         <location line="+61"/>
         <location line="+151"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -19509,13 +19514,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+796"/>
-        <location line="+2920"/>
+        <location line="+2925"/>
         <location line="+73"/>
         <source>The sticker could not be sent.</source>
         <translation>无法发送贴纸。</translation>
     </message>
     <message>
-        <location line="-1611"/>
+        <location line="-1616"/>
         <source>Lightning cannot send that yet.</source>
         <translation>Lightning 目前无法发送该内容。</translation>
     </message>
@@ -19565,7 +19570,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>邀请操作失败。请重试。</translation>
     </message>
     <message>
-        <location line="+361"/>
+        <location line="+366"/>
         <location line="+45"/>
         <source>The reaction could not be applied.</source>
         <translation>无法应用该表情回应。</translation>
@@ -19607,7 +19612,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>无法完成投票操作。</translation>
     </message>
     <message>
-        <location line="-7390"/>
+        <location line="-7395"/>
         <source>This account&apos;s data is still in use by a background session. Wait a moment and try again.</source>
         <translation>此账号的数据仍被后台会话使用。请稍候再试。</translation>
     </message>
@@ -19637,7 +19642,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>请输入你的密码。</translation>
     </message>
     <message>
-        <location line="+6331"/>
+        <location line="+6336"/>
         <source>Message could not be sent. You can retry from the message&apos;s Retry action.</source>
         <translation>消息发送失败。你可以通过该消息的“重试”操作再次发送。</translation>
     </message>
@@ -26074,7 +26079,7 @@ Note: importing keys does not verify this session.</source>
         <translation>通话声音已停止：此电脑的声音输出已断开。当有可用输出时将恢复；如果没有恢复，请离开并重新加入通话。</translation>
     </message>
     <message>
-        <location line="+2430"/>
+        <location line="+2441"/>
         <source>Screen-share sound is off: this package lacks the audio capture plugins it needs.</source>
         <translation>屏幕共享声音已关闭：此软件包缺少所需的音频捕获插件。</translation>
     </message>
@@ -26159,7 +26164,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished">参加者</translation>
     </message>
     <message>
-        <location line="-5195"/>
+        <location line="-5206"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>该房间已加密，并且在此版本中尚不支持加密呼叫。</translation>
     </message>
@@ -31559,12 +31564,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-558"/>
         <location filename="../qml/TimelinePane.qml" line="+389"/>
-        <location line="+6739"/>
+        <location line="+6750"/>
         <source>Space</source>
         <translation>空间</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-6738"/>
+        <location filename="../qml/TimelinePane.qml" line="-6749"/>
         <source>Home</source>
         <translation>主页</translation>
     </message>
@@ -31657,12 +31662,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+5012"/>
+        <location line="+5023"/>
         <source>Room information</source>
         <translation>房间信息</translation>
     </message>
     <message>
-        <location line="-4996"/>
+        <location line="-5007"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation>更多房间操作</translation>
@@ -31883,7 +31888,7 @@ Note: importing keys does not verify this session.</source>
         <translation>搜索无法完成。</translation>
     </message>
     <message>
-        <location line="+3775"/>
+        <location line="+3786"/>
         <location line="+501"/>
         <source>Loading older messages…</source>
         <translation>正在加载更早的消息…</translation>
@@ -32314,13 +32319,13 @@ Note: importing keys does not verify this session.</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location line="-7395"/>
+        <location line="-7406"/>
         <location line="+92"/>
         <source>View profile</source>
         <translation>查看个人资料</translation>
     </message>
     <message>
-        <location line="+6525"/>
+        <location line="+6536"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation>图片 (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
@@ -32391,7 +32396,7 @@ Note: importing keys does not verify this session.</source>
         <translation>拖放文件以添加附件</translation>
     </message>
     <message>
-        <location line="-6768"/>
+        <location line="-6779"/>
         <source>Part of %1</source>
         <translation>属于 %1</translation>
     </message>
@@ -33726,7 +33731,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>VoiceSeekBar</name>
     <message>
-        <location filename="../qml/VoiceSeekBar.qml" line="+110"/>
+        <location filename="../qml/VoiceSeekBar.qml" line="+108"/>
         <source>Playback position</source>
         <translation>播放位置</translation>
     </message>

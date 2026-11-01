@@ -597,12 +597,12 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     </message>
     <message>
         <location line="+50"/>
-        <location line="+246"/>
+        <location line="+251"/>
         <source>Activity</source>
         <translation>Aktivität</translation>
     </message>
     <message numerus="yes">
-        <location line="-236"/>
+        <location line="-241"/>
         <source>%n new</source>
         <translation>
             <numerusform>%n neu</numerusform>
@@ -656,7 +656,7 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <translation>Schließen</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+14"/>
         <source>All</source>
         <translation>Alle</translation>
     </message>
@@ -676,7 +676,7 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <translation>Threads</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="+4"/>
         <source>Reactions</source>
         <translation>Reaktionen</translation>
     </message>
@@ -691,7 +691,7 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <translation>Stichwörter</translation>
     </message>
     <message>
-        <location line="+24"/>
+        <location line="+25"/>
         <source>Unread</source>
         <translation>Ungelesen</translation>
     </message>
@@ -845,7 +845,7 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
 <context>
     <name>ActivityModel</name>
     <message>
-        <location filename="../src/models/ActivityModel.cpp" line="+919"/>
+        <location filename="../src/models/ActivityModel.cpp" line="+923"/>
         <location line="+85"/>
         <source>Encrypted message</source>
         <translation type="unfinished">Verschlüsselte Nachricht</translation>
@@ -981,19 +981,19 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     <name>AppController</name>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+572"/>
-        <location filename="../src/app/AppController.cpp" line="+7361"/>
+        <location filename="../src/app/AppController.cpp" line="+7395"/>
         <location line="+1196"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
         <translation>Lightning kann die gespeicherten Anmeldungen dieses Geräts gerade nicht lesen – der System-Schlüsselbund ist gesperrt oder nicht verfügbar. Entsperre ihn und versuche es erneut.</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-7898"/>
-        <location line="+3319"/>
+        <location filename="../src/app/AppController.cpp" line="-7932"/>
+        <location line="+3353"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-3318"/>
+        <location line="-3352"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>Dies ist eine Testbenachrichtigung. Wenn du sie lesen kannst, funktionieren Desktop-Benachrichtigungen.</translation>
     </message>
@@ -1003,7 +1003,12 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <translation>Neue Erwähnungen</translation>
     </message>
     <message>
-        <location line="+678"/>
+        <location line="+447"/>
+        <source>The call ended because its audio or video could not be set up.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+241"/>
         <source>Call started</source>
         <translation>Anruf gestartet</translation>
     </message>
@@ -1028,7 +1033,7 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <translation>Der Raum wurde erstellt, aber das Festlegen seines Bildes ist fehlgeschlagen.</translation>
     </message>
     <message>
-        <location line="+120"/>
+        <location line="+144"/>
         <source>Could not switch accounts — returning to the previous account.</source>
         <translation>Kontowechsel nicht möglich – es wird zum vorherigen Konto zurückgekehrt.</translation>
     </message>
@@ -11833,7 +11838,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+160"/>
+        <location line="+171"/>
         <source>Volume %1%</source>
         <translation>Lautstärke %1 %</translation>
     </message>
@@ -19582,7 +19587,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <location line="+215"/>
         <location line="+61"/>
         <location line="+151"/>
-        <location line="+5133"/>
+        <location line="+5138"/>
         <location line="+96"/>
         <location line="+13"/>
         <location line="+50"/>
@@ -19591,15 +19596,15 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Nicht angemeldet.</translation>
     </message>
     <message>
-        <location line="-5534"/>
+        <location line="-5539"/>
         <location line="+61"/>
         <location line="+151"/>
-        <location line="+5328"/>
+        <location line="+5333"/>
         <source>Unknown room: %1</source>
         <translation>Unbekannter Raum: %1</translation>
     </message>
     <message>
-        <location line="-5536"/>
+        <location line="-5541"/>
         <location line="+61"/>
         <location line="+151"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -19607,13 +19612,13 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
     </message>
     <message>
         <location line="+796"/>
-        <location line="+2920"/>
+        <location line="+2925"/>
         <location line="+73"/>
         <source>The sticker could not be sent.</source>
         <translation>Der Sticker konnte nicht gesendet werden.</translation>
     </message>
     <message>
-        <location line="-1611"/>
+        <location line="-1616"/>
         <source>Lightning cannot send that yet.</source>
         <translation>Lightning kann das noch nicht senden.</translation>
     </message>
@@ -19663,7 +19668,7 @@ Abmelden und erneut Anmelden ist die einzige Lösung.</translation>
         <translation>Die Einladungsaktion ist fehlgeschlagen. Versuche es erneut.</translation>
     </message>
     <message>
-        <location line="+361"/>
+        <location line="+366"/>
         <location line="+45"/>
         <source>The reaction could not be applied.</source>
         <translation>Die Reaktion konnte nicht angewendet werden.</translation>
@@ -26175,7 +26180,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Anruf-Audio gestoppt: Die Tonausgabe dieses Computers wurde getrennt. Es läuft weiter, sobald wieder eine Ausgabe verfügbar ist; falls nicht, verlasse den Anruf und tritt erneut bei.</translation>
     </message>
     <message>
-        <location line="+2430"/>
+        <location line="+2441"/>
         <source>Screen-share sound is off: this package lacks the audio capture plugins it needs.</source>
         <translation>Der Ton der Bildschirmfreigabe ist aus: Diesem Paket fehlen die nötigen Audioaufnahme-Plugins.</translation>
     </message>
@@ -31691,7 +31696,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     </message>
     <message>
         <location line="+13"/>
-        <location filename="../qml/TimelinePane.qml" line="+8678"/>
+        <location filename="../qml/TimelinePane.qml" line="+8689"/>
         <source>Remove</source>
         <translation>Entfernen</translation>
     </message>
@@ -31735,8 +31740,8 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     </message>
     <message>
         <location line="+30"/>
-        <location filename="../qml/TimelinePane.qml" line="-7289"/>
-        <location line="+6739"/>
+        <location filename="../qml/TimelinePane.qml" line="-7300"/>
+        <location line="+6750"/>
         <source>Space</source>
         <translation>Space</translation>
     </message>
@@ -31806,7 +31811,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>%1 auswählen</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-7958"/>
+        <location filename="../qml/TimelinePane.qml" line="-7969"/>
         <source>Seen by 1 person</source>
         <translation>Von 1 Person gesehen</translation>
     </message>
@@ -31923,12 +31928,12 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+5012"/>
+        <location line="+5023"/>
         <source>Room information</source>
         <translation>Rauminformationen</translation>
     </message>
     <message>
-        <location line="-4996"/>
+        <location line="-5007"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation>Weitere Raumaktionen</translation>
@@ -32149,7 +32154,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Die Suche konnte nicht abgeschlossen werden.</translation>
     </message>
     <message>
-        <location line="+3775"/>
+        <location line="+3786"/>
         <location line="+501"/>
         <source>Loading older messages…</source>
         <translation>Ältere Nachrichten werden geladen …</translation>
@@ -32536,7 +32541,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Dateien zum Anhängen hier ablegen</translation>
     </message>
     <message>
-        <location line="-6768"/>
+        <location line="-6779"/>
         <source>Part of %1</source>
         <translation>Teil von %1</translation>
     </message>
@@ -33872,7 +33877,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
 <context>
     <name>VoiceSeekBar</name>
     <message>
-        <location filename="../qml/VoiceSeekBar.qml" line="+110"/>
+        <location filename="../qml/VoiceSeekBar.qml" line="+108"/>
         <source>Playback position</source>
         <translation>Wiedergabeposition</translation>
     </message>

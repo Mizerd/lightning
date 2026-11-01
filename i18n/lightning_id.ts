@@ -585,12 +585,12 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
     </message>
     <message>
         <location line="+50"/>
-        <location line="+246"/>
+        <location line="+251"/>
         <source>Activity</source>
         <translation>Aktivitas</translation>
     </message>
     <message numerus="yes">
-        <location line="-236"/>
+        <location line="-241"/>
         <source>%n new</source>
         <translation>
             <numerusform>%n baru</numerusform>
@@ -641,7 +641,7 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
         <translation>Tutup</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+14"/>
         <source>All</source>
         <translation>Semua</translation>
     </message>
@@ -661,7 +661,7 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
         <translation>Utas</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="+4"/>
         <source>Reactions</source>
         <translation>Reaksi</translation>
     </message>
@@ -676,7 +676,7 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
         <translation>Kata kunci</translation>
     </message>
     <message>
-        <location line="+24"/>
+        <location line="+25"/>
         <source>Unread</source>
         <translation>Belum dibaca</translation>
     </message>
@@ -800,12 +800,12 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
         <translation>Sebutkan</translation>
     </message>
     <message>
-        <location line="-633"/>
+        <location line="-638"/>
         <source>encrypted message</source>
         <translation>pesan terenkripsi</translation>
     </message>
     <message>
-        <location line="+228"/>
+        <location line="+233"/>
         <source>Keywords are managed in Settings, under Notifications.</source>
         <translation>Kata kunci dikelola di Pengaturan, di bawah Notifikasi.</translation>
     </message>
@@ -835,7 +835,7 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
 <context>
     <name>ActivityModel</name>
     <message>
-        <location filename="../src/models/ActivityModel.cpp" line="+919"/>
+        <location filename="../src/models/ActivityModel.cpp" line="+923"/>
         <location line="+85"/>
         <source>Encrypted message</source>
         <translation type="unfinished">Pesan terenkripsi</translation>
@@ -970,7 +970,7 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+8460"/>
+        <location filename="../src/app/AppController.cpp" line="+8494"/>
         <source>Room invitation</source>
         <translation>Undangan ruang</translation>
     </message>
@@ -1090,7 +1090,7 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
         <translation>Panggilan masuk</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-6483"/>
+        <location filename="../src/app/AppController.cpp" line="-6507"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>Keluar dibatalkan karena akun berubah. Tidak ada yang diatur ulang.</translation>
     </message>
@@ -1120,7 +1120,7 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
         <translation>Ruang berhasil dibuat, tetapi gagal mengatur gambarnya.</translation>
     </message>
     <message>
-        <location line="+120"/>
+        <location line="+144"/>
         <source>Could not switch accounts — returning to the previous account.</source>
         <translation>Tidak dapat berganti akun — kembali ke akun sebelumnya.</translation>
     </message>
@@ -1246,13 +1246,13 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
         <translation>Gunakan tanggal yang valid dengan format YYYY-MM-DD, dengan “Dari” tidak setelah “Sampai”.</translation>
     </message>
     <message>
-        <location line="-5689"/>
-        <location line="+3319"/>
+        <location line="-5723"/>
+        <location line="+3353"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-3318"/>
+        <location line="-3352"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>Ini adalah notifikasi uji. Jika Anda dapat membacanya, notifikasi desktop berfungsi.</translation>
     </message>
@@ -1262,12 +1262,17 @@ Tindakan ini tidak menyentuh kunci enkripsi, sesi masuk, atau pesan apa pun di s
         <translation>Sebutan baru</translation>
     </message>
     <message>
-        <location line="+678"/>
+        <location line="+447"/>
+        <source>The call ended because its audio or video could not be set up.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+241"/>
         <source>Call started</source>
         <translation>Panggilan dimulai</translation>
     </message>
     <message>
-        <location line="+2208"/>
+        <location line="+2232"/>
         <source>That notification was for a different account, so nothing was sent. Switch back to that account and try again.</source>
         <translation>Notifikasi itu untuk akun yang berbeda, jadi tidak ada yang dikirim. Beralih kembali ke akun itu dan coba lagi.</translation>
     </message>
@@ -11791,7 +11796,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+160"/>
+        <location line="+171"/>
         <source>Volume %1%</source>
         <translation>Volume %1%</translation>
     </message>
@@ -19484,7 +19489,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <location line="+215"/>
         <location line="+61"/>
         <location line="+151"/>
-        <location line="+5133"/>
+        <location line="+5138"/>
         <location line="+96"/>
         <location line="+13"/>
         <location line="+50"/>
@@ -19493,15 +19498,15 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Belum masuk.</translation>
     </message>
     <message>
-        <location line="-5534"/>
+        <location line="-5539"/>
         <location line="+61"/>
         <location line="+151"/>
-        <location line="+5328"/>
+        <location line="+5333"/>
         <source>Unknown room: %1</source>
         <translation>Ruang tidak dikenal: %1</translation>
     </message>
     <message>
-        <location line="-5536"/>
+        <location line="-5541"/>
         <location line="+61"/>
         <location line="+151"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -19509,13 +19514,13 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
     </message>
     <message>
         <location line="+796"/>
-        <location line="+2920"/>
+        <location line="+2925"/>
         <location line="+73"/>
         <source>The sticker could not be sent.</source>
         <translation>Stiker tidak dapat dikirim.</translation>
     </message>
     <message>
-        <location line="-1611"/>
+        <location line="-1616"/>
         <source>Lightning cannot send that yet.</source>
         <translation>Lightning belum dapat mengirim itu.</translation>
     </message>
@@ -19565,7 +19570,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Tindakan undangan gagal. Coba lagi.</translation>
     </message>
     <message>
-        <location line="+361"/>
+        <location line="+366"/>
         <location line="+45"/>
         <source>The reaction could not be applied.</source>
         <translation>Reaksi tidak dapat diterapkan.</translation>
@@ -19607,7 +19612,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Tindakan jajak pendapat tidak dapat diselesaikan.</translation>
     </message>
     <message>
-        <location line="-7390"/>
+        <location line="-7395"/>
         <source>This account&apos;s data is still in use by a background session. Wait a moment and try again.</source>
         <translation>Data akun ini masih digunakan oleh sesi latar belakang. Tunggu sebentar lalu coba lagi.</translation>
     </message>
@@ -19637,7 +19642,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Masukkan kata sandi Anda.</translation>
     </message>
     <message>
-        <location line="+6331"/>
+        <location line="+6336"/>
         <source>Message could not be sent. You can retry from the message&apos;s Retry action.</source>
         <translation>Pesan tidak dapat dikirim. Anda dapat mencoba lagi dari tindakan Coba lagi pada pesan.</translation>
     </message>
@@ -26074,7 +26079,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Suara panggilan berhenti: keluaran suara komputer ini terputus. Suara berlanjut saat keluaran tersedia lagi; jika tidak, keluar lalu bergabung kembali ke panggilan.</translation>
     </message>
     <message>
-        <location line="+2430"/>
+        <location line="+2441"/>
         <source>Screen-share sound is off: this package lacks the audio capture plugins it needs.</source>
         <translation>Suara berbagi layar dinonaktifkan: paket ini tidak memiliki plugin penangkapan audio yang diperlukan.</translation>
     </message>
@@ -26159,7 +26164,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation type="unfinished">Peserta</translation>
     </message>
     <message>
-        <location line="-5195"/>
+        <location line="-5206"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>Ruangan ini dienkripsi, dan panggilan terenkripsi belum tersedia di build ini.</translation>
     </message>
@@ -31559,12 +31564,12 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-558"/>
         <location filename="../qml/TimelinePane.qml" line="+389"/>
-        <location line="+6739"/>
+        <location line="+6750"/>
         <source>Space</source>
         <translation>Space</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-6738"/>
+        <location filename="../qml/TimelinePane.qml" line="-6749"/>
         <source>Home</source>
         <translation>Beranda</translation>
     </message>
@@ -31657,12 +31662,12 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+5012"/>
+        <location line="+5023"/>
         <source>Room information</source>
         <translation>Informasi ruang</translation>
     </message>
     <message>
-        <location line="-4996"/>
+        <location line="-5007"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation>Tindakan ruang lainnya</translation>
@@ -31883,7 +31888,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Pencarian tidak dapat diselesaikan.</translation>
     </message>
     <message>
-        <location line="+3775"/>
+        <location line="+3786"/>
         <location line="+501"/>
         <source>Loading older messages…</source>
         <translation>Memuat pesan lama…</translation>
@@ -32314,13 +32319,13 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Batal</translation>
     </message>
     <message>
-        <location line="-7395"/>
+        <location line="-7406"/>
         <location line="+92"/>
         <source>View profile</source>
         <translation>Lihat profil</translation>
     </message>
     <message>
-        <location line="+6525"/>
+        <location line="+6536"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation>Gambar (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
@@ -32391,7 +32396,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Lepaskan berkas untuk melampirkannya</translation>
     </message>
     <message>
-        <location line="-6768"/>
+        <location line="-6779"/>
         <source>Part of %1</source>
         <translation>Bagian dari %1</translation>
     </message>
@@ -33726,7 +33731,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
 <context>
     <name>VoiceSeekBar</name>
     <message>
-        <location filename="../qml/VoiceSeekBar.qml" line="+110"/>
+        <location filename="../qml/VoiceSeekBar.qml" line="+108"/>
         <source>Playback position</source>
         <translation>Posisi pemutaran</translation>
     </message>

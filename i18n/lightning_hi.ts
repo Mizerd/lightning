@@ -592,12 +592,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+50"/>
-        <location line="+246"/>
+        <location line="+251"/>
         <source>Activity</source>
         <translation>गतिविधि</translation>
     </message>
     <message numerus="yes">
-        <location line="-236"/>
+        <location line="-241"/>
         <source>%n new</source>
         <translation>
             <numerusform>%n नया</numerusform>
@@ -651,7 +651,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>बंद करें</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+14"/>
         <source>All</source>
         <translation>सभी</translation>
     </message>
@@ -671,7 +671,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>थ्रेड</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="+4"/>
         <source>Reactions</source>
         <translation>प्रतिक्रियाएँ</translation>
     </message>
@@ -686,7 +686,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>कीवर्ड</translation>
     </message>
     <message>
-        <location line="+24"/>
+        <location line="+25"/>
         <source>Unread</source>
         <translation>अपठित</translation>
     </message>
@@ -810,12 +810,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>उल्लेख करें</translation>
     </message>
     <message>
-        <location line="-633"/>
+        <location line="-638"/>
         <source>encrypted message</source>
         <translation>एन्क्रिप्टेड संदेश</translation>
     </message>
     <message>
-        <location line="+228"/>
+        <location line="+233"/>
         <source>Keywords are managed in Settings, under Notifications.</source>
         <translation>कीवर्ड सेटिंग्स में, सूचनाएँ के अंतर्गत प्रबंधित होते हैं।</translation>
     </message>
@@ -845,7 +845,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>ActivityModel</name>
     <message>
-        <location filename="../src/models/ActivityModel.cpp" line="+919"/>
+        <location filename="../src/models/ActivityModel.cpp" line="+923"/>
         <location line="+85"/>
         <source>Encrypted message</source>
         <translation type="unfinished">एन्क्रिप्टेड संदेश</translation>
@@ -980,7 +980,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+8460"/>
+        <location filename="../src/app/AppController.cpp" line="+8494"/>
         <source>Room invitation</source>
         <translation>रूम का आमंत्रण</translation>
     </message>
@@ -1101,7 +1101,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>आने वाली कॉल</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-6483"/>
+        <location filename="../src/app/AppController.cpp" line="-6507"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>खाता बदलने के कारण साइन-आउट रद्द कर दिया गया। कुछ भी रीसेट नहीं हुआ।</translation>
     </message>
@@ -1131,7 +1131,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>रूम बन गया, लेकिन उसकी तस्वीर सेट नहीं की जा सकी।</translation>
     </message>
     <message>
-        <location line="+120"/>
+        <location line="+144"/>
         <source>Could not switch accounts — returning to the previous account.</source>
         <translation>खाता बदला नहीं जा सका — पिछले खाते पर लौटा जा रहा है।</translation>
     </message>
@@ -1257,13 +1257,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>YYYY-MM-DD प्रारूप में वास्तविक तिथियाँ दें, जहाँ “से” तिथि “तक” तिथि के बाद की न हो।</translation>
     </message>
     <message>
-        <location line="-5689"/>
-        <location line="+3319"/>
+        <location line="-5723"/>
+        <location line="+3353"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-3318"/>
+        <location line="-3352"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>यह एक टेस्ट सूचना है। यदि आप इसे पढ़ पा रहे हैं, तो डेस्कटॉप सूचनाएँ काम कर रही हैं।</translation>
     </message>
@@ -1273,12 +1273,17 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>नए मेंशन</translation>
     </message>
     <message>
-        <location line="+678"/>
+        <location line="+447"/>
+        <source>The call ended because its audio or video could not be set up.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+241"/>
         <source>Call started</source>
         <translation>कॉल शुरू हुई</translation>
     </message>
     <message>
-        <location line="+2208"/>
+        <location line="+2232"/>
         <source>That notification was for a different account, so nothing was sent. Switch back to that account and try again.</source>
         <translation>वह सूचना किसी दूसरे खाते के लिए थी, इसलिए कुछ नहीं भेजा गया। उस खाते पर वापस जाएँ और फिर कोशिश करें।</translation>
     </message>
@@ -11833,7 +11838,7 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+160"/>
+        <location line="+171"/>
         <source>Volume %1%</source>
         <translation>वॉल्यूम %1%</translation>
     </message>
@@ -19552,7 +19557,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+215"/>
         <location line="+61"/>
         <location line="+151"/>
-        <location line="+5133"/>
+        <location line="+5138"/>
         <location line="+96"/>
         <location line="+13"/>
         <location line="+50"/>
@@ -19561,15 +19566,15 @@ Signing out and signing in again is the only fix.</source>
         <translation>साइन इन नहीं हैं।</translation>
     </message>
     <message>
-        <location line="-5534"/>
+        <location line="-5539"/>
         <location line="+61"/>
         <location line="+151"/>
-        <location line="+5328"/>
+        <location line="+5333"/>
         <source>Unknown room: %1</source>
         <translation>अज्ञात रूम: %1</translation>
     </message>
     <message>
-        <location line="-5536"/>
+        <location line="-5541"/>
         <location line="+61"/>
         <location line="+151"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -19577,13 +19582,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+796"/>
-        <location line="+2920"/>
+        <location line="+2925"/>
         <location line="+73"/>
         <source>The sticker could not be sent.</source>
         <translation>स्टीकर नहीं भेजा जा सका.</translation>
     </message>
     <message>
-        <location line="-1611"/>
+        <location line="-1616"/>
         <source>Lightning cannot send that yet.</source>
         <translation>Lightning अभी वह भेज नहीं सकता।</translation>
     </message>
@@ -19633,7 +19638,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>आमंत्रण की कार्रवाई विफल रही। फिर कोशिश करें।</translation>
     </message>
     <message>
-        <location line="+361"/>
+        <location line="+366"/>
         <location line="+45"/>
         <source>The reaction could not be applied.</source>
         <translation>प्रतिक्रिया लागू नहीं की जा सकी।</translation>
@@ -19675,7 +19680,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>पोल की कार्रवाई पूरी नहीं हो सकी।</translation>
     </message>
     <message>
-        <location line="-7390"/>
+        <location line="-7395"/>
         <source>This account&apos;s data is still in use by a background session. Wait a moment and try again.</source>
         <translation>इस खाते का डेटा अभी किसी बैकग्राउंड सेशन में उपयोग में है। थोड़ी देर रुककर दोबारा कोशिश करें।</translation>
     </message>
@@ -19705,7 +19710,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>अपना पासवर्ड दर्ज करें।</translation>
     </message>
     <message>
-        <location line="+6331"/>
+        <location line="+6336"/>
         <source>Message could not be sent. You can retry from the message&apos;s Retry action.</source>
         <translation>संदेश भेजा नहीं जा सका। आप संदेश के “फिर कोशिश करें” विकल्प से दोबारा भेज सकते हैं।</translation>
     </message>
@@ -26160,7 +26165,7 @@ Note: importing keys does not verify this session.</source>
         <translation>कॉल का ऑडियो रुक गया: इस कंप्यूटर का साउंड आउटपुट डिस्कनेक्ट हो गया। आउटपुट दोबारा उपलब्ध होने पर यह फिर शुरू होता है; न हो तो कॉल छोड़कर फिर शामिल हों।</translation>
     </message>
     <message>
-        <location line="+2430"/>
+        <location line="+2441"/>
         <source>Screen-share sound is off: this package lacks the audio capture plugins it needs.</source>
         <translation>स्क्रीन शेयर की ध्वनि बंद है: इस पैकेज में आवश्यक ऑडियो कैप्चर प्लगइन नहीं हैं।</translation>
     </message>
@@ -26245,7 +26250,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished">प्रतिभागी</translation>
     </message>
     <message>
-        <location line="-5195"/>
+        <location line="-5206"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>यह रूम एन्क्रिप्टेड है, और इस बिल्ड पर एन्क्रिप्टेड कॉल अभी तक उपलब्ध नहीं हैं।</translation>
     </message>
@@ -31697,12 +31702,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-558"/>
         <location filename="../qml/TimelinePane.qml" line="+389"/>
-        <location line="+6739"/>
+        <location line="+6750"/>
         <source>Space</source>
         <translation>स्पेस</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-6738"/>
+        <location filename="../qml/TimelinePane.qml" line="-6749"/>
         <source>Home</source>
         <translation>होम</translation>
     </message>
@@ -31795,12 +31800,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+5012"/>
+        <location line="+5023"/>
         <source>Room information</source>
         <translation>कक्ष जानकारी</translation>
     </message>
     <message>
-        <location line="-4996"/>
+        <location line="-5007"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation>रूम की और कार्रवाइयाँ</translation>
@@ -32021,7 +32026,7 @@ Note: importing keys does not verify this session.</source>
         <translation>खोज पूरी नहीं हो सकी।</translation>
     </message>
     <message>
-        <location line="+3775"/>
+        <location line="+3786"/>
         <location line="+501"/>
         <source>Loading older messages…</source>
         <translation>पुराने संदेश लोड हो रहे हैं…</translation>
@@ -32459,13 +32464,13 @@ Note: importing keys does not verify this session.</source>
         <translation>रद्द करें</translation>
     </message>
     <message>
-        <location line="-7395"/>
+        <location line="-7406"/>
         <location line="+92"/>
         <source>View profile</source>
         <translation>प्रोफ़ाइल देखें</translation>
     </message>
     <message>
-        <location line="+6525"/>
+        <location line="+6536"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation>तस्वीरें (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
@@ -32536,7 +32541,7 @@ Note: importing keys does not verify this session.</source>
         <translation>संलग्न करने के लिए फ़ाइलें छोड़ें</translation>
     </message>
     <message>
-        <location line="-6768"/>
+        <location line="-6779"/>
         <source>Part of %1</source>
         <translation>%1 का हिस्सा</translation>
     </message>
@@ -33872,7 +33877,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>VoiceSeekBar</name>
     <message>
-        <location filename="../qml/VoiceSeekBar.qml" line="+110"/>
+        <location filename="../qml/VoiceSeekBar.qml" line="+108"/>
         <source>Playback position</source>
         <translation>प्लेबैक की स्थिति</translation>
     </message>
