@@ -1517,6 +1517,11 @@ private:
     // Every room this session knows, including Spaces and, on classic sync,
     // rooms no index space names.
     QHash<QString, RoomInfo> m_rooms;
+    // Per room, the count of m.typing sets received. A typing set is dropped
+    // if no newer one arrives within kTypingExpiryMs: a typist's own client
+    // refreshes it every few seconds, so silence means the "stopped" update was
+    // missed and the indicator would otherwise stay up for ever.
+    QHash<QString, quint64> m_typingSerial;
     // The SDK room list's index space, one-for-one, because room-list diffs
     // address it by index. Only `room_list_*` diffs and `room_list_reset` may
     // write it; never `room_snapshot`. See matrix::rust_rooms.

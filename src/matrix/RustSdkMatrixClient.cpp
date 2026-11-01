@@ -7214,6 +7214,24 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
             }
         }
         room->typingUserIds = users;
+        const quint64 serial = ++m_typingSerial[roomId];
+        if (!users.isEmpty()) {
+            // Expire a set nothing has refreshed (see m_typingSerial). The
+            // serial is the guard, so a newer set or an account change that
+            // cleared the rooms makes this a no-op.
+            constexpr int kTypingExpiryMs = 45 * 1000;
+            QTimer::singleShot(kTypingExpiryMs, this,
+                               [this, roomId, serial, gen = m_lifecycle.activeGeneration()] {
+                if (!m_lifecycle.acceptsActive(gen)
+                    || m_typingSerial.value(roomId) != serial)
+                    return;
+                auto expired = m_rooms.find(roomId);
+                if (expired == m_rooms.end() || expired->typingUserIds.isEmpty())
+                    return;
+                expired->typingUserIds.clear();
+                Q_EMIT typingChanged(roomId);
+            });
+        }
         Q_EMIT typingChanged(roomId);
         return;
     }
