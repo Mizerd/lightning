@@ -23,14 +23,11 @@ implement the filter would answer with an empty set.
 
 ## 2026-11-01 — OPEN, NOT FIXED in the 0.10.3 pass
 
-- A19: a MatrixRTC call at the 640 px window floor lays the chat pane's call
-  content wider than the pane (the call bar's collapse chevron and the
-  software-video banner clip at the right edge; reproduced again 2026-11-01 on
-  a loopback build, `run/34/shots/a6.png`). Suspect: the call header cell's
-  `Layout.minimumWidth: cramped ? implicitWidth : 0` in `CallStage.qml` keeps
-  the column's minimum above the 320 px pane. Not yet bisected.
-- C-obs2: the inline Space home overflows a 760 px window (Add existing room
-  and the settings card's Rename clipped), the same class as A19.
+- A19 and C-obs2 are FIXED (2026-11-01): the call stage's controls cell no
+  longer asks for its full width as a minimum, the stage clips, the Space lobby
+  toolbar and the undecryptable-message actions wrap. Live at 640x360, 640x720
+  and a 760 px Space home; geometric tests in `timeline-pane-qml` and
+  `channel-row-geometry-qml`.
 - A-obs: "rtp stats: no audio leaving ... outbound=0" every 5 s after the first
   mute and unmute while audio flows. Not located in the code or reproduced; the
   only producer is `GstCallMediaBackend::handleStats`.
