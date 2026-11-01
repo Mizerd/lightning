@@ -1,5 +1,77 @@
 # Live validation: what Rokas has actually confirmed
 
+## 2026-11-01 — the 0.10.3 live rounds: real-server calls and a GUI sweep
+
+An agent's runs, not Rokas's confirmation. Evidence is in the scratch trees
+`codex/bigscope/realcalls` (report.md) and `codex/bigscope/gui-test`
+(results-A..G.md). Builds: `f11e5950` for the call runs, `5396ff53` (window
+title still 0.10.2) for the GUI sweep. The GUI sweep ran on Xvfb with software
+rendering, a local Continuwuity, no sound server and no notification daemon.
+
+**Real-server calls, smetonis.net, headless Lightning engine peers (not the QML
+window):**
+
+- PASS: direct calls, plain and encrypted, voice and video (4/4).
+- PASS: MatrixRTC 2 parties, encrypted and unencrypted, audio both ways, VP8
+  screen share both ways. Hardware (H.264) share, encrypted: PASS on re-run;
+  the first run had one side fall back to `vp8enc` and the share still arrived.
+- PASS: MatrixRTC 3 parties, encrypted: every pair hears every other, one
+  share seen by two, leave and rejoin. lk-jwt token issuance against the real
+  SFU: PASS. Stream Info engine values spot-checked, no bogus 500 FPS.
+- PASS cross-client, encrypted, headless Lightning peer: Element Call 2p (audio
+  and share both ways); Sable 1.22.11 2p; three-way with both; hardware H.264
+  share to Sable and Element Call (about 710 frames, 0 dropped).
+- NOT TESTED: direct screen share (the lane has no path; documented), hardware
+  share in an unencrypted MatrixRTC call, the Automatic format label in the
+  window, the Stream Info panel itself, Element Desktop, a real Lightning
+  window in a cross-client call, macOS.
+- Open, unexplained: `hardware encoder nvh264enc cannot run here: ""` once
+  with an empty reason; one run heard a tone at 0.15 instead of 0.32 with
+  200 dropped frames; `framesDropped` rises by 10-20 (once 523) per rejoin.
+  Synapse limits password logins to about 5 per IP per few minutes (429 for
+  about 290 s).
+
+**GUI sweep, areas A-G (calls, timeline and media, rooms and Spaces, Activity
+and threads, Settings, small windows, accounts).** Per-item status is in the
+results files; the shape:
+
+- A (calls): PASS for the call-type menu and the proxy refusal and the screen
+  share start/stop cycles (no offer storm); the rest NOT TESTED (the rig has no
+  audio device, so a legacy call's pipeline failed at once).
+- B (timeline, media): PASS 8, PARTIAL 10, NOT TESTED 22 on the first pass;
+  playback was never audible (no sound server on the rig).
+- C: PASS 6, PASS (partial) 13, FAIL 1, NOT TESTED 6. D: Activity, saved
+  messages and thread placements mostly PASS (partial); desktop popups NOT
+  TESTED. E (Settings): navigation, search, rebinding and the Nheko preset
+  PASS; theme save/share/import NOT TESTED. F (640x360): F01-F07 PASS, F10
+  NOT TESTED (no window manager). G: sign-in, invitations toggle, proxy, sign-out
+  and encrypted DM PASS; rapid double switch and Flatpak drag-and-drop NOT
+  TESTED; invitation avatar withholding could not be told apart.
+
+**FAILs, and where each stands:**
+
+| Item | Finding | Status |
+| --- | --- | --- |
+| A11 | invitee to a Lightning-created DM refused a call membership | FIXED `80c31bbb` (new DMs only; older DMs keep stock levels) |
+| A19 | call stage wider than a 640 px window, tiles overlap at 640x360 | FIXED `84490493`, `c2d86aca`, `1ebef0e8` |
+| A lead 1 | legacy pipeline failure silent | FIXED `b7775f4c` (visible notice) |
+| A lead 2 | DM call button missing until room re-entry | FIXED `7578bf07`; no regression test (open-items) |
+| B07 | seek tooltip "62:23" past an hour | FIXED `c4140206` |
+| B09 | audio/subtitle menu order | order FIXED `8356d61d`; a pick still does NOT stick, cause undetermined |
+| C-obs2 | Space home card clipped at 760 px | FIXED `c2d86aca` |
+| D06 | Reactions tab visible with reactions Off | FIXED `de52dd7b` |
+| D07 | follow button shown on a server without MSC4306 | FIXED `00f305f7` |
+| G08 | avatar stays a letter after account switch | FIXED `25830bba`, `b7775f4c`, `ebfb7aad` |
+| sign-out | `positionViewAtLatest` TypeError in TimelinePane | FIXED `9483d54c`, `dcc0d7a1`, `3f22caa4` |
+| C09 | collapsing "Rooms" hides the open room's row | NO DEFECT: by design; `49e0c689` is the opt-in "Keep important rooms visible" setting, off by default |
+| E09 | "Compact room list" does not follow settings sync | NO DEFECT: by design; `ui/compactRoomList` is not in the synced key list (the key sent was the layout preset) |
+| B14-obs | typed "@room" sends empty `m.mentions` | NO DEFECT: a picked @room sets `m.mentions.room`; a typed, unpicked one deliberately does not |
+| A-obs | false `no audio leaving ... outbound=0` log every 5 s | NOT FIXED, not located |
+| C-obs1 | joined rooms under "Invites" after restart | NOT REPRODUCED; see open-items |
+
+B33 was withdrawn (tester misread a screenshot). None of the fixes above was
+confirmed by Rokas on a real desktop.
+
 ## 2026-10-31 (evening) — the integrated tree, scripted, on one machine
 
 An agent's run, not Rokas's confirmation. Build from the final integration

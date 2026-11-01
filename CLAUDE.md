@@ -26,6 +26,10 @@ frontend.
 
 ## 2. Current release and development state
 
+Release 0.10.3 is PREPARED on `main` (version bumped, notes in
+`docs/releases/v0.10.3.md`) and is NOT published until its pipeline passes;
+what follows describes the last PUBLISHED release.
+
 Latest published release: **Lightning 0.10.2** (`v0.10.2` -> `a32229a6`),
 tagged 2026-10-21 by **project 6** pipeline **344, 30/30 first attempt**
 (macOS attached; Flathub PR #3 opened by `flathub-update-pr`). Notes in

@@ -1,5 +1,38 @@
 # Round history
 
+## 2026-11-01 — the 0.10.3 fix round, and what the GUI sweep taught
+
+Seven GUI testers and a real-server call run produced 15 findings; most were
+fixed the same day. The lessons, from `gui-test/bugs.md`:
+
+- **A fixed lookup that returns nothing is not a refusal to remember.** After
+  an account switch the avatar fetch came back `opId=0` and the Avatar kept the
+  refusal for ever, so the picture stayed a letter. A clear that drops an
+  in-flight fetch must tell consumers to ask again, and the refusal must
+  survive the two clears of one transition.
+- **A button gated on a revision nobody bumps is a button that appears late.**
+  The DM call button waited for a re-entry because `callGateRevision` moved only
+  from the RTC controller, not when the room list learned the room was direct.
+- **A failure with no reader is silent.** `endReason()` had no property and
+  nothing read it, so a failing legacy pipeline just hung up. Say why.
+- **A server answer of "not found" is not "supported".** The thread
+  subscription probe mapped any Ok to supported; matrix-sdk turns a 404 into Ok.
+- **Size a stage from what it can give, not what it wants.** A controls cell
+  asking for its full width as a minimum widened the whole call pane past a
+  640 px window; the Space lobby toolbar and the undecryptable actions did the
+  same. Fixed by wrapping and clipping, with geometric tests.
+- **An override sent to a shallow-merging server must carry the whole map.**
+  Call entries alone would have dropped the stock power levels for every other
+  event type on Synapse.
+- **A fix is not a cure for rooms that already exist.** DMs made before the
+  override keep their old levels; this is written down as a known limit.
+- **Order is ours, behaviour may not be.** The video track menu now lists each
+  heading above its tracks, but a pick still does not stick, and a plain
+  `MediaPlayer` keeps it, so it is not a Qt limit. Undetermined, not fixed.
+- **A tester can be wrong.** B33 was withdrawn; C-obs1 did not reproduce on a
+  copy of the profile. Neither was changed.
+- **Run Qt tests under `dbus-run-session`** (CLAUDE.md §12), as before.
+
 ## 2026-10-31 (evening) — integrating six slices, and what only the integrated tree showed
 
 Calls, hardware share, Stream Info, Activity, small windows and developer mode
