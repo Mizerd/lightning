@@ -6548,7 +6548,25 @@ Rectangle {
                 visible: app.currentRoomId !== ""
                          && app.pagination.presentationState
                             !== PaginationController.Hidden
+                // Loading is a thin bar along the top edge: the pill that used
+                // to say it sat over the first message's text on every room
+                // open, since a loaded timeline fills the viewport up to the
+                // header. Only Failed, which needs its Retry link, keeps a pill.
+                AppProgressBar {
+                    objectName: "paginationLoadingBar"
+                    visible: app.pagination.presentationState
+                             === PaginationController.Loading
+                    indeterminate: visible
+                    anchors.top: parent.top
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    implicitHeight: 3
+                    height: 3
+                    Accessible.name: qsTr("Loading older messages…")
+                }
                 Rectangle {
+                    visible: app.pagination.presentationState
+                             !== PaginationController.Loading
                     anchors.centerIn: parent
                     height: 26
                     width: paginationPill.implicitWidth + 20

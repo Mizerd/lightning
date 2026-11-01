@@ -2289,6 +2289,20 @@ private Q_SLOTS:
         QVERIFY(!tile.contains(QStringLiteral("\"#FFFFFF\"")));
         QVERIFY(tile.contains(QStringLiteral("Accessible.onPressAction")));
     }
+
+    // The "Loading older messages" pill sat over the first message's text.
+    void paginationLoadingIsAThinBarNotAPillOverTheText()
+    {
+        const QString pane = read(QStringLiteral("TimelinePane.qml"));
+        const int at = pane.indexOf(QStringLiteral("objectName: \"paginationHeader\""));
+        QVERIFY(at >= 0);
+        const QString block = pane.mid(at, 2600);
+        QVERIFY(block.contains(QStringLiteral("objectName: \"paginationLoadingBar\"")));
+        QVERIFY(block.contains(QStringLiteral("height: 3")));
+        // The pill is for Failed only: it must not show while Loading.
+        QVERIFY(block.contains(QStringLiteral(
+            "!== PaginationController.Loading\n                    anchors.centerIn: parent")));
+    }
 };
 
 QTEST_MAIN(QmlBindingContractTest)
