@@ -1009,17 +1009,38 @@ pub(crate) fn call_membership_power_levels(creator_power: bool) -> serde_json::V
     json!({ "events": serde_json::Value::Object(events) })
 }
 
+/// How long the room-version probe may delay a create. On a cold cache the
+/// SDK's capabilities fetch retries on its own long schedule, and a sick server
+/// would otherwise hold `/createRoom` past the UI's 60 s guard, so the create
+/// could fire after sign-out or make a second room.
+const ROOM_VERSION_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// Runs `probe` for at most `limit`; a timeout counts as `false` (the pre-v12
+/// stock level).
+async fn privileges_creators_within<F>(probe: F, limit: std::time::Duration) -> bool
+where
+    F: std::future::Future<Output = bool>,
+{
+    tokio::time::timeout(limit, probe).await.unwrap_or(false)
+}
+
 /// Whether the room version this server defaults to gives creators infinite
-/// power (MSC4289). An unreadable answer counts as no: the pre-v12 stock level.
+/// power (MSC4289). An unreadable or slow answer counts as no.
 async fn default_room_version_privileges_creators(client: &matrix_sdk::Client) -> bool {
-    match client.homeserver_capabilities().room_versions().await {
-        Ok(versions) => versions
-            .default
-            .rules()
-            .map(|r| r.authorization.explicitly_privilege_room_creators)
-            .unwrap_or(false),
-        Err(_) => false,
-    }
+    privileges_creators_within(
+        async {
+            match client.homeserver_capabilities().room_versions().await {
+                Ok(versions) => versions
+                    .default
+                    .rules()
+                    .map(|r| r.authorization.explicitly_privilege_room_creators)
+                    .unwrap_or(false),
+                Err(_) => false,
+            }
+        },
+        ROOM_VERSION_PROBE_TIMEOUT,
+    )
+    .await
 }
 
 /// `request` with the call-membership override for the given room version rule.
@@ -7511,6 +7532,21 @@ mod tests {
         ] {
             assert_eq!(events.get(ev).and_then(|x| x.as_u64()), Some(level), "{ev}");
         }
+    }
+
+    /// A sick server must not hold `/createRoom`: a probe slower than its
+    /// limit counts as "no" instead of waiting.
+    #[tokio::test]
+    async fn a_slow_room_version_probe_is_cut_off_and_counts_as_no() {
+        let slow = async {
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            true
+        };
+        let started = std::time::Instant::now();
+        assert!(!privileges_creators_within(slow, std::time::Duration::from_millis(50)).await);
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+        let fast = async { true };
+        assert!(privileges_creators_within(fast, std::time::Duration::from_secs(1)).await);
     }
 
     /// Room versions that explicitly privilege creators (v12) put the
