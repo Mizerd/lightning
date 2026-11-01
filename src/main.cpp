@@ -2647,9 +2647,12 @@ int main(int argc, char *argv[])
                               "PlusJakartaSans[wght].ttf",
                               "SpaceGrotesk[wght].ttf",
                               "MaterialSymbolsRounded-subset.ttf" }) {
-        QFontDatabase::addApplicationFont(
-            QStringLiteral(":/qt/qml/MatrixClient/data/fonts/")
-            + QLatin1String(font));
+        // From data, not from the resource path: by path Qt keeps one copy
+        // here and FreeType reads another for every weight it opens.
+        QFile file(QStringLiteral(":/qt/qml/MatrixClient/data/fonts/")
+                   + QLatin1String(font));
+        if (file.open(QIODevice::ReadOnly))
+            QFontDatabase::addApplicationFontFromData(file.readAll());
     }
     // Default application font, including native menus that never read
     // AppTheme, with the emoji face as a fallback family. The selected family
