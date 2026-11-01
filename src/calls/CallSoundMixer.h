@@ -251,6 +251,8 @@ private:
     void giveUpStalled(const QByteArray &id);
     /// The loop goes to (or resumes on) the device it resolves to now.
     void resumeLoop();
+    // Whether it decodes, remembered without keeping the samples.
+    bool decodable(const QString &sound);
     std::optional<callsound::Pcm> decoded(const QString &sound);
     std::optional<callsound::Pcm> pcm(const QString &sound, int channels);
     void startLoop(Lane *lane);
@@ -260,7 +262,7 @@ private:
     QStringList m_sounds;
     Hooks m_hooks;
     std::map<QByteArray, std::unique_ptr<Lane>> m_lanes;
-    QHash<QString, callsound::Pcm> m_decoded; // as bundled
+    QSet<QString> m_decodable;
     QHash<int, QHash<QString, callsound::Pcm>> m_converted; // by channels
     QSet<QString> m_undecodable;
     /// Devices whose output failed or accepts no cue format: nothing plays

@@ -33,7 +33,7 @@ CueEngine::~CueEngine()
 void CueEngine::preload()
 {
     for (const QString &sound : std::as_const(m_sounds))
-        decoded(sound);
+        decodable(sound);
     laneFor(QString());
     refreshReadiness();
 }
@@ -554,11 +554,13 @@ void CueEngine::giveUpStalled(const QByteArray &id)
     });
 }
 
+bool CueEngine::decodable(const QString &sound)
+{
+    return m_decodable.contains(sound) || decoded(sound).has_value();
+}
+
 std::optional<callsound::Pcm> CueEngine::decoded(const QString &sound)
 {
-    const auto known = m_decoded.constFind(sound);
-    if (known != m_decoded.cend())
-        return known.value();
     if (m_undecodable.contains(sound))
         return std::nullopt;
     const std::optional<QByteArray> wav = m_hooks.wav(sound);
@@ -573,7 +575,9 @@ std::optional<callsound::Pcm> CueEngine::decoded(const QString &sound)
                                << "(not bundled as 16-bit 48 kHz PCM)";
         return std::nullopt;
     }
-    m_decoded.insert(sound, *pcm);
+    // Not kept: pcm() keeps what is actually played, and the whole set would
+    // be 17 MB held by every session that never rings.
+    m_decodable.insert(sound);
     return pcm;
 }
 
@@ -613,7 +617,7 @@ int CueEngine::refreshReadiness()
     const bool outputUsable = def && !m_failed.contains(*def);
     int ready = 0;
     for (const QString &sound : std::as_const(m_sounds)) {
-        const bool playable = outputUsable && decoded(sound).has_value();
+        const bool playable = outputUsable && decodable(sound);
         ready += playable ? 1 : 0;
         if (m_hooks.setReady)
             m_hooks.setReady(sound, playable);
