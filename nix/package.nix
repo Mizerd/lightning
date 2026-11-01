@@ -24,6 +24,11 @@
   version ? "git",
   withBuildAccelerators ? false,
   withRustBackend ? true,
+  # rust/Cargo.toml's release profile is lto = true with codegen-units = 1,
+  # which is what the published packages use and takes hours on one machine.
+  # A source build gets thin LTO and parallel codegen unless it asks for the
+  # packaging profile; Cargo.toml itself, and so CI packaging, is unchanged.
+  withFullLto ? false,
 }:
 
 let
@@ -105,6 +110,10 @@ stdenv.mkDerivation {
   # explicit package overrides of CARGO_BUILD_JOBS authoritative.
   preBuild = lib.optionalString withRustBackend ''
     export CARGO_BUILD_JOBS="''${CARGO_BUILD_JOBS:-$NIX_BUILD_CORES}"
+  ''
+  + lib.optionalString (withRustBackend && !withFullLto) ''
+    export CARGO_PROFILE_RELEASE_LTO="''${CARGO_PROFILE_RELEASE_LTO:-thin}"
+    export CARGO_PROFILE_RELEASE_CODEGEN_UNITS="''${CARGO_PROFILE_RELEASE_CODEGEN_UNITS:-16}"
   '';
 
   qtWrapperArgs = [
