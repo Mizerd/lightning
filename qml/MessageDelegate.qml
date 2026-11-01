@@ -7464,6 +7464,10 @@ Item {
                 if (model.mediaUrl && model.mediaUrl.toString().length > 0)
                     app.media.openExternal(model.mediaUrl)
             }
+            onArtworkViewRequested: (source, title) => {
+                if (root.timelineView && root.timelineView.openArtwork)
+                    root.timelineView.openArtwork(source, title)
+            }
         }
     }
 

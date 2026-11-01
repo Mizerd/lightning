@@ -12,7 +12,7 @@ trap 'rm -rf "$imports"' EXIT
 mkdir -p "$imports/MatrixClient"
 printf 'module MatrixClient\n' > "$imports/MatrixClient/qmldir"
 for name in AppTheme VoiceMiniPlayer VoicePlayerBar VoicePlayerLogic \
-            VoiceSeekBar VoiceSpeedChip AudioPlayerCard IconButton Icon \
+            VoiceSeekBar VoiceSpeedChip AudioPlayerCard CoverArtButton IconButton Icon \
             Avatar Skeleton AnimationFileHold MediaVolumeControl AppMenu \
             AppMenuItem MenuKeycap StormNode MotionPolicy; do
     ln -s "$repo/qml/$name.qml" "$imports/MatrixClient/$name.qml"

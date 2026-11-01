@@ -738,13 +738,14 @@ TestCase {
                                    artworkSource: tinyCover } }
         voice.clipInfoRevision++
         wait(50)
-        var box = find(row, "audioLargeCoverBox")
-        verify(box && box.visible, "the large cover is not shown")
+        var box = find(row, "audioCoverArtBox")
+        verify(box && box.visible && box.height > 80,
+               "the large cover is not shown")
         var withCover = row.implicitHeight
         // The compact tile leaves the control row, so the scrubber widens
         // once with the cover; playback must not move it again.
         var seekWithCover = find(row, "audioSeekSlider").width
-        verify(withCover >= compact + box.height,
+        verify(withCover >= box.height + 12 && withCover > compact,
                "the row did not make room for the large cover: " + compact
                + " -> " + withCover)
         // Play, pause, finish: the height stays where the cover put it.
@@ -760,6 +761,54 @@ TestCase {
         settings.largeAlbumArt = false
         wait(50)
         compare(row.implicitHeight, compact)
+    }
+
+    // Clicking the cover shows it enlarged (the host's viewer), with the file
+    // name as title, and does nothing else: no play, no seek, no row select.
+    function test_clickingTheCoverAsksForTheEnlargedArtAndOnlyThat() {
+        for (var large = 0; large < 2; ++large) {
+            settings.largeAlbumArt = large === 1
+            voice.calls = []
+            var row = createTemporaryObject(rowComponent, test,
+                                            { isVoice: false,
+                                              filename: "Song.mp3" })
+            voice.info = { "mk-row": { artworkSource: tinyCover } }
+            voice.clipInfoRevision++
+            wait(50)
+            var asked = []
+            row.artworkViewRequested.connect(function(src, title) {
+                asked.push([src, title]) })
+            var button = find(row, "audioCoverButton")
+            verify(button && button.visible && button.enabled,
+                   "no cover button, large=" + large)
+            compare(button.Accessible.name, "View cover art")
+            mouseClick(button, button.width / 2, button.height / 2)
+            compare(asked.length, 1, "click, large=" + large)
+            compare(asked[0][0], tinyCover)
+            compare(asked[0][1], "Song.mp3")
+            // Enter on the focused button does the same.
+            button.forceActiveFocus(Qt.TabFocusReason)
+            keyClick(Qt.Key_Return)
+            compare(asked.length, 2, "Enter, large=" + large)
+            compare(voice.calls.filter(function(c) {
+                return c.indexOf("row:") !== 0 }), [],
+                "clicking the cover touched playback: " + voice.calls)
+        }
+    }
+
+    // No cover: the placeholder tile is inert and asks for nothing.
+    function test_theCoverlessTileIsInert() {
+        settings.largeAlbumArt = true
+        var row = createTemporaryObject(rowComponent, test,
+                                        { isVoice: false,
+                                          filename: "Song.mp3" })
+        var asked = 0
+        row.artworkViewRequested.connect(function() { asked++ })
+        var button = find(row, "audioCoverButton")
+        verify(button && !button.enabled, "the placeholder tile is live")
+        mouseClick(button, button.width / 2, button.height / 2)
+        keyClick(Qt.Key_Return)
+        compare(asked, 0)
     }
 
     function test_anIdleVoiceRowShowsTheVoiceSpeed() {

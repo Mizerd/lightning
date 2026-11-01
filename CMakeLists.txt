@@ -1216,6 +1216,7 @@ set(APP_QML_FILES
     qml/CreatePollDialog.qml
     qml/VideoPlayerCard.qml
     qml/AudioPlayerCard.qml
+    qml/CoverArtButton.qml
     qml/VoiceMiniPlayer.qml
     qml/VoicePlayerBar.qml
     qml/VoicePlayerLogic.qml

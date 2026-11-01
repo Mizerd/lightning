@@ -139,25 +139,24 @@ private Q_SLOTS:
             QStringLiteral("audioPlayPauseButton"));
         auto *tile = card.item->findChild<QQuickItem *>(
             QStringLiteral("audioCoverArtBox"));
-        auto *large = card.item->findChild<QQuickItem *>(
-            QStringLiteral("audioLargeCoverBox"));
-        QVERIFY(play && tile && large);
+        QVERIFY(play && tile);
 
-        // Default on, with art: the large cover, above the controls.
+        // Default on, with art: the large tile, spanning the control block,
+        // with the controls beside it and not under it.
         setLarge(card, true);
-        QTRY_VERIFY(large->isVisible());
-        QVERIFY(!tile->isVisible());
-        QTRY_VERIFY(large->width() > 100);
-        QCOMPARE(large->width(), large->height());
-        QVERIFY2(!sceneRectOf(play).intersects(sceneRectOf(large)),
+        QTRY_VERIFY(tile->width() > 80);
+        QCOMPARE(tile->width(), tile->height());
+        QVERIFY2(!sceneRectOf(play).intersects(sceneRectOf(tile)),
                  "the play button covers the large cover");
+        // The controls end at the tile's foot: no taller than it, give or
+        // take the card's padding.
         const qreal withLarge = card.item->implicitHeight();
+        QVERIFY2(withLarge <= tile->height() + 12 + 4,
+                 "the card is taller than its cover");
 
         // Off: the compact tile, beside the button, not under it.
         setLarge(card, false);
-        QTRY_VERIFY(tile->isVisible());
-        QVERIFY(!large->isVisible());
-        QCOMPARE(tile->width(), 40.0);
+        QTRY_COMPARE(tile->width(), 40.0);
         QVERIFY2(!sceneRectOf(play).intersects(sceneRectOf(tile)),
                  "the play button covers the compact tile");
         QVERIFY(card.item->implicitHeight() < withLarge);
@@ -165,9 +164,14 @@ private Q_SLOTS:
         // No art at all: compact even with the setting on.
         card.item->setProperty("artworkSource", QString());
         setLarge(card, true);
-        QTRY_VERIFY(!large->isVisible());
-        QVERIFY(tile->isVisible());
+        QTRY_COMPARE(tile->width(), 40.0);
         QVERIFY(!sceneRectOf(play).intersects(sceneRectOf(tile)));
+
+        // A narrow card keeps the compact tile (the controls need the room).
+        card.item->setProperty("artworkSource",
+            makeImage(QStringLiteral("n.png"), 600, 600).toString());
+        card.item->setWidth(240);
+        QTRY_COMPARE(tile->width(), 40.0);
     }
 
     // A cover another client attached to the event (info.thumbnail_url) stands
@@ -180,8 +184,9 @@ private Q_SLOTS:
         bare.item->setProperty("isVoice", false);
         setLarge(bare, true);
         auto *largeBare = bare.item->findChild<QQuickItem *>(
-            QStringLiteral("audioLargeCoverBox"));
-        QVERIFY(largeBare && !largeBare->isVisible());
+            QStringLiteral("audioCoverArtBox"));
+        QVERIFY(largeBare);
+        QCOMPARE(largeBare->width(), 40.0);
         const qreal bareHeight = bare.item->implicitHeight();
 
         Card good = makeCard(QUrl(), 360);
@@ -191,9 +196,9 @@ private Q_SLOTS:
         good.item->setProperty("wireCoverSource",
             makeImage(QStringLiteral("wire.png"), 500, 500).toString());
         auto *large = good.item->findChild<QQuickItem *>(
-            QStringLiteral("audioLargeCoverBox"));
+            QStringLiteral("audioCoverArtBox"));
         QVERIFY(large);
-        QTRY_VERIFY(large->isVisible());
+        QTRY_VERIFY(large->width() > 80);
         QVERIFY(good.item->property("artworkSource").toString().endsWith(
             QStringLiteral("wire.png")));
 
@@ -212,10 +217,10 @@ private Q_SLOTS:
         broken.item->setProperty("wireCoverSource",
                                  QUrl::fromLocalFile(junk).toString());
         auto *largeBroken = broken.item->findChild<QQuickItem *>(
-            QStringLiteral("audioLargeCoverBox"));
+            QStringLiteral("audioCoverArtBox"));
         QVERIFY(largeBroken);
         QTRY_VERIFY(broken.item->property("wireCoverFailed").toBool());
-        QVERIFY(!largeBroken->isVisible());
+        QCOMPARE(largeBroken->width(), 40.0);
         QCOMPARE(broken.item->property("artworkSource").toString(), QString());
         QCOMPARE(broken.item->implicitHeight(), bareHeight);
     }

@@ -3176,13 +3176,31 @@ live, and the server answers presence. Research and design: vault note
 
 ### Audio album art and the composer's default mode (0.10.3)
 
-- An audio-file row shows its cover as a large square above the controls when
-  "Large album art" is on (Settings > Sound & video > Media playback,
-  `media/largeAlbumArt`, default on) and a cover has been seen. With the
-  setting off, or no cover, a compact 40 px tile sits BESIDE the play button;
-  the button never covers the art in either layout. The docked player strip is
-  unchanged. The cover appears after the first play (the controller's RAM-only
-  clip info), so the row grows once and then stays stable.
+- An audio-file row with a cover is ONE composed card: a 96 px (scaled) square
+  tile on the left, as tall as the control block, with the title, artist/
+  duration line and scrubber at its top and the play, speed, volume and save
+  controls at its foot. It is on when "Large album art" is on (Settings >
+  Sound & video > Media playback, `media/largeAlbumArt`, default on) and the
+  card is at least 280 px wide; narrower cards, the setting off, or no cover
+  keep the compact 40 px tile beside the play button. The tile is the SAME
+  object in both layouts (the grid re-places the same children), so the
+  per-row object count does not change. The picture fades in over the already
+  reserved tile (not with reduced motion) and the tile never moves; its
+  hairline warms to the accent while the clip plays. A cover the EVENT
+  declares (`thumbAvailable`) reserves the big tile from the first frame; a
+  file's own embedded art is only known after a first play (RAM-only clip
+  info), so that row grows once then and never again (reserving the tile on
+  every audio row was rejected). The scrubber does not change width on play.
+  The docked player strip is unchanged.
+- Clicking the cover, or Enter/Space on it with focus ("View cover art"), opens
+  the existing image viewer (`ImageViewerOverlay.openArtwork`) on that one
+  picture, titled with the file name: zoom and Esc as for images, no paging, no
+  Save. The source is MediaBridge's RAM-only image URL, never the homeserver's.
+  The click is an exclusive WithinBounds tap: it does not select the message,
+  play, pause or seek, and the clip keeps playing under the viewer. Without a
+  cover the tile is inert. The docked strip's and the popped-out player's
+  small cover are navigation links to the message and do not open the viewer.
+  The room's Media > Audio tab lists files with an icon, not art.
 - Markdown is the composer's default mode. Because the store cannot tell a
   chosen `composer/mode=rich` from a stale one, every profile is moved to
   Markdown once (`composer/markdownDefaultMigrated`); a rich-text choice made

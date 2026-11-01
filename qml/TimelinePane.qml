@@ -4398,6 +4398,9 @@ Rectangle {
                 property var openImage: function(mediaKey, httpUrl) {
                     imageViewer.openFor(mediaKey || "", httpUrl)
                 }
+                property var openArtwork: function(source, title) {
+                    imageViewer.openArtwork(source, title)
+                }
                 // Shared picker / profile entry points; the event id is
                 // captured at open. The picker opens as its quick bar unless
                 // the caller already offered quick reactions (`expanded`).
@@ -7165,6 +7168,9 @@ Rectangle {
                 openImage: function(mediaKey, httpUrl) {
                     imageViewer.openFor(mediaKey || "", httpUrl)
                 }
+                openArtwork: function(source, title) {
+                    imageViewer.openArtwork(source, title)
+                }
                 saveMedia: function(mediaKey, filename, mime, ask) {
                     root.startDownload(mediaKey, filename, mime, ask, "context")
                 }
@@ -7463,6 +7469,9 @@ Rectangle {
         }
         openImage: function(mediaKey, httpUrl) {
             imageViewer.openFor(mediaKey || "", httpUrl)
+        }
+        openArtwork: function(source, title) {
+            imageViewer.openArtwork(source, title)
         }
         saveMedia: function(mediaKey, filename, mime, ask) {
             root.startDownload(mediaKey, filename, mime, ask, "thread")

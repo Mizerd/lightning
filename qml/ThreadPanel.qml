@@ -85,6 +85,7 @@ Rectangle {
     }
     // Media entry points supplied by TimelinePane.
     property var openImage: function(mediaKey, httpUrl) {}
+    property var openArtwork: function(source, title) {}
     // (mediaKey, filename, mimetype, ask): ask = "Save as…", otherwise
     // Download (app.downloads).
     property var saveMedia: function(mediaKey, filename, mime, ask) {}
@@ -1077,6 +1078,7 @@ Rectangle {
                 function stateGroupExpanded(groupId) { return true }
                 function toggleStateGroup(groupId) {}
                 property var openImage: panel.openImage
+                property var openArtwork: panel.openArtwork
                 property var saveMedia: panel.saveMedia
                 // Which surface a download started here belongs to; the notice
                 // is shown once, on the surface the click came from.

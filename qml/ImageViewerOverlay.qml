@@ -168,6 +168,28 @@ Popup {
         openAt(list, found)
     }
 
+    /// Open one picture that is already a MediaBridge image URL (an audio
+    /// file's cover): shown alone, titled `title`, with no Save (there is no
+    /// media key to save) and no paging.
+    function openArtwork(source, title) {
+        if (!source || String(source).length === 0)
+            return
+        openAt([{
+            "row": -1,
+            "mediaKey": "",
+            "filename": title || "",
+            "sender": "",
+            "timestamp": undefined,
+            "mime": "",
+            "httpUrl": source,
+            "isImage": true,
+            "isVideo": false,
+            "isVisual": true,
+            "thumbAvailable": false,
+            "size": 0
+        }], 0)
+    }
+
     function resetView() {
         zoom = 1.0
         baseWidth = 0
