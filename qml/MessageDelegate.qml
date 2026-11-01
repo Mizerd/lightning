@@ -2830,8 +2830,13 @@ Item {
                     // hint, a bounded manual Retry and a link to Security
                     // settings. Never shows session ids, ciphertext or raw
                     // event JSON.
-                    RowLayout {
+                    // A Flow: three labels in a RowLayout asked for ~300 px as a
+                    // minimum, wider than a 640 px window's 320 px pane, so the
+                    // last link ran off its edge.
+                    Flow {
                         id: utdRow
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
                         visible: model.undecryptable === true
                         spacing: AppTheme.spacingS
                         Label {
