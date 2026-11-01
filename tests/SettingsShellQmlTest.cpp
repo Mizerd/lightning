@@ -2654,6 +2654,12 @@ private slots:
         QVERIFY2(index.size() >= 60,
                  qPrintable(QStringLiteral("only %1 index entries were read")
                                 .arg(index.size())));
+        // The keyboard rows are built on the page's first visit, which is what
+        // a search hit does before it looks for its anchor.
+        const QVariant openSection = screen->property("section");
+        screen->setProperty("section", QStringLiteral("shortcuts"));
+        auto restoreSection = qScopeGuard(
+            [&] { screen->setProperty("section", openSection); });
         QStringList bad;
         int resolved = 0;
         for (const QVariant &v : index) {

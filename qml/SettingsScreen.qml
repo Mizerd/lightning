@@ -43,7 +43,13 @@ Item {
             Qt.callLater(root.ensurePageFocus)
         }
     }
+    // The keyboard rows are by far the most of this warm screen: built on the
+    // page's first visit, then kept, because panes are never destroyed
+    // (anchorCache relies on it).
+    property bool shortcutRowsBuilt: false
     onSectionChanged: {
+        if (root.section === "shortcuts")
+            root.shortcutRowsBuilt = true
         // Selecting a page opens its branch; no other branch changes.
         root.setOutlineExpanded(root.section, true)
         root.forgetTransientBackupState()
@@ -6043,7 +6049,11 @@ Item {
                         }
 
                         Repeater {
-                            model: { app.shortcuts.bindingRevision; return app.shortcuts.categories() }
+                            model: {
+                                app.shortcuts.bindingRevision
+                                return root.shortcutRowsBuilt
+                                       ? app.shortcuts.categories() : []
+                            }
                             delegate: SettingsCard {
                                 id: shortcutCategoryCard
                                 required property string modelData
@@ -6058,30 +6068,34 @@ Item {
                                     }
                                     Repeater {
                                         model: app.shortcuts
-                                        delegate: ShortcutRow {
-                                            // ShortcutRegistry::roleNames prefixes its
-                                            // roles so they can be assigned to this
-                                            // component's like-named properties.
-                                            actionId: model.shortcutId
-                                            description: model.shortcutDescription
-                                            currentSequence: model.shortcutCurrent
-                                            defaultSequence: model.shortcutDefault
-                                            isDefault: model.shortcutIsDefault
-                                            conflictsWith: model.shortcutConflict
-                                            shadowNote: model.shortcutShadow
-                                            // Each category card renders the whole
-                                            // model and hides other categories' rows;
-                                            // invisible items take no space in the
-                                            // layout.
-                                            visible: model.shortcutCategory
-                                                     === shortcutCategoryCard.modelData
+                                        // Each category card walks the whole model
+                                        // and builds only its own rows; an inactive
+                                        // Loader takes no space in the layout.
+                                        delegate: Loader {
+                                            id: shortcutRowLoader
+                                            required property var model
+                                            active: model.shortcutCategory
+                                                    === shortcutCategoryCard.modelData
+                                            visible: active
                                             Layout.fillWidth: true
-                                            // Stack the name above the keycap when the
-                                            // pane is too narrow. Uses the pane's
-                                            // width, not the row's (see ShortcutRow).
-                                            // 560 fits the longest description beside
-                                            // a 132px keycap and two buttons.
-                                            compact: contentColumn.width < 560
+                                            sourceComponent: ShortcutRow {
+                                                // ShortcutRegistry::roleNames prefixes
+                                                // its roles so they can be assigned to
+                                                // this component's like-named properties.
+                                                actionId: shortcutRowLoader.model.shortcutId
+                                                description: shortcutRowLoader.model.shortcutDescription
+                                                currentSequence: shortcutRowLoader.model.shortcutCurrent
+                                                defaultSequence: shortcutRowLoader.model.shortcutDefault
+                                                isDefault: shortcutRowLoader.model.shortcutIsDefault
+                                                conflictsWith: shortcutRowLoader.model.shortcutConflict
+                                                shadowNote: shortcutRowLoader.model.shortcutShadow
+                                                // Stack the name above the keycap when
+                                                // the pane is too narrow. Uses the pane's
+                                                // width, not the row's (see ShortcutRow).
+                                                // 560 fits the longest description beside
+                                                // a 132px keycap and two buttons.
+                                                compact: contentColumn.width < 560
+                                            }
                                         }
                                     }
                                 }
