@@ -643,6 +643,37 @@ private Q_SLOTS:
     // A tap on the picture zooms and does not close: `imageTap` uses
     // `gesturePolicy: WithinBounds` and takes the exclusive grab, so the
     // scrim's close handler never sees it. A text scan cannot show that.
+    // QA T-9: 600x1600 at fit ran under the strip and the zoom bar, hiding the
+    // bottom of the picture. Centred in the window, so the bottom edge is
+    // half its height below the middle.
+    void aTallImageAtFitClearsTheStripAndTheToolbar()
+    {
+        const QVariantList history = { historyEntry(QStringLiteral("$a")),
+                                       historyEntry(QStringLiteral("$b")) };
+        QVERIFY(QMetaObject::invokeMethod(
+            m_root, "openAt", Q_ARG(QVariant, QVariant(history)),
+            Q_ARG(QVariant, QVariant(0))));
+        QVERIFY(QMetaObject::invokeMethod(
+            m_root, "fitTo", Q_ARG(QVariant, QVariant(600)),
+            Q_ARG(QVariant, QVariant(1600))));
+        QCoreApplication::processEvents();
+        auto *viewer = m_root->findChild<QObject *>(
+            QStringLiteral("imageViewerOverlay"));
+        auto *strip = m_root->findChild<QQuickItem *>(
+            QStringLiteral("viewerThumbnailStrip"));
+        auto *flick = m_root->findChild<QQuickItem *>(
+            QStringLiteral("imageViewerFlick"));
+        QVERIFY(viewer && strip && flick);
+        const qreal height = viewer->property("baseHeight").toReal();
+        QVERIFY(height > 0);
+        const qreal bottom = flick->mapToScene(
+            QPointF(0, (flick->height() + height) / 2)).y();
+        const qreal stripTop = strip->mapToScene(QPointF(0, 0)).y();
+        QVERIFY2(bottom <= stripTop,
+                 qPrintable(QStringLiteral("picture ends at %1, strip starts at %2")
+                                .arg(bottom).arg(stripTop)));
+    }
+
     void clickingThePictureZoomsItRatherThanClosingTheViewer()
     {
         const QVariantList history = { historyEntry(QStringLiteral("$a")),

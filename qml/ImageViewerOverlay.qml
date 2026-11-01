@@ -223,7 +223,13 @@ Popup {
         naturalWidth = w
         naturalHeight = h
         var availW = viewer.width - 32
-        var availH = viewer.height - 120 // header + footer chrome
+        // The picture is centred in the window, so the tallest chrome on
+        // either end decides its room: the floating toolbar and, for a set, the
+        // thumbnail strip above it must not cover the bottom of a tall image.
+        var footer = toolbar.height + AppTheme.spacing16 + AppTheme.spacing8
+                     + (viewer.entries.length > 1
+                        ? thumbStrip.height + AppTheme.spacing12 : 0)
+        var availH = Math.max(120, viewer.height - 2 * Math.max(60, footer))
         var scale = Math.min(1.0, Math.min(availW / w, availH / h))
         baseWidth = w * scale
         baseHeight = h * scale
