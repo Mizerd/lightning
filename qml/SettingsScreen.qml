@@ -2140,7 +2140,7 @@ Item {
         anchors.fill: parent
         spacing: 0
 
-        // Settings header: section icon, "Settings — <section>", close X. Same
+        // Settings header: section icon, "Settings", close X. Same
         // height as the main screen's header band (AppTheme.headerBandHeight),
         // so opening Settings does not shift the top edge.
         Rectangle {
@@ -2160,7 +2160,9 @@ Item {
                 }
                 Label {
                     objectName: "settingsHeaderTitle"
-                    text: qsTr("Settings — %1").arg(root.sectionTitle(root.section))
+                    // Every section draws its own heading in the page below,
+                    // so naming the section here as well said it twice.
+                    text: qsTr("Settings")
                     color: AppTheme.settingsHeading
                     font.family: AppTheme.menuFont
                     font.pixelSize: AppTheme.textTitle
