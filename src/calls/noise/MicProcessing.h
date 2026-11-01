@@ -25,6 +25,8 @@
 
 #include <QString>
 
+#include <functional>
+
 typedef struct _GstElement GstElement;
 
 namespace calls::noise {
@@ -120,10 +122,20 @@ QString applyDspMode(GstElement *binOrPipeline, Mode mode,
                      bool forceReplace = false, bool echoAllowed = true);
 
 /// Replaces a running webrtcdsp with one that cancels echo, keeping its
-/// suppressor and gain switches. GUI thread. The caller guarantees a playback
-/// probe exists: webrtcdsp finds it by name when it starts, and a start
-/// without one is a fatal error that silences the microphone. Its gain control
-/// starts over, as for any replacement.
-QString engageEchoCancel(GstElement *binOrPipeline);
+/// suppressor and gain switches. GUI thread. Its gain control starts over, as
+/// for any replacement.
+///
+/// webrtcdsp takes its probe when it starts, and a start with none free is a
+/// fatal error that silences the microphone, so the replacement is started
+/// alone first. Refused, the running element stays and `refused` runs on the
+/// thread that did the swap (a streaming thread when audio is flowing).
+using EchoRefused = std::function<void()>;
+QString engageEchoCancel(GstElement *binOrPipeline, EchoRefused refused = {});
+
+/// Replaces a webrtcdsp configured to cancel echo with one that does not,
+/// keeping its suppressor and gain switches, whatever state it is in: this is
+/// the way out of one that failed its start. GUI thread. The caller restarts
+/// what the failure stopped upstream.
+QString dropEchoCancel(GstElement *binOrPipeline);
 
 } // namespace calls::noise

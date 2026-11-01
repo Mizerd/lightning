@@ -1063,9 +1063,22 @@ public:
     /// exists. webrtcdsp cancels against ONE probe, so only the first
     /// participant it finds is cancelled.
     void engageEchoCancellation();
+    /// GUI thread: webrtcdsp posted an error. A safety net: nothing is known
+    /// to reach it since engageEchoCancel() tries the start first, and echo
+    /// cancellation must not be able to silence the microphone even so. The
+    /// chain is rebuilt without it, for the rest of the call.
+    void handleMicDspError(const QString &cid, const QString &reason);
     /// GUI thread: a hardware encoder died under a running share.
     void handleShareEncoderFailed(const QString &cid);
     int echoEngageAttemptsForTest() const { return m_echoEngageAttempts; }
+    /// The next microphone publish starts its webrtcdsp with echo cancellation
+    /// on, in the bin, as a build before 0.10.3 did: the failure the safety
+    /// net exists for, which the running code no longer produces.
+    void startNextMicrophoneWithEchoForTest() { m_micEchoAtStartForTest = true; }
+    quint64 microphoneRtpOutForTest() const
+    {
+        return m_micRtpOut ? m_micRtpOut->load() : 0;
+    }
     /// Local playback mute for every remote track.
     void setOutputMuted(bool muted);
     /// Local volume for one participant, 0..200, keyed by their LiveKit
@@ -1178,6 +1191,9 @@ Q_SIGNALS:
     /// The microphone, given up on (publishFailed "audio_source_failed"),
     /// came back on a slow retry.
     void microphoneRecovered(const QString &cid);
+    /// Echo cancellation failed and is off for the rest of this call; the
+    /// microphone goes on without it. Once per call.
+    void echoCancellationFailed();
     /// A received track's output failed (the sound server went away) and
     /// could not be rebuilt: true once when recovery is given up, false once
     /// a later rebuild works again. The call carries on either way.
@@ -1447,6 +1463,15 @@ private:
     std::atomic<bool> m_echoCancel{false};
     /// Remote audio arrived during the microphone's start.
     bool m_micEchoAfterStart = false;
+    /// Echo cancellation failed in this call; see handleMicDspError().
+    bool m_echoGivenUp = false;
+    /// A webrtcdsp error that arrived while the start was still running.
+    bool m_micDspRescueAfterStart = false;
+    bool m_micEchoAtStartForTest = false;
+    void giveUpEchoCancellation(const QString &why);
+    void rescueMicrophoneFromDsp();
+    /// Whether a webrtcdsp replacement may keep echo cancellation.
+    bool echoAllowedOnMic() const;
     int m_echoEngageAttempts = 0;
     std::atomic<bool> m_autoGain{true};
     /// Bumped on every start/stop so a late callback is discarded.

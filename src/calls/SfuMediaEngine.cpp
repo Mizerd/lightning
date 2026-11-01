@@ -1278,6 +1278,8 @@ void SfuMediaEngine::teardown(bool endOfCall)
     m_micNoiseDspForceAfterStart = false;
     m_micStartTakenOver = false;
     m_micEchoAfterStart = false;
+    m_micDspRescueAfterStart = false;
+    m_echoGivenUp = false;
     m_micSwapReplacesStart = false;
     m_micRtpVerdictOwed = false;
     m_micLiveFront.clear();
@@ -1555,13 +1557,22 @@ GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
                 if (up)
                     gst_object_unref(up);
             }
-            marshal(engine, [engine, publishCid, captureSource, front,
-                             captureResourceError, captureBusyError] {
-                if (captureSource)
-                    engine->handleCaptureError(publishCid, front);
-                engine->handlePublishError(publishCid, captureResourceError,
-                                           captureBusyError);
-            });
+            if (element == QLatin1String(calls::noise::kDspName)) {
+                // Not a track that cannot carry media: the track is fine once
+                // the element is gone. See handleMicDspError().
+                marshal(engine, [engine, publishCid, reason] {
+                    engine->handleMicDspError(publishCid, reason);
+                });
+            } else {
+                marshal(engine, [engine, publishCid, captureSource, front,
+                                 captureResourceError, captureBusyError] {
+                    if (captureSource)
+                        engine->handleCaptureError(publishCid, front);
+                    engine->handlePublishError(publishCid,
+                                               captureResourceError,
+                                               captureBusyError);
+                });
+            }
         }
     }
     Q_UNUSED(engine);
@@ -2418,6 +2429,15 @@ bool SfuMediaEngine::echoProbeLive() const
     return false;
 }
 
+namespace {
+bool syncStateIfStillParented(GstElement *bin);
+} // namespace
+
+bool SfuMediaEngine::echoAllowedOnMic() const
+{
+    return !m_echoGivenUp && echoProbeLive();
+}
+
 void SfuMediaEngine::handleShareEncoderFailed(const QString &cid)
 {
     // As handlePublishError(): an error queued from an old bin, or posted while
@@ -2436,7 +2456,8 @@ void SfuMediaEngine::handleShareEncoderFailed(const QString &cid)
 
 void SfuMediaEngine::engageEchoCancellation()
 {
-    if (!m_active || !m_echoCancel.load() || m_micCid.isEmpty())
+    if (!m_active || !m_echoCancel.load() || m_echoGivenUp
+        || m_micCid.isEmpty())
         return;
     GstElement *bin = m_publishedBins.value(m_micCid, nullptr);
     if (!bin)
@@ -2449,8 +2470,69 @@ void SfuMediaEngine::engageEchoCancellation()
     if (!echoProbeLive())
         return;
     ++m_echoEngageAttempts;
-    qCInfo(lcSfuMedia) << "echo cancellation at first remote audio:"
-                       << calls::noise::engageEchoCancel(bin);
+    const quint64 generation = m_generation.load();
+    qCInfo(lcSfuMedia)
+        << "echo cancellation at first remote audio:"
+        << calls::noise::engageEchoCancel(bin, [this, generation] {
+               marshal(this, [this, generation] {
+                   // The probe went with its participant: the next remote
+                   // audio track asks again, and nothing here needs saying.
+                   // One still there but not free will stay that way.
+                   if (m_active && generation == m_generation.load()
+                       && echoProbeLive())
+                       giveUpEchoCancellation(QStringLiteral(
+                           "no free playback probe"));
+               });
+           });
+}
+
+void SfuMediaEngine::giveUpEchoCancellation(const QString &why)
+{
+    if (m_echoGivenUp)
+        return;
+    m_echoGivenUp = true;
+    qCWarning(lcSfuMedia)
+        << "ECHO CANCELLATION FAILED and is off for the rest of this call; "
+           "the microphone keeps sending without it. reason="
+        << why;
+    Q_EMIT echoCancellationFailed();
+}
+
+void SfuMediaEngine::handleMicDspError(const QString &cid,
+                                       const QString &reason)
+{
+    if (!m_active || cid != m_micCid || !m_publishedBins.contains(cid))
+        return;
+    giveUpEchoCancellation(reason);
+    if (microphoneStarting()) {
+        // Replacing an element in a bin another thread is starting.
+        m_micDspRescueAfterStart = true;
+        return;
+    }
+    rescueMicrophoneFromDsp();
+}
+
+void SfuMediaEngine::rescueMicrophoneFromDsp()
+{
+    GstElement *bin = m_publishedBins.value(m_micCid, nullptr);
+    if (!bin)
+        return;
+    const QString did = calls::noise::dropEchoCancel(bin);
+    qCInfo(lcSfuMedia) << "microphone after a webrtcdsp error:" << did;
+    // Only a dsp that was asked to cancel echo is this net's to replace, and
+    // the replacement cannot fail the same way, so this cannot loop.
+    if (did != QLatin1String("echo dropped"))
+        return;
+    // A failed start stopped the bin part way: a bin changes state from its
+    // sinks upwards, so everything upstream of webrtcdsp, the capture
+    // included, never left READY. Off this thread as the first start was:
+    // the capture opening its device blocks whoever starts it.
+    gst_element_call_async(
+        bin,
+        [](GstElement *micBin, gpointer) {
+            syncStateIfStillParented(micBin);
+        },
+        nullptr, nullptr);
 }
 
 void SfuMediaEngine::setShareQuality(int maxHeight, int fps,
@@ -3979,7 +4061,10 @@ void SfuMediaEngine::noteMicrophoneStarted(const QString &cid,
     if (!m_active || generation != m_generation.load() || cid != m_micCid)
         return;
     ++m_micStartsReported;
-    if (!ok) {
+    if (!ok && m_echoGivenUp) {
+        // Not the capture: webrtcdsp failed before it got its turn, and
+        // handleMicDspError() has said so and sees to it.
+    } else if (!ok) {
         // The bus carries the capture's own error (handleCaptureError()).
         qCWarning(lcSfuMedia) << "the microphone did not start; its capture "
                                  "reports why";
@@ -4008,6 +4093,11 @@ void SfuMediaEngine::noteMicrophoneStarted(const QString &cid,
 void SfuMediaEngine::runMicrophoneStartDeferrals(const QString &cid,
                                                  quint64 generation)
 {
+    // First: everything below acts on a chain, and this makes it one.
+    if (m_micDspRescueAfterStart) {
+        m_micDspRescueAfterStart = false;
+        rescueMicrophoneFromDsp();
+    }
     // After the switch: a restart then marks the switch's old capture failed
     // instead of restarting a front that is being replaced.
     if (m_micRestartAfterStart) {
@@ -4027,10 +4117,10 @@ void SfuMediaEngine::runMicrophoneStartDeferrals(const QString &cid,
             // already right).
             const QString did = force
                 ? calls::noise::applyDspMode(bin, mode, /*forceReplace=*/true,
-                                             echoProbeLive())
+                                             echoAllowedOnMic())
                 : calls::noise::applyMode(
                       bin, mode, calls::noise::DspSwitch::WaitForDenoiser,
-                      nullptr, echoProbeLive());
+                      nullptr, echoAllowedOnMic());
             qCInfo(lcSfuMedia)
                 << "microphone noise suppression applied after the start:"
                 << did;
@@ -4075,14 +4165,16 @@ void SfuMediaEngine::publishAudio(const QString &cid)
     // Settings microphone test builds the same stage.
     const calls::noise::Mode noiseMode = noiseSuppressionMode();
     const bool dspAvailable = calls::noise::webrtcDspAvailable();
-    // Echo cancellation only when a playback probe already exists: webrtcdsp
-    // looks its probe up when it starts and posts a fatal error when there is
-    // none ("No echo probe with name webrtcechoprobe0 found."), which left the
-    // microphone producing no RTP at all. The microphone is published before
-    // the first remote track plays, so it failed at every join.
-    // engageEchoCancellation() turns it on when a remote track arrives.
-    const bool echoCancel = m_echoCancel.load() && echoProbeLive();
-    if (m_echoCancel.load() && !echoCancel) {
+    // Never with echo cancellation, whatever probes exist now: webrtcdsp takes
+    // its probe when it starts and a start with none free is fatal to the
+    // whole bin ("No echo probe with name webrtcechoprobe0 found."), which
+    // left the microphone producing no RTP at all, at every join. Once the
+    // start is done, engageEchoCancellation() turns it on through a
+    // replacement that cannot fail that way; a remote audio track asks for it
+    // too, for a microphone published before any played.
+    const bool echoCancel = m_micEchoAtStartForTest;
+    m_micEchoAtStartForTest = false;
+    if (m_echoCancel.load() && !echoProbeLive()) {
         qCInfo(lcSfuMedia)
             << "echo cancellation requested but no playback probe exists yet: "
                "the microphone starts without it and takes it up at the first "
@@ -4363,6 +4455,8 @@ void SfuMediaEngine::publishAudio(const QString &cid)
         m_micNoiseDspForceAfterStart = false;
         m_micSwapDeferred.reset();
         m_micRestartAfterStart = false;
+        m_micEchoAfterStart = m_echoCancel.load();
+        m_micDspRescueAfterStart = false;
         auto *ctx = new MicStart{this, cid, m_generation.load(), pending};
         gst_element_call_async(bin, micStartAsync, ctx, micStartFree);
     }
@@ -6919,6 +7013,7 @@ void SfuMediaEngine::unpublish(const QString &cid)
         m_micNoiseDspForceAfterStart = false;
         m_micStartTakenOver = false;
         m_micEchoAfterStart = false;
+        m_micDspRescueAfterStart = false;
         m_micSwapReplacesStart = false;
         m_micRtpVerdictOwed = false;
         m_micLiveFront.clear();
@@ -7494,7 +7589,7 @@ void SfuMediaEngine::setNoiseSuppressionMode(calls::noise::Mode mode)
             it.value(), mode,
             starting ? calls::noise::DspSwitch::Later
                      : calls::noise::DspSwitch::WaitForDenoiser,
-            &dspDeferred, echoProbeLive());
+            &dspDeferred, echoAllowedOnMic());
         if (starting) {
             m_micNoiseModeAfterStart = true;
             m_micNoiseDspForceAfterStart =
@@ -7541,7 +7636,7 @@ void SfuMediaEngine::retryNoiseSuppression()
                                 starting
                                     ? calls::noise::DspSwitch::Later
                                     : calls::noise::DspSwitch::WaitForDenoiser,
-                                &dspDeferred, echoProbeLive());
+                                &dspDeferred, echoAllowedOnMic());
         if (starting) {
             m_micNoiseModeAfterStart = true;
             m_micNoiseDspForceAfterStart =
@@ -7583,7 +7678,7 @@ void SfuMediaEngine::handleDenoiseStatus(const QString &requested,
                               "reported, webrtcdsp follows"
                            << calls::noise::modeKey(follow) << ":"
                            << calls::noise::applyDspMode(it.value(), follow, false,
-                                                         echoProbeLive());
+                                                         echoAllowedOnMic());
     }
     m_noiseFellBackToWebrtc = !ok && anyDsp;
     if (ok) {

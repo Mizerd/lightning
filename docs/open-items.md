@@ -2,6 +2,34 @@
 
 
 
+## 2026-11-02 — OPEN after the echo-cancellation fix
+
+- `webrtcdsp` keeps the probe it took after that participant leaves, so once
+  they have left it cancels against nothing; a later engage reads "echo already
+  on" (measured). Never fatal. Same family as the one-probe limit in
+  `docs/matrixrtc.md`.
+- The decrypt badge is decided over frames, not time: a peer gone to Opus DTX
+  sends 2.5 frames/s, so a badge raised while they spoke could take about 30 s
+  to clear after their key arrives. HYPOTHESIS from the arithmetic, not
+  measured.
+- A client before 0.10.3 cannot resolve hashed LiveKit identities (`9b9566c7`),
+  which would leave that peer's key unmatched and the badge up for good.
+  HYPOTHESIS for the report's tooltip, not measured.
+- OPEN, the report's second run (a real 0.10.3, 2026-11-01 22:25): one peer's
+  media key failed at Olm level ("a to-device message could not be decrypted"),
+  nothing re-sent it, and that peer's stream dropped every frame for the whole
+  call (`ringEmpty= 1501`, `ok= 0`). Key sharing is push-only in matrix-js-sdk
+  45 as well: nothing in `src/matrixrtc` reacts to an undecryptable to-device
+  event and there is no key request. The one lever the protocol has: js-sdk
+  re-sends its key to a member whose `created_ts` changed
+  (`RTCEncryptionManager`, "rotate their ownMembership"), which is why leaving
+  and rejoining can cure it. A bounded automatic nudge is NOT built: the cause
+  is unknown, and it cannot cure every cause (see `rust/src/rtc.rs`). Get the
+  cause first with `LIGHTNING_RUST_LOG`, whose preset keeps crypto at debug.
+  `delivered=` counts what the homeserver accepted, never what the peer opened.
+- NOT TESTED: three or more parties with echo cancellation on, and any of this
+  on Windows. Windows behaviour is read from 1.28.5 source and the shipped DLL.
+
 ## 2026-11-01 — ACCEPTED FOLLOW-UPS from the review of the 0.10.3 fix round
 
 - L5: no regression test covers the call gate after a lane change once the room

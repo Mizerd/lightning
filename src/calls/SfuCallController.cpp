@@ -555,6 +555,11 @@ void SfuCallController::setMediaEngine(SfuMediaEngine *engine)
                 withdrawNotice(
                     userFacingError(QStringLiteral("audio_source_failed")));
             });
+    // Not the failure it reports: the microphone is still sending.
+    connect(m_engine, &SfuMediaEngine::echoCancellationFailed, this, [this] {
+        Q_EMIT callFailed(
+            userFacingError(QStringLiteral("echo_cancellation_failed")));
+    });
     // A remote stream whose frames are being dropped: surface it instead of a
     // green padlock.
     connect(m_engine, &SfuMediaEngine::remoteMediaBlocked, this,
@@ -1973,6 +1978,9 @@ QString SfuCallController::userFacingError(const QString &category) const
                   "default camera in Settings.");
     if (category == QLatin1String("audio_source_failed"))
         return tr("Your microphone isn't available.");
+    if (category == QLatin1String("echo_cancellation_failed"))
+        return tr("Echo cancellation stopped working and is off for this "
+                  "call. Others can still hear you.");
     return tr("The call ended unexpectedly.");
 }
 

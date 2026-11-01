@@ -1,5 +1,37 @@
 # Round history
 
+## 2026-11-02 — "nobody can hear me": a log that 0.10.3 cannot write
+
+A Windows user reported silence on 0.10.3 with the `micdsp` "No echo probe"
+error in a GStreamer log. The log, the source and the published binary disagree
+with the version in the report, and each part is measured below.
+
+- **A log can name its own binary.** The published 0.10.3 `Lightning.exe` holds
+  the guard's strings and builds `echo-cancel=false` unless a receive bin
+  exists. In the log, `micdsp` starts and fails at 20.66, before the first
+  remote offer has been answered and over a second before any received pad, and
+  webrtcdsp's "Voice activity" construct warning fires once, so one element
+  existed and no engage swap ran. Only a build without `2fc01443` writes that.
+  Reproduced on the rig by removing the guard: the same two lines, no RTP, and
+  the far end silent. The guarded code passed the whole sweep (join with a
+  peer in, alone first, racing, mute, last peer leaves, rejoin) with no error. **Ask which binary before asking why the fix failed.**
+- **The second log proved it by contrast.** A real 0.10.3 run from the same user
+  has the same warning TWICE, `<micdsp>` then `<webrtcdsp0>` (the engage swap),
+  says "echo engaged", and has no "No echo probe" line.
+- **A dead microphone does not raise the decrypt badge, and the badge fires on
+  healthy joins.** It is a RECEIVE fault: 90% of a window of 50-100 of someone's
+  frames failing here. Measured: with the microphone dead the padlock was green
+  after the first seconds. With everything healthy the warning triangle was on
+  screen three seconds into a join, because 113 frames arrived in the 2.2 s
+  before the peer's key did.
+- **`+0.38 s` audio discontinuities every 0.42 s are Opus DTX,** a silent
+  peer's one packet per 400 ms, not a fault.
+- **"A probe exists" does not answer "will the start work".** A probe is listed
+  from `instance_init` to `finalize` and taken only if `acquired` is false,
+  which nothing outside the plugin can read. Asking the element itself, started
+  with no parent so that the error has no bus to reach, is the only true answer.
+  `docs/matrixrtc.md` has the three layers.
+
 ## 2026-11-01 — the 0.10.3 fix round, and what the GUI sweep taught
 
 Seven GUI testers and a real-server call run produced 15 findings; most were

@@ -1405,6 +1405,31 @@ remote speaker. A one-to-one `GstCallMediaBackend` call has no `webrtcdsp`
 and no video, so neither switch nor any quality choice reaches it. NOT live
 tested; the effect on a real echo needs speakers and a rig.
 
+**Echo cancellation can never stop the microphone (2026-11-02).** `webrtcdsp`
+takes its probe in `gst_webrtc_dsp_start()`, and with none free the start is a
+fatal element error that fails the pad activation; a bin changes state from its
+sinks upwards, so everything upstream, the capture included, stays in READY and
+no RTP is ever made. The plugin's rule, read in 1.28.5 `ext/webrtcdsp`: a probe
+is listed from `instance_init` to `finalize`, not from its own start, and it is
+found by object name among those with `acquired` false. So "a probe exists" is
+not "a start will work": it can go between the check and the start, and it can
+be held by another `webrtcdsp`, which nothing outside the plugin can read.
+Hence, in order:
+
+1. A microphone is never BUILT with echo cancellation, whatever probes exist:
+   `publishAudio()` always writes `echo-cancel=false`. It is engaged after the
+   start, and at each remote audio track that finds it off.
+2. An engage or a noise-mode swap tries the new element's start while it has NO
+   PARENT (`dspTakesProbe()`): with no bus, the error goes nowhere and the state
+   change reports the answer. A refused engage leaves the running element
+   alone. A replacement of an element that holds the only probe stops the old
+   one first, since that is what frees it.
+3. The safety net: any error from `micdsp` goes to `handleMicDspError()`, never
+   to `handlePublishError()`. It replaces the element with one that does not
+   cancel echo, re-syncs the bin off the GUI thread so what the failure left in
+   READY starts, logs one `ECHO CANCELLATION FAILED` line and shows one notice.
+   Echo cancellation stays off for the rest of that call.
+
 Camera resolution (Auto = 720p, i.e. today's `[1,1280]x[1,720]` ceiling and
 1.7 Mbps; 360/480/1080 scale caps and `target-bitrate`) and the screen-share
 bitrate limit (Auto = the picture-derived rate; a limit only lowers it) are

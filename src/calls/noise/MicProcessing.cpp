@@ -6,6 +6,8 @@
 
 #include <gst/gst.h>
 
+#include <utility>
+
 namespace calls::noise {
 namespace {
 
@@ -48,6 +50,9 @@ struct SwapContext {
     bool echoAllowed = true;
     /// Turn echo cancellation on and keep the suppressor as it is then.
     bool engageEcho = false;
+    /// Told, on the thread the swap runs on, that an engage found no probe it
+    /// could take. See engageEchoCancel().
+    EchoRefused refused;
 };
 
 void freeSwapContext(gpointer data)
@@ -55,6 +60,25 @@ void freeSwapContext(gpointer data)
     auto *context = static_cast<SwapContext *>(data);
     gst_object_unref(context->parent);
     delete context;
+}
+
+/// Whether webrtcdsp `dsp` can take a playback probe. It does so in its start
+/// and fails it when none is free, which in the bin would stop every element
+/// upstream and post a fatal error. So the start is tried here, BEFORE `dsp`
+/// has a parent: with no bus the error goes nowhere, and the state change
+/// reports the answer. Asking the engine whether a probe exists cannot answer
+/// this: the probe may go between the question and the start, and one the
+/// element finds may be held by another webrtcdsp (`acquired`, which only the
+/// plugin can read). True leaves `dsp` PAUSED holding its probe; false leaves
+/// it NULL with echo cancellation off.
+bool dspTakesProbe(GstElement *dsp)
+{
+    if (gst_element_set_state(dsp, GST_STATE_PAUSED)
+        != GST_STATE_CHANGE_FAILURE)
+        return true;
+    gst_element_set_state(dsp, GST_STATE_NULL);
+    g_object_set(dsp, "echo-cancel", FALSE, nullptr);
+    return false;
 }
 
 bool linkThrough(GstPad *upstream, GstElement *element, GstPad *downstream)
@@ -125,9 +149,33 @@ GstPadProbeReturn swapDsp(GstPad *upstream, GstPadProbeInfo *, gpointer data)
             echo = FALSE;
         g_object_set(fresh, "echo-cancel", echo, "gain-control", gain,
                      nullptr);
+        // An `old` without echo cancellation holds no probe, so the new one
+        // can be asked first: a refusal then leaves the microphone untouched.
+        gboolean oldHeldProbe = FALSE;
+        g_object_get(old, "echo-cancel", &oldHeldProbe, nullptr);
+        if (echo && !oldHeldProbe && !dspTakesProbe(fresh)) {
+            if (context->refused)
+                context->refused();
+            gst_object_unref(fresh);
+            if (feeding)
+                gst_object_unref(feeding);
+            if (downstream)
+                gst_object_unref(downstream);
+            if (oldSink)
+                gst_object_unref(oldSink);
+            if (oldSrc)
+                gst_object_unref(oldSrc);
+            gst_object_unref(old);
+            return GST_PAD_PROBE_REMOVE;
+        }
         gst_pad_unlink(upstream, oldSink);
         gst_pad_unlink(oldSrc, downstream);
         gst_element_set_state(old, GST_STATE_NULL);
+        // One that did hold it released it just now, so only now can the new
+        // one take it (or find it went with `old`, whose reference was the
+        // last on a retired receive bin's probe).
+        if (echo && oldHeldProbe)
+            dspTakesProbe(fresh);
         gst_bin_remove(context->parent, old); // `old` keeps our reference
         gst_object_set_name(GST_OBJECT(fresh), kDspName);
         bool replaced = gst_bin_add(context->parent, fresh);
@@ -139,7 +187,9 @@ GstPadProbeReturn swapDsp(GstPad *upstream, GstPadProbeInfo *, gpointer data)
         if (replaced) {
             gst_element_sync_state_with_parent(fresh);
         } else {
-            // Put the old one back rather than leave the microphone cut.
+            // Put the old one back rather than leave the microphone cut, and
+            // never with a probe it may no longer find.
+            g_object_set(old, "echo-cancel", FALSE, nullptr);
             gst_bin_add(context->parent, old);
             linkThrough(upstream, old, downstream);
             gst_element_sync_state_with_parent(old);
@@ -160,7 +210,8 @@ GstPadProbeReturn swapDsp(GstPad *upstream, GstPadProbeInfo *, gpointer data)
 
 /// Returns false when there was nothing to schedule on.
 bool scheduleDspSwap(GstElement *dsp, bool suppress, bool force,
-                     bool echoAllowed = true, bool engageEcho = false)
+                     bool echoAllowed = true, bool engageEcho = false,
+                     EchoRefused refused = {})
 {
     GstPad *sink = gst_element_get_static_pad(dsp, "sink");
     GstPad *upstream = sink ? gst_pad_get_peer(sink) : nullptr;
@@ -168,7 +219,8 @@ bool scheduleDspSwap(GstElement *dsp, bool suppress, bool force,
     bool scheduled = false;
     if (upstream && parent && GST_IS_BIN(parent)) {
         auto *context = new SwapContext{GST_BIN(parent), suppress, force,
-                                        echoAllowed, engageEcho};
+                                        echoAllowed, engageEcho,
+                                        std::move(refused)};
         parent = nullptr; // owned by the context now
         // IDLE runs at once when nothing is flowing, otherwise right after
         // the buffer in flight; a muted (valve-closed) chain is idle.
@@ -392,7 +444,7 @@ QString applyDspMode(GstElement *root, Mode mode, bool forceReplace,
     return did.isEmpty() ? QStringLiteral("no dsp") : did.join(QLatin1Char(' '));
 }
 
-QString engageEchoCancel(GstElement *root)
+QString engageEchoCancel(GstElement *root, EchoRefused refused)
 {
     if (!root || !GST_IS_BIN(root))
         return QStringLiteral("no chain");
@@ -405,8 +457,27 @@ QString engageEchoCancel(GstElement *root)
     // and it may already have run.
     const QString did = on ? QStringLiteral("echo already on")
         : scheduleDspSwap(dsp, dspSuppresses(dsp), /*force=*/true,
-                          /*echoAllowed=*/true, /*engageEcho=*/true)
+                          /*echoAllowed=*/true, /*engageEcho=*/true,
+                          std::move(refused))
             ? QStringLiteral("echo engaged")
+            : QStringLiteral("dsp unlinked, left alone");
+    gst_object_unref(dsp);
+    return did;
+}
+
+QString dropEchoCancel(GstElement *root)
+{
+    if (!root || !GST_IS_BIN(root))
+        return QStringLiteral("no chain");
+    GstElement *dsp = gst_bin_get_by_name(GST_BIN(root), kDspName);
+    if (!dsp)
+        return QStringLiteral("no dsp");
+    gboolean on = FALSE;
+    g_object_get(dsp, "echo-cancel", &on, nullptr);
+    const QString did = !on ? QStringLiteral("echo already off")
+        : scheduleDspSwap(dsp, dspSuppresses(dsp), /*force=*/true,
+                          /*echoAllowed=*/false)
+            ? QStringLiteral("echo dropped")
             : QStringLiteral("dsp unlinked, left alone");
     gst_object_unref(dsp);
     return did;

@@ -6717,6 +6717,234 @@ private slots:
         QVERIFY(!errored);
     }
 
+    void echoEngageTheProbeRefusesLeavesTheMicrophoneRunning_data()
+    {
+        QTest::addColumn<bool>("heldByAnotherDsp");
+        // The probe went between the engine's check and the swap.
+        QTest::newRow("no probe") << false;
+        // One exists under the right name and is not free, which nothing
+        // outside the plugin can see: `acquired` is its private field.
+        QTest::newRow("probe already taken") << true;
+    }
+
+    void echoEngageTheProbeRefusesLeavesTheMicrophoneRunning()
+    {
+        // webrtcdsp's start is fatal to the bin it is in. Before 0.10.4 the
+        // engage swap started it there, in the running microphone, on the
+        // strength of a check made on another thread earlier.
+        QFETCH(bool, heldByAnotherDsp);
+        if (!gst_init_check(nullptr, nullptr, nullptr)
+            || !calls::noise::webrtcDspAvailable()
+            || !SfuMediaEngine::echoProbeElementAvailable())
+            QSKIP("webrtcdsp / webrtcechoprobe not available");
+        GError *error = nullptr;
+        GstElement *pipeline = gst_parse_launch(
+            QStringLiteral(
+                "audiotestsrc is-live=true ! audioconvert "
+                "! audio/x-raw,format=S16LE,rate=48000,channels=1 "
+                "! webrtcdsp name=%1 echo-cancel=false noise-suppression=true "
+                "gain-control=false ! audioconvert ! identity name=afterdsp "
+                "! fakesink sync=false ")
+                .arg(QLatin1String(calls::noise::kDspName))
+                .toUtf8()
+                .constData(),
+            &error);
+        QVERIFY2(pipeline && !error, error ? error->message : "no pipeline");
+        GstElement *holder = nullptr;
+        if (heldByAnotherDsp) {
+            holder = gst_parse_launch(
+                ("audiotestsrc is-live=true ! audioconvert "
+                 + SfuMediaEngine::echoProbeStage(true, true)
+                 + QStringLiteral(
+                     "! fakesink sync=false audiotestsrc is-live=true "
+                     "! audioconvert "
+                     "! audio/x-raw,format=S16LE,rate=48000,channels=1 "
+                     "! webrtcdsp echo-cancel=true ! fakesink sync=false"))
+                    .toUtf8()
+                    .constData(),
+                &error);
+            QVERIFY2(holder && !error, error ? error->message : "no holder");
+            QVERIFY(gst_element_set_state(holder, GST_STATE_PLAYING)
+                    != GST_STATE_CHANGE_FAILURE);
+            QVERIFY(gst_element_get_state(holder, nullptr, nullptr,
+                                          3 * GST_SECOND)
+                    != GST_STATE_CHANGE_FAILURE);
+        }
+        GstBus *bus = gst_element_get_bus(pipeline);
+        gst_element_set_state(pipeline, GST_STATE_PLAYING);
+        QVERIFY(gst_element_get_state(pipeline, nullptr, nullptr,
+                                      3 * GST_SECOND)
+                != GST_STATE_CHANGE_FAILURE);
+        std::atomic<int> buffers{0};
+        GstElement *after = gst_bin_get_by_name(GST_BIN(pipeline), "afterdsp");
+        QVERIFY(after);
+        GstPad *pad = gst_element_get_static_pad(after, "src");
+        gst_pad_add_probe(pad, GST_PAD_PROBE_TYPE_BUFFER,
+                          [](GstPad *, GstPadProbeInfo *, gpointer data) {
+                              static_cast<std::atomic<int> *>(data)->fetch_add(1);
+                              return GST_PAD_PROBE_OK;
+                          },
+                          &buffers, nullptr);
+        QTRY_VERIFY(buffers.load() >= 5);
+
+        std::atomic<int> refused{0};
+        calls::noise::engageEchoCancel(pipeline, [&refused] {
+            refused.fetch_add(1);
+        });
+        QTest::qWait(300);
+        const int before = buffers.load();
+        QTest::qWait(300);
+        const int during = buffers.load() - before;
+
+        GstMessage *message = gst_bus_pop_filtered(bus, GST_MESSAGE_ERROR);
+        QString failure;
+        if (message) {
+            GError *e = nullptr;
+            gst_message_parse_error(message, &e, nullptr);
+            failure = QString::fromUtf8(e ? e->message : "error");
+            if (e)
+                g_error_free(e);
+            gst_message_unref(message);
+        }
+        GstElement *dsp = gst_bin_get_by_name(GST_BIN(pipeline),
+                                              calls::noise::kDspName);
+        gboolean echo = TRUE;
+        if (dsp) {
+            g_object_get(dsp, "echo-cancel", &echo, nullptr);
+            gst_object_unref(dsp);
+        }
+        gst_object_unref(pad);
+        gst_object_unref(after);
+        gst_element_set_state(pipeline, GST_STATE_NULL);
+        gst_object_unref(bus);
+        gst_object_unref(pipeline);
+        if (holder) {
+            gst_element_set_state(holder, GST_STATE_NULL);
+            gst_object_unref(holder);
+        }
+        QVERIFY2(failure.isEmpty(), qPrintable(failure));
+        QVERIFY2(during >= 5, "the microphone stopped");
+        QVERIFY(!echo);
+        QCOMPARE(refused.load(), 1);
+    }
+
+    void aReplacedDspKeepsTheProbeItsPredecessorHeld()
+    {
+        // The other order of the same swap: the only probe is held by the
+        // element being replaced, so the new one can take it only afterwards.
+        if (!gst_init_check(nullptr, nullptr, nullptr)
+            || !calls::noise::webrtcDspAvailable()
+            || !SfuMediaEngine::echoProbeElementAvailable())
+            QSKIP("webrtcdsp / webrtcechoprobe not available");
+        GError *error = nullptr;
+        GstElement *pipeline = gst_parse_launch(
+            ("audiotestsrc is-live=true ! audioconvert "
+             + SfuMediaEngine::echoProbeStage(true, true)
+             + QStringLiteral(
+                 "! fakesink sync=false audiotestsrc is-live=true "
+                 "! audioconvert "
+                 "! audio/x-raw,format=S16LE,rate=48000,channels=1 "
+                 "! webrtcdsp name=%1 echo-cancel=true noise-suppression=true "
+                 "gain-control=false ! audioconvert ! identity name=afterdsp "
+                 "! fakesink sync=false")
+                   .arg(QLatin1String(calls::noise::kDspName)))
+                .toUtf8()
+                .constData(),
+            &error);
+        QVERIFY2(pipeline && !error, error ? error->message : "no pipeline");
+        GstBus *bus = gst_element_get_bus(pipeline);
+        gst_element_set_state(pipeline, GST_STATE_PLAYING);
+        QVERIFY(gst_element_get_state(pipeline, nullptr, nullptr,
+                                      3 * GST_SECOND)
+                != GST_STATE_CHANGE_FAILURE);
+        GstElement *first = gst_bin_get_by_name(GST_BIN(pipeline),
+                                                calls::noise::kDspName);
+        calls::noise::applyDspMode(pipeline, calls::noise::Mode::Off,
+                                   /*forceReplace=*/true,
+                                   /*echoAllowed=*/true);
+        const auto replaced = [&] {
+            GstElement *dsp = gst_bin_get_by_name(GST_BIN(pipeline),
+                                                  calls::noise::kDspName);
+            const bool yes = dsp && dsp != first;
+            if (dsp)
+                gst_object_unref(dsp);
+            return yes;
+        };
+        QTRY_VERIFY(replaced());
+        GstElement *dsp = gst_bin_get_by_name(GST_BIN(pipeline),
+                                              calls::noise::kDspName);
+        gboolean echo = FALSE;
+        g_object_get(dsp, "echo-cancel", &echo, nullptr);
+        gst_object_unref(dsp);
+        gst_object_unref(first);
+        std::atomic<int> buffers{0};
+        GstElement *after = gst_bin_get_by_name(GST_BIN(pipeline), "afterdsp");
+        GstPad *pad = gst_element_get_static_pad(after, "src");
+        gst_pad_add_probe(pad, GST_PAD_PROBE_TYPE_BUFFER,
+                          [](GstPad *, GstPadProbeInfo *, gpointer data) {
+                              static_cast<std::atomic<int> *>(data)->fetch_add(1);
+                              return GST_PAD_PROBE_OK;
+                          },
+                          &buffers, nullptr);
+        QTRY_VERIFY(buffers.load() >= 10);
+        GstMessage *message = gst_bus_pop_filtered(bus, GST_MESSAGE_ERROR);
+        const bool errored = message != nullptr;
+        if (message)
+            gst_message_unref(message);
+        gst_object_unref(pad);
+        gst_object_unref(after);
+        gst_element_set_state(pipeline, GST_STATE_NULL);
+        gst_object_unref(bus);
+        gst_object_unref(pipeline);
+        QVERIFY(echo);
+        QVERIFY(!errored);
+    }
+
+    void aWebrtcDspThatFailsItsStartDoesNotSilenceTheMicrophone()
+    {
+        // The log of 2026-11-01, on the real engine and the real element:
+        //   gst_webrtc_dsp_start:<micdsp> error: No echo probe with name
+        //   webrtcechoprobe0 found.
+        //   gst_pad_set_active:<micdsp:sink> Failed to activate pad
+        // after which nothing upstream of the element ever started.
+        if (!gst_init_check(nullptr, nullptr, nullptr)
+            || !calls::noise::webrtcDspAvailable()
+            || !SfuMediaEngine::echoProbeElementAvailable())
+            QSKIP("webrtcdsp / webrtcechoprobe not available");
+        SfuMediaEngine engine;
+        QSignalSpy failed(&engine, &SfuMediaEngine::echoCancellationFailed);
+        QSignalSpy publishFailed(&engine, &SfuMediaEngine::publishFailed);
+        QSignalSpy callFailed(&engine, &SfuMediaEngine::failed);
+        engine.setVoiceProcessing(true, true);
+        engine.setTestSourceMode(true);
+        engine.start();
+        engine.startNextMicrophoneWithEchoForTest();
+        const QString cid = QStringLiteral("cid-audio");
+        engine.publishAudio(cid);
+        QVERIFY2(engine.lastAudioDescriptionForTest().contains(
+                     QLatin1String("echo-cancel=true")),
+                 "the fixture no longer reproduces the failure");
+        QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 1, 5000);
+        // It carries on: capture, encoder and payloader all run. One packet
+        // is all this gives: with no peer, webrtcbin takes the first and
+        // holds the pad until it has an answer.
+        QTRY_VERIFY_WITH_TIMEOUT(engine.microphoneRtpOutForTest() >= 1, 5000);
+        QVERIFY(engine.microphoneCapturedForTest() > 0);
+        QCOMPARE(engine.publishedBinPropertyForTest(
+                     cid, QStringLiteral("micdsp"),
+                     QStringLiteral("echo-cancel")),
+                 QStringLiteral("false"));
+        // Once, and neither a dead track nor a dead call.
+        QTest::qWait(200);
+        QCOMPARE(failed.count(), 1);
+        QCOMPARE(publishFailed.count(), 0);
+        QCOMPARE(callFailed.count(), 0);
+        // And it stays given up: the next remote audio asks in vain.
+        const int attempts = engine.echoEngageAttemptsForTest();
+        engine.engageEchoCancellation();
+        QCOMPARE(engine.echoEngageAttemptsForTest(), attempts);
+    }
+
     void h264PayloaderKeepsTheByteTheKeyIndexLivesIn()
     {
         if (!gst_init_check(nullptr, nullptr, nullptr)
