@@ -652,7 +652,7 @@ ApplicationWindow {
                     anchors.horizontalCenter: parent.horizontalCenter
                     text: qsTr("Lightning")
                     color: AppTheme.text
-                    font.pixelSize: 26
+                    font.pixelSize: AppTheme.scaled(26)
                     font.weight: Font.ExtraBold
                 }
                 AppBusyIndicator {
@@ -664,7 +664,7 @@ ApplicationWindow {
                     anchors.horizontalCenter: parent.horizontalCenter
                     text: qsTr("Restoring your session…")
                     color: AppTheme.textMuted
-                    font.pixelSize: 13
+                    font.pixelSize: AppTheme.scaled(AppTheme.textBody)
                 }
             }
         }
@@ -1515,7 +1515,7 @@ ApplicationWindow {
                 // Some messages carry server text.
                 textFormat: Text.PlainText
                 color: AppTheme.error
-                font.pixelSize: 12
+                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
             }
             // The message also expires on its own and goes when the user
             // moves to another room (AppController::clearStatusError).
