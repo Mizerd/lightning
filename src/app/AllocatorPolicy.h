@@ -25,21 +25,20 @@ namespace lightning {
 //
 // The fixed threshold has one price: a block above it costs a mapping and its
 // page faults on every malloc, and a call allocates one 1080p frame per
-// received frame. So a live call lifts the threshold above any frame and the
-// last one ending puts it back. CallAllocatorHold is the only writer.
+// received frame. So a live call lifts the thresholds above any frame and the
+// last one ending puts them back. CallAllocatorHold is the only writer.
 inline constexpr int kIdleMmapThresholdBytes = 128 * 1024;
 inline constexpr int kCallMmapThresholdBytes = 32 * 1024 * 1024; // glibc's ceiling
+inline constexpr int kIdleTrimThresholdBytes = 2 * 1024 * 1024;
+// Above a frame too: a smaller one gives each freed frame back to the system
+// and faults it in again, which costs as much as the mapping did.
+inline constexpr int kCallTrimThresholdBytes = 64 * 1024 * 1024;
 
 inline bool applyAllocatorPolicy()
 {
 #if defined(__GLIBC__)
-    constexpr int kTrimThresholdBytes = 2 * 1024 * 1024;
-    // Before any thread exists. glibc allows eight arenas per core, and short
-    // lived Tokio and pool threads each strand one.
-    constexpr int kArenaMax = 4;
-    return mallopt(M_ARENA_MAX, kArenaMax) == 1
-        && mallopt(M_MMAP_THRESHOLD, kIdleMmapThresholdBytes) == 1
-        && mallopt(M_TRIM_THRESHOLD, kTrimThresholdBytes) == 1;
+    return mallopt(M_MMAP_THRESHOLD, kIdleMmapThresholdBytes) == 1
+        && mallopt(M_TRIM_THRESHOLD, kIdleTrimThresholdBytes) == 1;
 #else
     return false;
 #endif
@@ -92,10 +91,16 @@ private:
         const int before = count();
         count() = before + delta;
 #if defined(__GLIBC__)
-        if (before == 0 && count() == 1)
+        if (before == 0 && count() == 1) {
             mallopt(M_MMAP_THRESHOLD, kCallMmapThresholdBytes);
-        else if (before == 1 && count() == 0)
+            mallopt(M_TRIM_THRESHOLD, kCallTrimThresholdBytes);
+        } else if (before == 1 && count() == 0) {
             mallopt(M_MMAP_THRESHOLD, kIdleMmapThresholdBytes);
+            mallopt(M_TRIM_THRESHOLD, kIdleTrimThresholdBytes);
+            // The frames the call left in the heap go back now, not at some
+            // later free.
+            malloc_trim(0);
+        }
 #endif
     }
 

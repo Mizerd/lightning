@@ -44,6 +44,26 @@ private slots:
 #endif
     }
 
+    // A heap trimmed after every freed frame faults it all back in, which is the
+    // cost the hold exists to remove.
+    void aCallKeepsAFreedFrameInTheHeap()
+    {
+#if defined(__GLIBC__)
+        QVERIFY(lightning::applyAllocatorPolicy());
+        constexpr size_t kFrame = 1920 * 1080 * 4;
+        lightning::CallAllocatorHold hold;
+        hold.engage();
+        void *volatile frame = std::malloc(kFrame);
+        std::memset(frame, 1, kFrame);
+        const size_t held = mallinfo2().arena;
+        std::free(frame);
+        QCOMPARE(mallinfo2().arena, held);
+        hold.release();
+#else
+        QSKIP("glibc only");
+#endif
+    }
+
     // Frames must come from the heap for the length of a call, and only then.
     void aCallLiftsTheThresholdUntilTheLastOneEnds()
     {
