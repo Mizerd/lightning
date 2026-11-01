@@ -1539,8 +1539,24 @@ ApplicationWindow {
         property string lastError: ""
     }
 
+    // The strip may have been written first (the backend reports the failure
+    // before AuthManager settles its own copy); take it back once the form has it.
+    Connections {
+        target: app.auth
+        function onLoginFailed(reason) {
+            if (app.currentScreen === 0 && statusBar.lastError === reason)
+                statusBar.lastError = ""
+        }
+    }
+
     Connections {
         target: app
-        function onErrorReported(msg) { statusBar.lastError = msg }
+        function onErrorReported(msg) {
+            // The sign-in form already says this, under the field it concerns;
+            // repeating it in the strip is one error shown twice.
+            if (app.currentScreen === 0 && msg === app.auth.lastError)
+                return
+            statusBar.lastError = msg
+        }
     }
 }
