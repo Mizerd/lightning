@@ -33,36 +33,56 @@ Rectangle {
 
     Accessible.ignored: true
 
-    SequentialAnimation on opacity {
-        running: root.animating && root.pulseOnly
-        loops: Animation.Infinite
-        NumberAnimation { to: 0.55; duration: 700; easing.type: Easing.InOutSine }
-        NumberAnimation { to: 1.0; duration: 700; easing.type: Easing.InOutSine }
-        onRunningChanged: if (!running) root.opacity = 1.0
+    // Built only while it runs: most skeletons in a window are hidden, and
+    // every avatar and message row carries one.
+    Loader {
+        active: root.animating && root.pulseOnly
+        visible: false
+        sourceComponent: SequentialAnimation {
+            running: true
+            loops: Animation.Infinite
+            NumberAnimation {
+                target: root
+                property: "opacity"
+                to: 0.55
+                duration: 700
+                easing.type: Easing.InOutSine
+            }
+            NumberAnimation {
+                target: root
+                property: "opacity"
+                to: 1.0
+                duration: 700
+                easing.type: Easing.InOutSine
+            }
+            Component.onDestruction: root.opacity = 1.0
+        }
     }
 
-    Rectangle {
-        id: band
-        visible: root.animating && !root.pulseOnly
-        width: Math.max(24, root.width * 0.35)
-        height: root.height
-        // A band in the theme's text colour at low alpha: a gentle darkening on
-        // light themes, lightening on dark ones.
-        gradient: Gradient {
-            orientation: Gradient.Horizontal
-            GradientStop { position: 0.0; color: "transparent" }
-            GradientStop {
-                position: 0.5
-                color: Qt.alpha(AppTheme.text, 0.08)
+    Loader {
+        active: root.animating && !root.pulseOnly
+        visible: active
+        sourceComponent: Rectangle {
+            id: band
+            width: Math.max(24, root.width * 0.35)
+            height: root.height
+            // A band in the theme's text colour at low alpha: a gentle darkening
+            // on light themes, lightening on dark ones.
+            gradient: Gradient {
+                orientation: Gradient.Horizontal
+                GradientStop { position: 0.0; color: "transparent" }
+                GradientStop {
+                    position: 0.5
+                    color: Qt.alpha(AppTheme.text, 0.08)
+                }
+                GradientStop { position: 1.0; color: "transparent" }
             }
-            GradientStop { position: 1.0; color: "transparent" }
-        }
-        NumberAnimation on x {
-            running: root.animating && !root.pulseOnly
-            from: -band.width
-            to: root.width
-            duration: 1100
-            loops: Animation.Infinite
+            NumberAnimation on x {
+                from: -band.width
+                to: root.width
+                duration: 1100
+                loops: Animation.Infinite
+            }
         }
     }
 }

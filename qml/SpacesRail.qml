@@ -2219,7 +2219,10 @@ Rectangle {
             // A hidden row must not take the keyboard: an enabled one absorbs Down
             // presses and Return would trigger it unseen.
             enabled: visible
-            onTriggered: spaceSettings.openFor(railMenu.spaceId)
+            onTriggered: {
+                spaceSettingsLoader.active = true
+                spaceSettingsLoader.item.openFor(railMenu.spaceId)
+            }
         }
 
         AppMenuSeparator { visible: railMenu.isRealSpace }
@@ -2346,9 +2349,14 @@ Rectangle {
         parent: Overlay.overlay
     }
 
-    SpaceSettingsDialog {
-        id: spaceSettings
-        onInviteRequested: (spaceId) => spaceInviteDialog.openFor(spaceId)
+    // Built on first use, as the room permissions dialog is: 3,500 QObjects
+    // for a dialog most sessions never open.
+    Loader {
+        id: spaceSettingsLoader
+        active: false
+        sourceComponent: SpaceSettingsDialog {
+            onInviteRequested: (spaceId) => spaceInviteDialog.openFor(spaceId)
+        }
     }
 
     // Share: the link, selectable, with its two actions. There is no OS share
