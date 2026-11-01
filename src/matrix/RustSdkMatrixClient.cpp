@@ -7738,6 +7738,11 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         handleThreadListReset(event);
         return;
     }
+    if (type == QLatin1String("thread_subscription_result")
+        && !event.value(QStringLiteral("ok")).toBool()) {
+        qCWarning(lcRust) << "thread subscription change refused reason="
+                          << event.value(QStringLiteral("reason")).toString();
+    }
     if (type == QLatin1String("thread_subscription_state")
         || type == QLatin1String("thread_subscription_result")) {
         handleThreadSubscriptionEvent(type, event);

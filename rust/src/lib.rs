@@ -7262,6 +7262,21 @@ pub unsafe extern "C" fn mx_rust_thread_subscription_query(
             .map_err(|_| "invalid thread root id".to_owned())?;
         let events = Arc::clone(&bridge.events);
         bridge.spawn_room_action(async move {
+            // The endpoint answers 404 on a server without MSC4306 and the SDK
+            // maps that 404 to Ok(None), which is indistinguishable from "not
+            // following". Ask the server's own feature list first, so a
+            // server that lacks the MSC reports unsupported.
+            if !thread_subscriptions_advertised(&room.client()).await {
+                enqueue(&events, json!({
+                    "type": "thread_subscription_state",
+                    "room_id": room_id,
+                    "thread_root_id": root,
+                    "supported": false,
+                    "subscribed": false,
+                    "automatic": false,
+                }));
+                return;
+            }
             match room.load_or_fetch_thread_subscription(&root_ref).await {
                 Ok(subscription) => enqueue(&events, json!({
                     "type": "thread_subscription_state",
@@ -7285,6 +7300,35 @@ pub unsafe extern "C" fn mx_rust_thread_subscription_query(
         });
         Ok(String::new())
     })
+}
+
+/// Whether the homeserver advertises thread subscriptions (MSC4306) in its
+/// `/versions` unstable features. An unreadable answer counts as not
+/// advertised, as every other failure of this probe already did.
+async fn thread_subscriptions_advertised(client: &Client) -> bool {
+    use matrix_sdk::ruma::api::FeatureFlag;
+    match client.supported_versions().await {
+        Ok(versions) => versions
+            .features
+            .contains(&FeatureFlag::from("org.matrix.msc4306")),
+        Err(_) => false,
+    }
+}
+
+fn thread_subscription_failure_reason(err: &matrix_sdk::Error) -> &'static str {
+    thread_subscription_reason_for_kind(err.client_api_error_kind())
+}
+
+fn thread_subscription_reason_for_kind(
+    kind: Option<&matrix_sdk::ruma::api::error::ErrorKind>,
+) -> &'static str {
+    use matrix_sdk::ruma::api::error::ErrorKind;
+    match kind {
+        Some(ErrorKind::Unrecognized) | Some(ErrorKind::NotFound) => "unsupported_by_server",
+        Some(ErrorKind::LimitExceeded(_)) => "rate_limited",
+        Some(ErrorKind::Forbidden) => "forbidden",
+        _ => "failed",
+    }
 }
 
 /// Follow/unfollow a thread (MSC4306). Emits thread_subscription_result,
@@ -7320,6 +7364,11 @@ pub unsafe extern "C" fn mx_rust_thread_set_subscribed(
                 "room_id": room_id,
                 "thread_root_id": root,
                 "ok": result.is_ok(),
+                // A constant category, never server text or ids.
+                "reason": match &result {
+                    Ok(_) => "",
+                    Err(err) => thread_subscription_failure_reason(err),
+                },
                 "subscribed": subscribe,
             }));
             if result.is_ok() {
@@ -17537,6 +17586,18 @@ fn classify_import_error(message: &str) -> &'static str {
 }
 
 #[cfg(test)]
+mod thread_subscription_reason_tests {
+    use super::thread_subscription_reason_for_kind as reason;
+    use matrix_sdk::ruma::api::error::ErrorKind;
+
+    #[test]
+    fn a_refusal_names_a_constant_category() {
+        assert_eq!(reason(Some(&ErrorKind::Unrecognized)), "unsupported_by_server");
+        assert_eq!(reason(Some(&ErrorKind::Forbidden)), "forbidden");
+        assert_eq!(reason(None), "failed");
+    }
+}
+
 mod tests {
     #[test]
     fn mark_read_target_does_not_depend_on_latest_event() {
