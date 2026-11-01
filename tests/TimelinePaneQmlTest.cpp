@@ -12477,6 +12477,65 @@ private Q_SLOTS:
         QTest::qWait(200);
     }
 
+    // A19: a MatrixRTC call in the 320 px pane of a 640 px window laid its
+    // stage out wider than the pane (the collapse button, hang-up and the
+    // software-video banner clipped at the right edge) because the controls
+    // cell asked for its full width as a MINIMUM once cramped. Measured on the
+    // real stage with the call controls drawn: nothing may end past the stage.
+    void theCallStageFitsTheNarrowPane_data()
+    {
+        QTest::addColumn<int>("width");
+        // Narrower than the compact controls' own width: the stage must still
+        // end inside the pane (the minimum made it grow instead).
+        QTest::newRow("narrower than the controls") << 260;
+        QTest::newRow("640 window pane") << 320;
+        QTest::newRow("760 window pane") << 380;
+    }
+
+    void theCallStageFitsTheNarrowPane()
+    {
+        QFETCH(int, width);
+        AppController controller(AppController::MockBackend);
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("CallStage"));
+        if (createdSpy.isEmpty() && !createdSpy.wait(kSignalTimeoutMs))
+            QFAIL("call stage did not load");
+        auto *stage = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(stage);
+        window.resize(width, 420);
+        stage->setParentItem(window.contentItem());
+        stage->setSize(QSizeF(width, 400));
+        window.show();
+        auto *controls = stage->findChild<QQuickItem *>(
+            QStringLiteral("callStageControls"));
+        QVERIFY2(controls, "the call controls were not loaded");
+        // Draw the controls without a live call.
+        QVERIFY(controls->setProperty("previewMode", true));
+        QTest::qWait(300);
+        auto *row = stage->findChild<QQuickItem *>(
+            QStringLiteral("callHeaderRow"));
+        QVERIFY(row);
+        const QPointF end = row->mapToItem(stage, QPointF(row->width(), 0));
+        QVERIFY2(end.x() <= width + 0.5,
+                 qPrintable(QStringLiteral("header row ends at %1 in a %2 px stage")
+                                .arg(end.x()).arg(width)));
+        // Every direct child of the stage's column ends inside the stage.
+        const auto kids = row->parentItem()->childItems();
+        for (QQuickItem *kid : kids) {
+            if (!kid->isVisible() || kid->width() <= 0)
+                continue;
+            const QPointF e = kid->mapToItem(stage, QPointF(kid->width(), 0));
+            QVERIFY2(e.x() <= width + 0.5,
+                     qPrintable(QStringLiteral("%1 ends at %2 in a %3 px stage")
+                                    .arg(kid->objectName()).arg(e.x()).arg(width)));
+        }
+    }
+
 };
 
 int main(int argc, char *argv[])

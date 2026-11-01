@@ -596,7 +596,13 @@ Rectangle {
                 // so wide windows are unchanged. Once compact there is nothing
                 // left to give: squeezing the cell further only moves the bar
                 // over its neighbours, so they give way instead.
-                Layout.minimumWidth: root.collapsed || cramped ? implicitWidth : 0
+                // Cramped and expanded is the narrow pane (640 px window: the
+                // pane is 320). A minimum of implicitWidth there made the
+                // column's minimum wider than the pane, so the whole stage,
+                // banner and tiles included, was laid out past its right
+                // edge. The bar anchors to the cell's right edge and spills
+                // left over the label, which the squeeze removes first.
+                Layout.minimumWidth: root.collapsed ? implicitWidth : 0
                 Layout.fillWidth: true
                 Layout.maximumWidth: implicitWidth
                 Layout.alignment: Qt.AlignVCenter
@@ -751,6 +757,10 @@ Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
             visible: !root.collapsed
+            // In a 640x360 window the stage has almost no height left and the
+            // tiles' minimum size is larger than it; unclipped they were drawn
+            // over the room list and each other (A19).
+            clip: true
 
             // Grid: every surface the same size, shares first. Stood down in
             // full screen so two tiles never compete for one routing key.
