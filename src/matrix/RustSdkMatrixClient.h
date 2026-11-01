@@ -1518,10 +1518,17 @@ private:
     // rooms no index space names.
     QHash<QString, RoomInfo> m_rooms;
     // Per room, the count of m.typing sets received. A typing set is dropped
-    // if no newer one arrives within kTypingExpiryMs: a typist's own client
-    // refreshes it every few seconds, so silence means the "stopped" update was
-    // missed and the indicator would otherwise stay up for ever.
+    // if no newer one arrives within m_typingExpiryMs. MEASURED 2026-11-01
+    // against the local Continuwuity, on /sync and on simplified sliding sync:
+    // every typist refresh (PUT every 10 s, timeout 30 s) is delivered again
+    // as an UNCHANGED set, and a typist who just stops gets an empty set when
+    // the server's own timeout lapses. Not measured on Synapse, and no spec
+    // text promises either, so the bound is the server-side maximum (120 s)
+    // rather than a few refresh periods: it is a net under a missed "stopped"
+    // update, not the normal path, and a server that does not resend an
+    // unchanged set can only lose the indicator of someone typing past it.
     QHash<QString, quint64> m_typingSerial;
+    int m_typingExpiryMs = 120 * 1000;
     // The SDK room list's index space, one-for-one, because room-list diffs
     // address it by index. Only `room_list_*` diffs and `room_list_reset` may
     // write it; never `room_snapshot`. See matrix::rust_rooms.

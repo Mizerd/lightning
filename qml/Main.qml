@@ -1467,7 +1467,7 @@ ApplicationWindow {
         readonly property bool developmentBackend: app.backendName !== "rust"
         // Hidden in the screenshot demo (mock backend).
         visible: !app.screenshotDemoActive
-                 && (statusBar.lastError !== ""
+                 && (statusBar.shown !== ""
                      || developmentBackend
                      || (app.loggedIn
                          && app.connectionStatus !== qsTr("Connected")))
@@ -1510,8 +1510,8 @@ ApplicationWindow {
             }
             Item { Layout.fillWidth: true }
             Label {
-                visible: statusBar.lastError !== ""
-                text: statusBar.lastError
+                visible: statusBar.shown !== ""
+                text: statusBar.shown
                 // Some messages carry server text.
                 textFormat: Text.PlainText
                 color: AppTheme.error
@@ -1521,7 +1521,7 @@ ApplicationWindow {
             // moves to another room (AppController::clearStatusError).
             IconButton {
                 objectName: "statusErrorDismiss"
-                visible: statusBar.lastError !== ""
+                visible: statusBar.shown !== ""
                 Layout.alignment: Qt.AlignVCenter
                 size: "sm"
                 iconName: "close"
@@ -1537,26 +1537,19 @@ ApplicationWindow {
     QtObject {
         id: statusBar
         property string lastError: ""
-    }
-
-    // The strip may have been written first (the backend reports the failure
-    // before AuthManager settles its own copy); take it back once the form has it.
-    Connections {
-        target: app.auth
-        function onLoginFailed(reason) {
-            if (app.currentScreen === 0 && statusBar.lastError === reason)
-                statusBar.lastError = ""
-        }
+        // What the strip draws. The sign-in form already says an error it
+        // shows itself, under the field it concerns, so the strip holds back
+        // the same text rather than repeat it. It only HOLDS it back: the
+        // message stays in lastError, so when the form lets go of it (a
+        // background return-to restore clears AuthManager::lastError on its
+        // own success) the strip shows it, and it cannot vanish from both.
+        readonly property string shown:
+            app.currentScreen === 0 && lastError === app.auth.lastError
+            ? "" : lastError
     }
 
     Connections {
         target: app
-        function onErrorReported(msg) {
-            // The sign-in form already says this, under the field it concerns;
-            // repeating it in the strip is one error shown twice.
-            if (app.currentScreen === 0 && msg === app.auth.lastError)
-                return
-            statusBar.lastError = msg
-        }
+        function onErrorReported(msg) { statusBar.lastError = msg }
     }
 }

@@ -1480,7 +1480,7 @@ Item {
         leftPadding: root.navCollapsed ? padding : padding + caretGutter
         // Folded rail: the label is the tooltip, placed beside the rail so it
         // cannot run off the window's left edge.
-        ToolTip {
+        PlainToolTip {
             objectName: "settingsNavRowTip_" + navRow.sectionKey
             visible: root.navCollapsed && navRow.hovered
             text: navRow.navLabel

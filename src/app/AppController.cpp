@@ -3092,13 +3092,13 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             // The background restore below finishes almost immediately and
             // its own loginSucceeded unconditionally clears
             // AuthManager::lastError (the same as any successful login), so
-            // the login screen's error label is blank again within a beat —
+            // the login form's error label is blank again within a beat —
             // onLoginSucceeded() deliberately keeps the login screen open
-            // for this exact case, but leaves nothing on it to read. This
-            // (e.g. "login redirected to switch": the account just typed is
-            // already signed in here) is the one channel that survives that
-            // return, since onLoginSucceeded() only clears it on the normal
-            // exit path, not the background-restore one.
+            // for this exact case. The reason also goes out as
+            // errorReported(), which the status strip keeps: Main.qml holds
+            // the strip's copy back only while the form shows the same text,
+            // and shows it the moment the form's is cleared, so the error is
+            // always on screen in one of the two places.
             if (!reason.isEmpty())
                 Q_EMIT errorReported(reason);
             m_backgroundRestore = true;

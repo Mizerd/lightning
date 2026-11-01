@@ -292,6 +292,50 @@ private slots:
 #endif
     }
 
+    /// A typing set nothing refreshes is dropped (a missed "stopped" update
+    /// left "X is typing" up for the whole session); a refreshed one is kept.
+    void aTypingSetNobodyRefreshesExpires()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("needs the Rust backend");
+#else
+        SettingsManager settings;
+        RustSdkMatrixClient client(&settings);
+        client.m_typingExpiryMs = 300;
+        const QString room = QStringLiteral("!r:example.org");
+        QJsonObject listed;
+        listed.insert(QStringLiteral("id"), room);
+        listed.insert(QStringLiteral("name"), QStringLiteral("Room"));
+        QJsonObject rooms;
+        rooms.insert(QStringLiteral("type"), QStringLiteral("rooms"));
+        rooms.insert(QStringLiteral("rooms"), QJsonArray{listed});
+        client.handleRustEventForTest(rooms);
+        QJsonObject who;
+        who.insert(QStringLiteral("user_id"), QStringLiteral("@alice:example.org"));
+        QJsonObject typing;
+        typing.insert(QStringLiteral("type"), QStringLiteral("typing_update"));
+        typing.insert(QStringLiteral("room_id"), room);
+        typing.insert(QStringLiteral("users"), QJsonArray{who});
+        QSignalSpy changed(&client, &MatrixClient::typingChanged);
+
+        client.handleRustEventForTest(typing);
+        QCOMPARE(client.typingUsersFor(room).size(), 1);
+        // A refresh (the same set again) restarts the clock.
+        QTest::qWait(200);
+        client.handleRustEventForTest(typing);
+        QTest::qWait(200);
+        QCOMPARE(client.typingUsersFor(room).size(), 1);
+        // Silence: dropped, and the indicator is told.
+        const int before = changed.size();
+        QTRY_VERIFY_WITH_TIMEOUT(client.typingUsersFor(room).isEmpty(), 2000);
+        QVERIFY(changed.size() > before);
+        // An explicit stop is not turned into an expiry later.
+        typing.insert(QStringLiteral("users"), QJsonArray{});
+        client.handleRustEventForTest(typing);
+        QVERIFY(client.typingUsersFor(room).isEmpty());
+#endif
+    }
+
     /// A typist who left (kicked, banned) gets no typing stop from the server;
     /// a full roster without them drops them from the indicator, a partial or
     /// truncated one cannot prove they left (B026).

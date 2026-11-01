@@ -518,11 +518,15 @@ ColumnLayout {
                                  + "your desktop is not showing them.")
                           : root.shootNote === "checks" && root.shoot.hasRun
                             ? (root.shootProblems > 0
-                               ? qsTr("%n problem(s) found. Details below.", "",
-                                      root.shootProblems)
+                               ? (root.shootProblems === 1
+                                  ? qsTr("1 problem found. Details below.")
+                                  : qsTr("%1 problems found. Details below.")
+                                      .arg(root.shootProblems))
                                : root.shootWarnings > 0
-                                 ? qsTr("%n thing(s) to check. Details below.", "",
-                                        root.shootWarnings)
+                                 ? (root.shootWarnings === 1
+                                    ? qsTr("1 thing to check. Details below.")
+                                    : qsTr("%1 things to check. Details below.")
+                                        .arg(root.shootWarnings))
                                  : qsTr("Nothing wrong that Lightning can see. "
                                         + "Send a test notification to be sure."))
                             : ""

@@ -7219,8 +7219,7 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
             // Expire a set nothing has refreshed (see m_typingSerial). The
             // serial is the guard, so a newer set or an account change that
             // cleared the rooms makes this a no-op.
-            constexpr int kTypingExpiryMs = 45 * 1000;
-            QTimer::singleShot(kTypingExpiryMs, this,
+            QTimer::singleShot(m_typingExpiryMs, this,
                                [this, roomId, serial, gen = m_lifecycle.activeGeneration()] {
                 if (!m_lifecycle.acceptsActive(gen)
                     || m_typingSerial.value(roomId) != serial)
