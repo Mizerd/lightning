@@ -48,6 +48,7 @@
 #include "app/GuiStallTracer.h"
 #include "app/FrameIntervalProbe.h"
 #include "app/WindowFrameTheme.h"
+#include "app/AllocatorPolicy.h"
 #include "app/QmlGcPolicy.h"
 #include "app/RepeatLogLimiter.h"
 #include "media/VaapiLogGate.h"
@@ -1891,6 +1892,9 @@ int main(int argc, char *argv[])
     // nothing contended enough to need them.
     mallopt(M_ARENA_MAX, 4);
 #endif
+
+    // Before anything large is allocated: see AllocatorPolicy.h.
+    lightning::applyAllocatorPolicy();
 
     // Before any QML engine exists: see QmlGcPolicy.h.
     lightning::applyQmlGcPolicy();

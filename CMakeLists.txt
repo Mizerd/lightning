@@ -2355,6 +2355,13 @@ if(BUILD_TESTING)
 
     # User-selectable and importable fonts. The link list is part of the
     # contract: FontManager must not depend on the Matrix client or network.
+    qt_add_executable(allocator-policy-test
+        tests/AllocatorPolicyTest.cpp
+    )
+    target_include_directories(allocator-policy-test PRIVATE src)
+    target_link_libraries(allocator-policy-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME allocator-policy COMMAND allocator-policy-test)
+
     qt_add_executable(font-manager-test
         tests/FontManagerTest.cpp
         src/app/FontManager.h
