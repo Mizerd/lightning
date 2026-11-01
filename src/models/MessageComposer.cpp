@@ -7,6 +7,7 @@
 #include "matrix/MatrixClient.h"
 #include "media/ImageMetadata.h"
 #include "models/MarkdownFormat.h"
+#include "models/RichComposition.h"
 
 #include <QBuffer>
 #include <QClipboard>
@@ -745,10 +746,11 @@ void MessageComposer::sendInternal(bool allowCommands)
 {
     if (!m_canSend || !m_client) return;
     // An edit saved with the text it was opened with changes nothing: sending
-    // it would add an "(edited)" mark for no difference (C46 F06). Only when
-    // the original carried no formatting: re-saving a formatted message
-    // through the plain lane would change it, so that still goes out.
-    if (!m_editingEventId.isEmpty() && m_editSeedHtml.isEmpty()
+    // it would add an "(edited)" mark for no difference (C46 F06). Not for a
+    // plain seed of a formatted message: re-saving that through the plain lane
+    // would change it, so it still goes out.
+    if (!m_editingEventId.isEmpty()
+        && (m_editSeedHtml.isEmpty() || m_editSeedIsMarkdown)
         && m_text == m_editSeedText) {
         finishSuccessfulSend();
         return;
@@ -830,8 +832,11 @@ void MessageComposer::sendPrepared(const QString &body, const QString &html,
     // (and formatting) it was opened with sends nothing (C46 F06).
     // Empty html is "unchanged" only when the seed had none either: removing
     // formatting while keeping the words is a real edit.
-    if (!m_editingEventId.isEmpty() && body == m_editSeedText
-        && html == m_editSeedHtml) {
+    if (!m_editingEventId.isEmpty()
+        && (m_editSeedIsMarkdown ? !html.isEmpty()
+                                       && m_text.trimmed() == m_editSeedText
+                                 : body == m_editSeedText
+                                       && html == m_editSeedHtml)) {
         finishSuccessfulSend();
         return;
     }
@@ -1739,6 +1744,7 @@ void MessageComposer::beginReply(const QString &eventId,
     m_editingEventId.clear();
     m_editSeedText.clear();
     m_editSeedHtml.clear();
+    m_editSeedIsMarkdown = false;
     m_editingTimelineId.clear();
     Q_EMIT editStateChanged();
     m_replyingToEventId = eventId;
@@ -1783,10 +1789,17 @@ void MessageComposer::beginEdit(const QString &eventId,
     // newer ones carry display text with mention: anchors in the formatted
     // body. Recover the refs from either, or the edit would drop m.mentions.
     const mention::Recovery recovered = mention::recoverFromBody(currentBody);
-    m_text = recovered.text;
+    // A rich-mode send's body says nothing of its formatting: the edit starts
+    // from the formatted body, or saving it would strip the message plain.
+    const QString formatted = RichComposition::markdownFromSanitizedHtml(
+        sanitizedHtml, recovered.text);
+    m_editSeedIsMarkdown = !formatted.isEmpty();
+    m_text = m_editSeedIsMarkdown ? formatted : recovered.text;
     m_editSeedText = m_text;
     m_editSeedHtml = sanitizedHtml;
     m_mentionRefs = recovered.refs;
+    if (m_editSeedIsMarkdown)
+        m_mentionRefs.clear();
     if (m_mentionRefs.isEmpty() && !sanitizedHtml.isEmpty()) {
         m_mentionRefs =
             mention::refsFromSanitizedHtml(m_text, sanitizedHtml);
@@ -1810,6 +1823,7 @@ void MessageComposer::beginThreadReply(const QString &rootEventId,
     m_editingEventId.clear();
     m_editSeedText.clear();
     m_editSeedHtml.clear();
+    m_editSeedIsMarkdown = false;
     m_editingTimelineId.clear();
     Q_EMIT editStateChanged();
     m_replyingToEventId.clear();
@@ -1837,6 +1851,7 @@ void MessageComposer::cancelReplyOrEdit()
     m_editingEventId.clear();
     m_editSeedText.clear();
     m_editSeedHtml.clear();
+    m_editSeedIsMarkdown = false;
     m_editingTimelineId.clear();
     m_threadRootId.clear();
     m_threadPreview.clear();

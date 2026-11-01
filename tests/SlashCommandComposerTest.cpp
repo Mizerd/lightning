@@ -574,14 +574,23 @@ private Q_SLOTS:
         QCOMPARE(m_client->sends.first().kind, QStringLiteral("edit"));
     }
 
-    // C46 review item 1: a plain-lane save of a FORMATTED original with the
-    // text untouched is not "unchanged" (it would drop the formatting); the
-    // guard must not swallow it. Fails if the guard compares text alone.
+    // C46 review item 1, since QA T-7: a formatted original opens as markdown,
+    // so a save with the box untouched changes nothing and sends nothing, and
+    // taking the markers out is a real edit the guard must not swallow.
     void aPlainSaveOfAFormattedOriginalIsNotDiscarded()
     {
         m_composer->beginEdit(QStringLiteral("$fmt"),
                               QStringLiteral("bold"),
                               QStringLiteral("<b>bold</b>"));
+        QCOMPARE(m_composer->text(), QStringLiteral("**bold**"));
+        m_composer->send();
+        QVERIFY(m_client->sends.isEmpty());
+        QVERIFY(!m_composer->isEditing());
+
+        m_composer->beginEdit(QStringLiteral("$fmt"),
+                              QStringLiteral("bold"),
+                              QStringLiteral("<b>bold</b>"));
+        m_composer->setText(QStringLiteral("bold"));
         m_composer->send();
         QCOMPARE(m_client->sends.size(), 1);
         QCOMPARE(m_client->sends.first().kind, QStringLiteral("edit"));

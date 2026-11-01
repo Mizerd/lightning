@@ -3188,6 +3188,26 @@ live, and the server answers presence. Research and design: vault note
   Markdown once (`composer/markdownDefaultMigrated`); a rich-text choice made
   afterwards persists.
 
+### Composer and navigation decisions from the 0.10.3 QA round
+
+- Escape never closes the open room, from the message box or anywhere else in
+  it (reversing GitHub #27 at Rokas's decision, as Element and Discord behave).
+  It keeps its other jobs: completion popups, reply and edit, other popups, the
+  find bar and panels, selection. With no room open, a Space overview still
+  returns to Home.
+- Sending your own message always returns the timeline to the newest
+  (`MessageComposer::ownMessageSent`), however far up the reader was. An edit
+  does not.
+- The markdown mirror is line-faithful: `RichComposition::loadMarkdown` turns
+  a newline inside a paragraph into a line break in the block and `toMarkdown`
+  undoes Qt's 80-column folding, so a mode switch or a restored draft keeps its
+  lines.
+- Editing a message whose body does not carry its formatting (a rich-mode send)
+  seeds the box with markdown recovered from the formatted body. A body that is
+  the sender's own markdown source stays the seed.
+- The height button floats in the editor's top-right corner, multi-line or
+  expanded only. Both editors keep its width clear at all times.
+
 ### Message keyboard navigation (PR #50)
 
 - The timeline has a keyboard selection, separate from the per-row focus Tab

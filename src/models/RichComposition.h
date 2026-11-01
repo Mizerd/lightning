@@ -27,9 +27,25 @@ class QTextDocument;
 //
 // The document model is walked directly rather than via toHtml()/
 // toMarkdown(): their output varies across Qt versions and toHtml() is not
-// Matrix-safe. setMarkdown()/toMarkdown() are used only for draft mode
-// switching, which never reaches the protocol.
+// Matrix-safe. setMarkdown() is used only for draft mode switching and the edit
+// seed.
 namespace RichComposition {
+
+// The composer's markdown <-> document mirror. A line of the draft is a line:
+// Qt's setMarkdown() turns a lone newline into a space (CommonMark's soft
+// break), which flattened a four-line draft on a mode switch, and its
+// toMarkdown() folds at 80 columns, which that newline rule cannot tell from a
+// line.
+void loadMarkdown(QTextDocument *document, const QString &markdown);
+QString toMarkdown(const QTextDocument &document);
+
+// Markdown for the message box when editing a message whose body does not
+// carry its own formatting (a rich-mode send: body "hi", html "<b>hi</b>").
+// Empty when the plain body is already the right seed: nothing is formatted,
+// or the body is the sender's markdown source and differs from the html's text.
+// `sanitizedHtml` is MessageHtml::sanitize() output.
+QString markdownFromSanitizedHtml(const QString &sanitizedHtml,
+                                  const QString &plainBody);
 
 // Spell checking in rich mode: ranges of the document's plain text
 // (`QTextDocument::toRawText` positions == cursor positions) that must never

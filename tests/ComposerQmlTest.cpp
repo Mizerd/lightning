@@ -26,7 +26,9 @@
 #include <QQmlExpression>
 #include <QQmlProperty>
 #include <QQuickItem>
+#include <QQuickTextDocument>
 #include <QQuickWindow>
+#include <QTextDocument>
 
 #include "app/AppController.h"
 #include "app/RoomInfoController.h"
@@ -34,6 +36,7 @@
 #include "matrix/MockMatrixClient.h"
 #include "models/AttachmentQueueModel.h"
 #include "models/MessageComposer.h"
+#include "models/RichComposition.h"
 #include "models/RoomListModel.h"
 
 namespace {
@@ -2407,6 +2410,90 @@ private slots:
         QTest::keyClick(m_window, Qt::Key_Enter, Qt::KeypadModifier);
         QTest::qWait(80);
         QCOMPARE(m_controller->composer()->text().trimmed(), QString());
+    }
+
+    // QA T-4: Bold widened the text around a caret that had not moved, and it
+    // stayed drawn inside the last word.
+    void aFormatChangeRedrawsTheCaret()
+    {
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        auto *settings = m_controller->findChild<SettingsManager *>();
+        ModeScope scope{ settings, settings->composerMode(),
+                         m_controller->composer() };
+        auto *editor = editorFor(QStringLiteral("rich"));
+        auto *bar = item("composerBar");
+        QVERIFY(editor && bar);
+        QVERIFY(QMetaObject::invokeMethod(
+            editor, "insert", Q_ARG(int, 0),
+            Q_ARG(QString, QStringLiteral("wwwww mmmmm"))));
+        QVERIFY(QMetaObject::invokeMethod(editor, "selectAll"));
+        QVERIFY(QMetaObject::invokeMethod(bar, "applyFormat",
+                                          Q_ARG(QVariant, QVariant("bold"))));
+        QTest::qWait(30);
+        const int at = editor->property("cursorPosition").toInt();
+        QCOMPARE(editor->property("selectionEnd").toInt()
+                     - editor->property("selectionStart").toInt(), at);
+        QRectF expected;
+        QVERIFY(QMetaObject::invokeMethod(editor, "positionToRectangle",
+                                          Q_RETURN_ARG(QRectF, expected),
+                                          Q_ARG(int, at)));
+        // The drawn caret: the cursorRectangle property is computed on read
+        // and is right even while the delegate stands in the old place.
+        QQuickItem *caret = nullptr;
+        for (QQuickItem *child : editor->childItems())
+            if (child->objectName() == QLatin1String("idleCaretCursor"))
+                caret = child;
+        QVERIFY(caret);
+        QCOMPARE(caret->x(), expected.x());
+    }
+
+    // QA T-3, through the real mode switch: four lines stay four, both ways.
+    void aModeSwitchKeepsTheDraftsLines()
+    {
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        auto *settings = m_controller->findChild<SettingsManager *>();
+        ModeScope scope{ settings, settings->composerMode(),
+                         m_controller->composer() };
+        const QString draft = QStringLiteral("hello world\nsecond\nthird\nfourth");
+        auto *plain = editorFor(QStringLiteral("markdown"));
+        QVERIFY(plain);
+        m_controller->composer()->setText(draft);
+        settings->setComposerMode(QStringLiteral("rich"));
+        QTest::qWait(40);
+        auto *rich = item("composerRichInput");
+        QVERIFY(rich);
+        QVERIFY(rich->property("lineCount").toInt() >= 4);
+        settings->setComposerMode(QStringLiteral("markdown"));
+        QTest::qWait(40);
+        QCOMPARE(m_controller->composer()->text().trimmed(), draft);
+    }
+
+    // QA T-7: Up on a rich-mode message opened it plain and saving stripped it.
+    void editingAFormattedMessageKeepsItsFormatting_data() { modeColumn(); }
+    void editingAFormattedMessageKeepsItsFormatting()
+    {
+        QFETCH(QString, mode);
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        auto *settings = m_controller->findChild<SettingsManager *>();
+        ModeScope scope{ settings, settings->composerMode(),
+                         m_controller->composer() };
+        auto *editor = editorFor(mode);
+        QVERIFY(editor);
+        m_controller->composer()->beginEdit(
+            QStringLiteral("$formatted"), QStringLiteral("hello there"),
+            QStringLiteral("<strong>hello</strong> there"));
+        QTest::qWait(30);
+        QCOMPARE(m_controller->composer()->text(),
+                 QStringLiteral("**hello** there"));
+        if (mode == QStringLiteral("rich")) {
+            QTextDocument *document = editor->property("textDocument")
+                                          .value<QQuickTextDocument *>()
+                                          ->textDocument();
+            QCOMPARE(document->toPlainText(), QStringLiteral("hello there"));
+            QCOMPARE(RichComposition::compose(*document).html,
+                     QStringLiteral("<strong>hello</strong> there"));
+        }
+        m_controller->composer()->cancelReplyOrEdit();
     }
 
     // A chat message never wants a literal tab, and swallowing Tab trapped

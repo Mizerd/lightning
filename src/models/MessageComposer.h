@@ -496,6 +496,9 @@ private:
     /// unchanged sends nothing (C46 F06).
     QString m_editSeedText;
     QString m_editSeedHtml;
+    // The seed is markdown recovered from a formatted body, so an unchanged
+    // box still says everything the message said.
+    bool m_editSeedIsMarkdown = false;
     /// Where an edit must be sent: the recorded timeline, or this composer's
     /// room when none was recorded.
     QString editTargetTimelineId() const

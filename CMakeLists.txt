@@ -3528,6 +3528,8 @@ if(BUILD_TESTING)
         tests/AttachmentQueueTest.cpp
         src/models/MessageComposer.h
         src/models/MessageComposer.cpp
+        src/models/RichComposition.h
+        src/models/RichComposition.cpp
         src/media/ImageSendPrep.h
         src/media/ImageSendPrep.cpp
         src/media/ImageMetadata.h
@@ -3566,6 +3568,8 @@ if(BUILD_TESTING)
         tests/AttachmentOrderTest.cpp
         src/models/MessageComposer.h
         src/models/MessageComposer.cpp
+        src/models/RichComposition.h
+        src/models/RichComposition.cpp
         src/media/ImageSendPrep.h
         src/media/ImageSendPrep.cpp
         src/media/ImageMetadata.h
@@ -4177,6 +4181,8 @@ if(BUILD_TESTING)
         src/app/DraftStore.cpp
         src/models/MessageComposer.h
         src/models/MessageComposer.cpp
+        src/models/RichComposition.h
+        src/models/RichComposition.cpp
         src/media/ImageSendPrep.h
         src/media/ImageSendPrep.cpp
         src/media/ImageMetadata.h
