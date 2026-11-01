@@ -577,7 +577,8 @@ Item {
             canonicalAlias: model.canonicalAlias || "",
             isDirect: model.isDirect === true,
             isFavourite: model.isFavourite === true,
-            isLowPriority: model.isLowPriority === true
+            isLowPriority: model.isLowPriority === true,
+            isUnread: root.isUnread
         }
     }
     function openRowMenu() {

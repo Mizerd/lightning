@@ -450,6 +450,7 @@ Item {
             isDirect: sharedRowMenuHost.state.isDirect === true
             isFavourite: sharedRowMenuHost.state.isFavourite === true
             isLowPriority: sharedRowMenuHost.state.isLowPriority === true
+            isUnread: sharedRowMenuHost.state.isUnread === true
             onMarkRead: if (sharedRowMenuHost.row) sharedRowMenuHost.row.markRead()
             onMarkUnread: if (sharedRowMenuHost.row) sharedRowMenuHost.row.markUnread()
             onSetFavourite: on => {
