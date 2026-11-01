@@ -213,7 +213,7 @@ Item {
             width: 26; height: 26; radius: 13
             color: Qt.rgba(0, 0, 0, 0.45)
             Icon { anchors.centerIn: parent; name: "play_arrow"; size: 16
-                   color: "#FFFFFF" }
+                   color: AppTheme.scrimInk }
         }
 
         // Encrypted is worth showing: it explains slower thumbnails.
@@ -248,6 +248,9 @@ Item {
 
     Accessible.role: Accessible.Button
     Accessible.name: tile.displayName + " — " + tile.sender
+    // The grid is the one Tab stop and drives Return/Space for its current
+    // tile; a screen reader's press goes to the tile itself.
+    Accessible.onPressAction: tile.activated()
 
     AppMenu {
         id: tileMenu
