@@ -2529,9 +2529,12 @@ void MediaBridge::clear()
     // here: a clear runs in the middle of an add-account transition, where the
     // previous account's delegates are still alive, and a synchronous retry
     // would send that account's mxc:// through the new session.
-    m_refusedAcrossClear.clear();
+    // Accumulated, not replaced: one account transition clears more than once
+    // (when the old session detaches, then again at login), and the refusal
+    // is recorded by the first while the retry is asked after the last.
     for (auto it = m_failed.constBegin(); it != m_failed.constEnd(); ++it)
-        if (it->category == QLatin1String("unavailable"))
+        if (it->category == QLatin1String("unavailable")
+            && !m_refusedAcrossClear.contains(it.key()))
             m_refusedAcrossClear.append(it.key());
     ++m_clearGeneration;
     m_failed.clear();

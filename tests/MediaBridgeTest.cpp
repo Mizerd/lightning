@@ -833,6 +833,9 @@ private Q_SLOTS:
 
         bridge.avatarSource(kMxc, 64);
         client.rejectFetches = false;
+        // A transition clears twice (the old session detaching, then login);
+        // the refusal is recorded by the first and asked after the second.
+        bridge.clear();
         bridge.clear();
         const quint64 generation = bridge.clearGeneration();
         QCOMPARE(retryable.count(), 0);
