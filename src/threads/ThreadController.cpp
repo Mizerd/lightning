@@ -1150,6 +1150,26 @@ QVariantMap ThreadController::rootInfo() const
             return info;
         }
     }
+    // Opened from the Threads panel: the list already named the root, however
+    // many pages of replies stand between the newest reply and it.
+    for (const QVariant &entry : m_threadList) {
+        const QVariantMap thread = entry.toMap();
+        if (thread.value(QStringLiteral("rootEventId")).toString()
+            != m_rootEventId)
+            continue;
+        info.insert(QStringLiteral("loaded"), true);
+        info.insert(QStringLiteral("eventId"), m_rootEventId);
+        info.insert(QStringLiteral("sender"),
+                    thread.value(QStringLiteral("rootSender")));
+        info.insert(QStringLiteral("senderDisplayName"),
+                    thread.value(QStringLiteral("rootSenderName")));
+        info.insert(QStringLiteral("body"),
+                    thread.value(QStringLiteral("rootPreview")));
+        info.insert(QStringLiteral("timestamp"),
+                    thread.value(QStringLiteral("rootTimestamp")));
+        return info;
+    }
+    info.insert(QStringLiteral("pending"), m_state == Opening || m_fillActive);
     return info;
 }
 
@@ -1362,13 +1382,18 @@ void ThreadController::startHistoryFill()
 {
     m_fillActive = true;
     m_fillBatches = 0;
+    Q_EMIT rootInfoChanged();
     continueHistoryFill();
 }
 
 void ThreadController::stopHistoryFill()
 {
+    const bool wasActive = m_fillActive;
     m_fillActive = false;
     m_fillBatches = 0;
+    // The root card stops saying it is still looking.
+    if (wasActive)
+        Q_EMIT rootInfoChanged();
 }
 
 void ThreadController::continueHistoryFill()

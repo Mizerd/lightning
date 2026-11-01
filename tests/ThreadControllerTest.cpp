@@ -1979,6 +1979,72 @@ private Q_SLOTS:
         QVERIFY(client.canPaginate(threadId));
     }
 
+    // QA T-10: the root card said "unavailable" for as long as the fill took,
+    // for a root that was on its way.
+    void aMissingRootIsPendingWhileTheFillRunsThenUnavailable()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        client.setPaginationDelayForTest(5);
+        ThreadController controller;
+        controller.setClient(&client);
+        QString rootId;
+        QVERIFY(openFixtureThread(client, controller, kGeneral, &rootId));
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+        // A root in neither timeline, as in a room scrolled away from it.
+        client.resetTimelineForTest(kGeneral, {}, 0);
+        const QString threadId = MatrixClient::threadTimelineId(kGeneral,
+                                                               rootId);
+        QList<TimelineEvent> replies = client.timeline(threadId);
+        replies.removeFirst();
+
+        client.resetTimelineForTest(threadId, replies, 40);
+        QVERIFY(controller.rootInfo().value(QStringLiteral("pending")).toBool());
+        QVERIFY(!controller.rootInfo().value(QStringLiteral("loaded")).toBool());
+
+        // The bound runs out and nothing more is coming: the panel is told.
+        QSignalSpy rootSpy(&controller, &ThreadController::rootInfoChanged);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            !controller.rootInfo().value(QStringLiteral("pending")).toBool(),
+            kSignalTimeoutMs);
+        QVERIFY(rootSpy.count() >= 1);
+        QVERIFY(!controller.rootInfo().value(QStringLiteral("loaded")).toBool());
+    }
+
+    // ... and a thread opened from the Threads list already knows its root.
+    void theThreadListNamesARootTheTimelinesHaveNotReached()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        ThreadController controller;
+        controller.setClient(&client);
+        QString rootId;
+        QVERIFY(openFixtureThread(client, controller, kGeneral, &rootId));
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+        controller.openList(kGeneral);
+        QTRY_VERIFY_WITH_TIMEOUT(!controller.threadList().isEmpty(),
+                                 kSignalTimeoutMs);
+        const QVariantMap entry = controller.threadList().first().toMap();
+        const QString listed =
+            entry.value(QStringLiteral("rootEventId")).toString();
+        controller.openThread(kGeneral, listed);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+        client.setPaginationDelayForTest(5);
+        client.resetTimelineForTest(kGeneral, {}, 0);
+        const QString threadId = MatrixClient::threadTimelineId(kGeneral, listed);
+        QList<TimelineEvent> replies = client.timeline(threadId);
+        replies.removeFirst();
+        client.resetTimelineForTest(threadId, replies, 40);
+
+        const QVariantMap info = controller.rootInfo();
+        QVERIFY(info.value(QStringLiteral("loaded")).toBool());
+        QCOMPARE(info.value(QStringLiteral("body")).toString(),
+                 entry.value(QStringLiteral("rootPreview")).toString());
+    }
+
     // A thread that already has its root asks for nothing.
     void anOpenThreadWithItsRootIsNotFilled()
     {

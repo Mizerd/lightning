@@ -861,8 +861,13 @@ Rectangle {
                     elide: Text.ElideRight
                 }
                 Label {
+                    objectName: "threadRootMissing"
                     visible: panel.rootData.loaded !== true
-                    text: qsTr("The original message is unavailable.")
+                    // While the thread still pages back to its root, "no root
+                    // yet" is not "no root" (QA T-10).
+                    text: panel.rootData.pending === true
+                          ? qsTr("Loading the original message…")
+                          : qsTr("The original message is unavailable.")
                     color: AppTheme.textMuted
                     font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                     font.italic: true
