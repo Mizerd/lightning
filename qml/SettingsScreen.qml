@@ -1216,45 +1216,6 @@ Item {
         }
     }
 
-    // Indeterminate spinner in the accent. Basic's BusyIndicator inks
-    // palette.dark (textSecondary), which never reads as active.
-    component StormSpinner: Item {
-        id: spinner
-        property color ink: AppTheme.bolt
-        property bool running: true
-        property int diameter: 16
-        implicitWidth: diameter
-        implicitHeight: diameter
-        visible: running
-        Rectangle {
-            anchors.fill: parent
-            radius: width / 2
-            color: "transparent"
-            border.width: 2
-            border.color: Qt.alpha(spinner.ink, 0.22)
-        }
-        Item {
-            anchors.fill: parent
-            transformOrigin: Item.Center
-            Rectangle {
-                // Centred on the 2px ring stroke.
-                width: 6; height: 6; radius: 3
-                color: spinner.ink
-                anchors.horizontalCenter: parent.horizontalCenter
-                y: -2
-            }
-            RotationAnimator on rotation {
-                // Reduced motion keeps the ring and its head, static.
-                running: spinner.running && spinner.visible
-                         && !AppTheme.reducedMotion
-                from: 0
-                to: 360
-                duration: 900
-                loops: Animation.Infinite
-            }
-        }
-    }
-
     // Group label above a cluster of controls. Uses the menuSection* tokens (UI
     // face, 12px, 600, sentence case) and the muted ink; faint is the disabled
     // ink and falls below AA on several themes.
@@ -9299,8 +9260,10 @@ Item {
                                     visible: app.cryptoBootstrap.active
                                     Layout.fillWidth: true
                                     spacing: AppTheme.spacing8
-                                    StormSpinner {
-                                        diameter: 14
+                                    AppBusyIndicator {
+                                        size: 14
+                                        color: AppTheme.bolt
+                                        visible: running
                                         running: app.cryptoBootstrap.phase
                                                      === CryptoBootstrapModel.WaitingForKeys
                                                  || app.cryptoBootstrap.phase
