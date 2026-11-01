@@ -976,16 +976,63 @@ async fn send_create_room(
         .map(|r| r.room_id)
 }
 
-/// The power-level override every room that can host a call is created with:
+/// The power-level override every room that can host a call is created with.
+///
 /// `m.call.member` is lowered to 0 so an ordinary member can publish their
-/// call membership (see `build_create_room_request`). Only these event types
-/// move; `state_default` stays.
-pub(crate) fn call_membership_power_levels() -> serde_json::Value {
+/// call membership (see `build_create_room_request`). BUT the homeserver
+/// merges `power_level_content_override` SHALLOWLY (Synapse's
+/// `handlers/room.py`: `power_level_content.update(override)`), so an
+/// `events` object REPLACES the stock map instead of adding to it. Sending only
+/// the call entries dropped `m.room.power_levels`, history visibility, server
+/// ACL, encryption and tombstone to `state_default` (50): any moderator could
+/// then rewrite power levels or tombstone the room. So the stock map is sent in
+/// full with the call entries added. `state_default` is not sent, so it stays
+/// the server's. The tombstone level is 150 on room versions that explicitly
+/// privilege creators (MSC4289, v12), 100 before.
+pub(crate) fn call_membership_power_levels(creator_power: bool) -> serde_json::Value {
     let mut events = serde_json::Map::new();
+    for (ev, level) in [
+        ("m.room.name", 50),
+        ("m.room.power_levels", 100),
+        ("m.room.history_visibility", 100),
+        ("m.room.canonical_alias", 50),
+        ("m.room.avatar", 50),
+        ("m.room.tombstone", if creator_power { 150 } else { 100 }),
+        ("m.room.server_acl", 100),
+        ("m.room.encryption", 100),
+    ] {
+        events.insert(ev.to_owned(), json!(level));
+    }
     for ev in [crate::rtc::EV_MEMBER_LEGACY, crate::rtc::EV_MEMBER_STICKY] {
         events.insert(ev.to_owned(), json!(0));
     }
     json!({ "events": serde_json::Value::Object(events) })
+}
+
+/// Whether the room version this server defaults to gives creators infinite
+/// power (MSC4289). An unreadable answer counts as no: the pre-v12 stock level.
+async fn default_room_version_privileges_creators(client: &matrix_sdk::Client) -> bool {
+    match client.homeserver_capabilities().room_versions().await {
+        Ok(versions) => versions
+            .default
+            .rules()
+            .map(|r| r.authorization.explicitly_privilege_room_creators)
+            .unwrap_or(false),
+        Err(_) => false,
+    }
+}
+
+/// `request` with the call-membership override for the given room version rule.
+fn with_call_override(
+    mut request: create_room::v3::Request,
+    creator_power: bool,
+) -> create_room::v3::Request {
+    // cast_unchecked: the value is built here from literals.
+    request.power_level_content_override =
+        Raw::new(&call_membership_power_levels(creator_power))
+            .ok()
+            .map(|raw| raw.cast_unchecked());
+    request
 }
 
 /// The request `Client::create_dm` builds (TrustedPrivateChat preset,
@@ -993,21 +1040,23 @@ pub(crate) fn call_membership_power_levels() -> serde_json::Value {
 /// retry policy is ours. A DM hosts calls too, so it carries the same
 /// call-membership override (the invitee joins at level 0 and would otherwise
 /// be refused when publishing their membership).
-pub(crate) fn dm_create_request(uid: &UserId) -> create_room::v3::Request {
+pub(crate) fn dm_create_request(
+    uid: &UserId,
+    creator_power: bool,
+) -> create_room::v3::Request {
     let initial_state = vec![InitialStateEvent::with_empty_state_key(
         RoomEncryptionEventContent::with_recommended_defaults(),
     )
     .to_raw_any()];
-    assign!(create_room::v3::Request::new(), {
-        invite: vec![uid.to_owned()],
-        is_direct: true,
-        preset: Some(RoomPreset::TrustedPrivateChat),
-        initial_state,
-        // cast_unchecked: the value is built here from literals.
-        power_level_content_override: Raw::new(&call_membership_power_levels())
-            .ok()
-            .map(|raw| raw.cast_unchecked()),
-    })
+    with_call_override(
+        assign!(create_room::v3::Request::new(), {
+            invite: vec![uid.to_owned()],
+            is_direct: true,
+            preset: Some(RoomPreset::TrustedPrivateChat),
+            initial_state,
+        }),
+        creator_power,
+    )
 }
 
 /// Per-bridge record of DM creates: how many are in flight and which room ids
@@ -1105,7 +1154,9 @@ pub(crate) fn create_dm(bridge: &RustClient, user_id: String, op_id: u64) -> Res
             client.rooms().iter().map(|r| r.room_id().to_owned()).collect();
         let started_ms = now_ms();
         let guard = registry.begin();
-        let result = send_create_room(&client, dm_create_request(&uid)).await;
+        let creator_power = default_room_version_privileges_creators(&client).await;
+        let result =
+            send_create_room(&client, dm_create_request(&uid, creator_power)).await;
         let ended_ms = now_ms();
         let answered = match &result {
             Ok(room_id) => {
@@ -1423,9 +1474,11 @@ pub(crate) fn build_create_room_request(
     let power_level_content_override = if opts.is_space {
         None
     } else {
-        // cast_unchecked: the value is built here from literals.
+        // cast_unchecked: the value is built here from literals. The room
+        // version is not known here; `create_room` re-applies the override
+        // once the server's default version has been read.
         Some(
-            Raw::new(&call_membership_power_levels())
+            Raw::new(&call_membership_power_levels(false))
                 .map_err(|e| format!("power level override: {e}"))?
                 .cast_unchecked(),
         )
@@ -1465,7 +1518,8 @@ pub(crate) fn create_room(
     let client = require_client(bridge)?;
     let opts: CreateRoomOptions = serde_json::from_str(&options_json)
         .map_err(|_| "invalid room options".to_owned())?;
-    let request = build_create_room_request(&opts)?;
+    let mut request = build_create_room_request(&opts)?;
+    let is_space = opts.is_space;
     let events = Arc::clone(&bridge.events);
     let timelines = Arc::clone(&bridge.timelines);
     let lifecycle = timelines.lifecycle();
@@ -1473,6 +1527,10 @@ pub(crate) fn create_room(
         // Sent once, without retry, with a timeout longer than the UI's 60 s
         // guard (see `create_request_config`): a retried 5xx would make a
         // second named room.
+        if !is_space {
+            let creator_power = default_room_version_privileges_creators(&client).await;
+            request = with_call_override(request, creator_power);
+        }
         let result = send_create_room(&client, request)
             .await
             .map_err(|e| classify_room_error(&e.to_string()));
@@ -7427,11 +7485,48 @@ mod tests {
     #[test]
     fn the_dm_request_is_what_create_dm_builds() {
         let uid = UserId::parse("@peer:example.org").unwrap();
-        let req = dm_create_request(&uid);
+        let req = dm_create_request(&uid, false);
         assert!(req.is_direct);
         assert_eq!(req.invite, vec![uid]);
         assert!(matches!(req.preset, Some(RoomPreset::TrustedPrivateChat)));
         assert_eq!(req.initial_state.len(), 1);
+    }
+
+    /// The homeserver merges the override SHALLOWLY, so `events` must carry the
+    /// whole stock map as well as the call entries, or the stock entries fall to
+    /// `state_default` (50).
+    fn assert_stock_events_kept(events: &serde_json::Map<String, serde_json::Value>) {
+        for ev in [crate::rtc::EV_MEMBER_LEGACY, crate::rtc::EV_MEMBER_STICKY] {
+            assert_eq!(events.get(ev).and_then(|x| x.as_u64()), Some(0), "{ev}");
+        }
+        for (ev, level) in [
+            ("m.room.power_levels", 100),
+            ("m.room.history_visibility", 100),
+            ("m.room.server_acl", 100),
+            ("m.room.encryption", 100),
+            ("m.room.tombstone", 100),
+            ("m.room.name", 50),
+            ("m.room.canonical_alias", 50),
+            ("m.room.avatar", 50),
+        ] {
+            assert_eq!(events.get(ev).and_then(|x| x.as_u64()), Some(level), "{ev}");
+        }
+    }
+
+    /// Room versions that explicitly privilege creators (v12) put the
+    /// tombstone at 150, everything else at 100.
+    #[test]
+    fn the_tombstone_level_follows_the_room_version_rules() {
+        let tombstone = |creator_power: bool| {
+            call_membership_power_levels(creator_power)["events"]["m.room.tombstone"]
+                .as_u64()
+        };
+        assert_eq!(tombstone(false), Some(100));
+        assert_eq!(tombstone(true), Some(150));
+        let v11 = matrix_sdk::ruma::RoomVersionId::V11.rules().unwrap();
+        let v12 = matrix_sdk::ruma::RoomVersionId::V12.rules().unwrap();
+        assert!(!v11.authorization.explicitly_privilege_room_creators);
+        assert!(v12.authorization.explicitly_privilege_room_creators);
     }
 
     /// A DM hosts calls: the invitee joins at level 0 and must be able to
@@ -7440,14 +7535,12 @@ mod tests {
     #[test]
     fn a_created_dm_lets_the_invitee_publish_call_membership() {
         let uid = UserId::parse("@peer:example.org").unwrap();
-        let raw = dm_create_request(&uid)
+        let raw = dm_create_request(&uid, false)
             .power_level_content_override
             .expect("a DM that can host a call needs the override");
         let v: serde_json::Value = raw.deserialize_as_unchecked().unwrap();
         let events = v.get("events").and_then(|e| e.as_object()).unwrap();
-        for ev in [crate::rtc::EV_MEMBER_LEGACY, crate::rtc::EV_MEMBER_STICKY] {
-            assert_eq!(events.get(ev).and_then(|x| x.as_u64()), Some(0), "{ev}");
-        }
+        assert_stock_events_kept(events);
         assert!(v.get("state_default").is_none());
     }
 
@@ -7530,9 +7623,7 @@ mod tests {
             .expect("a room that can host a call needs the override");
         let v: serde_json::Value = raw.deserialize_as_unchecked().unwrap();
         let events = v.get("events").and_then(|e| e.as_object()).unwrap();
-        for ev in [crate::rtc::EV_MEMBER_LEGACY, crate::rtc::EV_MEMBER_STICKY] {
-            assert_eq!(events.get(ev).and_then(|x| x.as_u64()), Some(0), "{ev}");
-        }
+        assert_stock_events_kept(events);
         // Nothing else moves: `state_default` stays, only these two types are
         // lowered.
         assert!(v.get("state_default").is_none(),
