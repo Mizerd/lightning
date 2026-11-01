@@ -258,7 +258,7 @@ ColumnLayout {
             Label {
                 objectName: "spaceLobbyEmptyTitle"
                 text: root.homeLoading
-                      ? qsTranslate("RoomListPane", "Loading rooms…")
+                      ? qsTr("Loading rooms…")
                       : qsTranslate("TimelinePane", "No rooms yet")
                 color: AppTheme.text
                 font.family: AppTheme.uiFont
@@ -540,7 +540,7 @@ ColumnLayout {
                         Layout.margins: AppTheme.spacing8
                         text: root.loadingIds[sectionItem.modelData.sectionId]
                               === true
-                              ? qsTranslate("RoomListPane", "Loading rooms…")
+                              ? qsTr("Loading rooms…")
                               : qsTranslate("TimelinePane", "No rooms yet")
                         color: AppTheme.textMuted
                         font.family: AppTheme.uiFont
