@@ -172,7 +172,8 @@ Rectangle {
     readonly property int _motionMode: MotionPolicy.mode
     // The shape mask is a shader effect, which the software scene graph
     // cannot draw: there the animation would cover the still picture with
-    // nothing. Writable only so tests can drive playback on that backend.
+    // nothing, and the masked fallback picture would not appear at all.
+    // Writable only so tests can drive playback on that backend.
     property bool motionMaskable:
         root.GraphicsInfo.api !== GraphicsInfo.Software
     readonly property bool _motionAllowed:
@@ -446,7 +447,8 @@ Rectangle {
         id: fallbackMask
         anchors.fill: parent
         visible: false
-        layer.enabled: root.showingFallback || root._playing
+        layer.enabled: (root.showingFallback || root._playing)
+                       && root.motionMaskable
         Rectangle {
             anchors.fill: parent
             radius: root.circle ? width / 2 : root.radius
@@ -471,7 +473,10 @@ Rectangle {
         cache: true
         // Only while a fallback is drawn; `layer.effect` is created lazily,
         // so provider bitmaps pay nothing.
-        layer.enabled: root.showingFallback
+        // Not on the software scene graph, where the effect draws nothing and
+        // the layer would take the picture with it: the fallback is drawn
+        // plain (square) there.
+        layer.enabled: root.showingFallback && root.motionMaskable
         layer.effect: MultiEffect {
             maskEnabled: true
             maskSource: fallbackMask

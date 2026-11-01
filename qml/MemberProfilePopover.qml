@@ -573,6 +573,12 @@ Popup {
                 property color c1: AppTheme.stormSelection
                 property color c2: AppTheme.stormPanel
                 property int cornerRadius: Math.max(0, AppTheme.radiusLg - frame)
+                // The corner mask is a MultiEffect over a layer, and the
+                // software scene graph draws neither: there the layered Item
+                // below renders as nothing at all, banner included. Without a
+                // mask the picture is clipped square instead.
+                property bool maskable:
+                    banner.GraphicsInfo.api !== GraphicsInfo.Software
                 onC1Changed: requestPaint()
                 onC2Changed: requestPaint()
                 onCornerRadiusChanged: requestPaint()
@@ -618,7 +624,7 @@ Popup {
                 id: bannerCornerMask
                 anchors.fill: banner
                 visible: false
-                layer.enabled: true
+                layer.enabled: banner.maskable
                 Rectangle {
                     anchors.fill: parent
                     radius: banner.cornerRadius
@@ -634,9 +640,10 @@ Popup {
             }
 
             Item {
+                objectName: "profileBannerClip"
                 anchors.fill: banner
                 clip: true
-                layer.enabled: true
+                layer.enabled: banner.maskable
                 layer.effect: MultiEffect {
                     maskEnabled: true
                     maskSource: bannerCornerMask

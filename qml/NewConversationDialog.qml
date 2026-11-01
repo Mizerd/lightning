@@ -1163,9 +1163,15 @@ Dialog {
                         sourceSize.height: 80
                         fillMode: Image.PreserveAspectCrop
                         asynchronous: true
-                        visible: false
+                        // Drawn through the mask below; on the software
+                        // scene graph, which draws no effect, it is drawn
+                        // directly (square).
+                        visible: avatarPreviewImage.GraphicsInfo.api
+                                 === GraphicsInfo.Software
                     }
                     MultiEffect {
+                        visible: avatarPreviewImage.GraphicsInfo.api
+                                 !== GraphicsInfo.Software
                         anchors.fill: parent
                         source: avatarPreviewImage
                         maskEnabled: true

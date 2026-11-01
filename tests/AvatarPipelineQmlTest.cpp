@@ -1185,6 +1185,58 @@ private Q_SLOTS:
         }
     }
 
+    // The masked fallback picture (a stored avatar shown while the real one
+    // loads, or a room-picture preview) is a layer with a MultiEffect mask.
+    // The software scene graph draws no effect, so the layer used to take the
+    // picture with it and leave the surface; it must be there on every backend.
+    void aFallbackPictureIsDrawnOnTheSoftwareBackend()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        QImage red(64, 64, QImage::Format_ARGB32);
+        red.fill(QColor(220, 30, 30));
+        const QString path = dir.filePath(QStringLiteral("fallback.png"));
+        QVERIFY(red.save(path));
+
+        Harness h;
+        QVERIFY(prepareCore(h));
+        h.engine->setInitialProperties({
+            { QStringLiteral("size"), 48 },
+            { QStringLiteral("name"), QStringLiteral("Matas") },
+            { QStringLiteral("colorKey"), QStringLiteral("@matas:x") },
+            { QStringLiteral("mxc"), QString() },
+            { QStringLiteral("fallbackSource"),
+              QUrl::fromLocalFile(path).toString() },
+        });
+        QSignalSpy created(h.engine.get(),
+                           &QQmlApplicationEngine::objectCreated);
+        h.engine->loadFromModule(QStringLiteral("MatrixClient"),
+                                 QStringLiteral("Avatar"));
+        QVERIFY(!created.isEmpty() || created.wait(3000));
+        h.avatar = qobject_cast<QQuickItem *>(
+            created.at(0).at(0).value<QObject *>());
+        QVERIFY(h.avatar);
+        h.window->resize(88, 88);
+        h.avatar->setParentItem(h.window->contentItem());
+        h.avatar->setPosition(QPointF(20, 20));
+        h.window->show();
+        auto *image = h.avatar->findChild<QQuickItem *>(
+            QStringLiteral("avatarImage"));
+        QVERIFY(image);
+        QTRY_VERIFY_WITH_TIMEOUT(image->isVisible(), 5000);
+        QVERIFY(h.avatar->property("showingFallback").toBool());
+
+        const bool software = h.window->rendererInterface()->graphicsApi()
+                              == QSGRendererInterface::Software;
+        if (software) {
+            QVERIFY2(!QQmlProperty(image, QStringLiteral("layer.enabled"))
+                          .read().toBool(),
+                     "the masked layer is enabled on the software backend");
+        }
+        QTRY_VERIFY_WITH_TIMEOUT(
+            colorsClose(centre(h, 48), QColor(220, 30, 30), 40), 5000);
+    }
+
     // The last known avatar per account is persisted. MediaBridge fetches
     // through the active client, so an inactive account's avatar cannot be
     // fetched at all, and the in-memory media cache is empty at launch.

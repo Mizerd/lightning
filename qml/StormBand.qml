@@ -161,12 +161,19 @@ Item {
         }
     }
 
+    // The mask is a MultiEffect, which the software scene graph cannot draw:
+    // the whole scene would render as nothing. There the same ramp is laid
+    // over the scene in the page's colour instead (`softwareFade` below).
+    readonly property bool maskable:
+        root.GraphicsInfo.api !== GraphicsInfo.Software
+
     // The scene renders through the reference's alpha mask.
     Item {
         id: scene
+        objectName: "stormBandScene"
         anchors.fill: parent
         clip: true
-        layer.enabled: true
+        layer.enabled: root.maskable
         layer.effect: MultiEffect {
             maskEnabled: true
             maskSource: maskGradient
@@ -337,7 +344,7 @@ Item {
         id: maskGradient
         anchors.fill: parent
         visible: false
-        layer.enabled: true
+        layer.enabled: root.maskable
         gradient: Gradient {
             GradientStop { position: 0.0;  color: Qt.rgba(0, 0, 0, 0) }
             GradientStop { position: 0.14; color: Qt.rgba(0, 0, 0, 0.18) }
@@ -345,6 +352,23 @@ Item {
             GradientStop { position: 0.44; color: Qt.rgba(0, 0, 0, 0.85) }
             GradientStop { position: 0.58; color: Qt.rgba(0, 0, 0, 1) }
             GradientStop { position: 1.0;  color: Qt.rgba(0, 0, 0, 1) }
+        }
+    }
+
+    // Software renderer only: the mask's complement (1 - alpha) in the colour
+    // of the page behind the band, which dissolves the scene the same way when
+    // that page is flat (it is: backdropColor is the reference's input).
+    Rectangle {
+        objectName: "stormBandSoftwareFade"
+        anchors.fill: parent
+        visible: !root.maskable
+        gradient: Gradient {
+            GradientStop { position: 0.0;  color: Qt.rgba(root.backdropColor.r, root.backdropColor.g, root.backdropColor.b, 1) }
+            GradientStop { position: 0.14; color: Qt.rgba(root.backdropColor.r, root.backdropColor.g, root.backdropColor.b, 0.82) }
+            GradientStop { position: 0.30; color: Qt.rgba(root.backdropColor.r, root.backdropColor.g, root.backdropColor.b, 0.45) }
+            GradientStop { position: 0.44; color: Qt.rgba(root.backdropColor.r, root.backdropColor.g, root.backdropColor.b, 0.15) }
+            GradientStop { position: 0.58; color: Qt.rgba(root.backdropColor.r, root.backdropColor.g, root.backdropColor.b, 0) }
+            GradientStop { position: 1.0;  color: Qt.rgba(root.backdropColor.r, root.backdropColor.g, root.backdropColor.b, 0) }
         }
     }
 }

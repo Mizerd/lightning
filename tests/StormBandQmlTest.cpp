@@ -13,8 +13,10 @@
 #include <QFile>
 #include <QQmlApplicationEngine>
 #include <QQmlEngine>
+#include <QQmlProperty>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QSGRendererInterface>
 #include <QSignalSpy>
 
 #include "app/StormBandPainter.h"
@@ -82,6 +84,26 @@ private Q_SLOTS:
         QCOMPARE(band.root->implicitHeight(), 190.0);
         QVERIFY(!band.root->property("enabled").toBool());
         QCOMPARE(band.warnings, QStringList{});
+    }
+
+    // The alpha mask is a MultiEffect over a layer, which the software scene
+    // graph cannot draw (the whole scene would be blank). There the layer is
+    // off and the same ramp is laid over the scene instead.
+    void theMaskIsReplacedWhereNoEffectCanBeDrawn()
+    {
+        Loaded band;
+        QVERIFY(createBand(band));
+        const bool software = band.window->rendererInterface()->graphicsApi()
+                              == QSGRendererInterface::Software;
+        auto *scene = band.root->findChild<QQuickItem *>(
+            QStringLiteral("stormBandScene"));
+        auto *fade = band.root->findChild<QQuickItem *>(
+            QStringLiteral("stormBandSoftwareFade"));
+        QVERIFY(scene && fade);
+        QCOMPARE(band.root->property("maskable").toBool(), !software);
+        QCOMPARE(QQmlProperty(scene, QStringLiteral("layer.enabled"))
+                     .read().toBool(), !software);
+        QCOMPARE(fade->isVisible(), software);
     }
 
     void reducedMotionStopsAnimation()

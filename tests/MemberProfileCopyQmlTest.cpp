@@ -11,9 +11,11 @@
 #include <QGuiApplication>
 #include <QQmlComponent>
 #include <QQmlContext>
+#include <QQmlProperty>
 #include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QSGRendererInterface>
 #include <QSettings>
 #include <QTemporaryDir>
 
@@ -151,6 +153,28 @@ private slots:
         QVERIFY(QMetaObject::invokeMethod(m_dialog, "copyUserId"));
         QCOMPARE(QGuiApplication::clipboard()->text(),
                  QStringLiteral("@bob:mock.local"));
+    }
+
+    // The banner's rounded corners are a MultiEffect mask over a layer. The
+    // software scene graph draws no effect, and a layered Item whose effect
+    // is not drawn is not drawn at all: the banner vanished. On that backend
+    // the layer must be off (the picture is clipped square instead).
+    void theBannerIsNotLayeredWhereNoEffectCanBeDrawn()
+    {
+        QVariantMap member;
+        member.insert(QStringLiteral("userId"), QStringLiteral("@bob:mock.local"));
+        QVERIFY(QMetaObject::invokeMethod(m_dialog, "openFor",
+                                          Q_ARG(QVariant, QVariant(member)),
+                                          Q_ARG(QVariant, QVariant())));
+        QTRY_VERIFY(m_dialog->property("visible").toBool());
+        auto *banner = item("profileBanner");
+        auto *clip = item("profileBannerClip");
+        QVERIFY(banner && clip);
+        const bool software = m_window->rendererInterface()->graphicsApi()
+                              == QSGRendererInterface::Software;
+        QCOMPARE(banner->property("maskable").toBool(), !software);
+        QCOMPARE(QQmlProperty(clip, QStringLiteral("layer.enabled"))
+                     .read().toBool(), !software);
     }
 
     void doubleClickOnTheMatrixIdCopiesIt()
