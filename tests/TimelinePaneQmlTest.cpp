@@ -11575,6 +11575,14 @@ private Q_SLOTS:
         QCOMPARE(managed.joinedTarget, QStringLiteral("!parent:example.org"));
         QCOMPARE(managed.joinedVia, QStringList{QStringLiteral("example.org")});
         QVERIFY(!join->isEnabled());
+        QCOMPARE(join->property("text").toString(), QStringLiteral("Joining…"));
+        // Live 2026-11-01: a click on Join space showed nothing either way.
+        // A failure reads on the banner; the dialog with the error line is
+        // shut. Success opens the Space (AppController).
+        Q_EMIT controller.discovery()->joinFailed(QStringLiteral("!parent:example.org"),
+                                                  QStringLiteral("nope"));
+        QTRY_VERIFY(label->property("text").toString().contains(QStringLiteral("nope")));
+        QCOMPARE(join->property("text").toString(), QStringLiteral("Join space"));
         managed.parentSpace.clear();
         controller.roomInfo()->refreshMembers();
         QTRY_VERIFY(!banner->isVisible());

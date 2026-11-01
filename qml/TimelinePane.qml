@@ -2236,6 +2236,27 @@ Rectangle {
             id: spaceParentBanner
             objectName: "spaceParentBanner"
             property var dismissedRooms: ({})
+            // This banner's own join: the discovery signals are global, and
+            // their error line lives in a dialog that is not open here. On
+            // success AppController opens the Space.
+            property string joiningSpaceId: ""
+            property string joinError: ""
+            readonly property bool joining: joiningSpaceId.length > 0
+                                            && joiningSpaceId === spaceId
+            Connections {
+                target: app.discovery
+                function onSpaceJoined(joinedId) {
+                    if (joinedId === spaceParentBanner.joiningSpaceId)
+                        spaceParentBanner.joiningSpaceId = ""
+                }
+                function onJoinFailed(target, message) {
+                    if (target !== spaceParentBanner.joiningSpaceId)
+                        return
+                    spaceParentBanner.joiningSpaceId = ""
+                    spaceParentBanner.joinError = message
+                }
+            }
+            onSpaceIdChanged: joinError = ""
             // Metadata is needed even when the info panel has never opened.
             function followRoom() {
                 if (app.currentRoomId !== "" && app.roomInfo.supported)
@@ -2291,7 +2312,9 @@ Rectangle {
                     Layout.fillWidth: true
                     // A Space's name is remote text: plain, never markup.
                     textFormat: Text.PlainText
-                    text: spaceParentBanner.spaceName.length > 0
+                    text: spaceParentBanner.joinError.length > 0
+                          ? qsTr("Could not join: %1").arg(spaceParentBanner.joinError)
+                          : spaceParentBanner.spaceName.length > 0
                           ? qsTr("Part of %1").arg(spaceParentBanner.spaceName)
                           : qsTr("Part of a space you have not joined")
                     color: AppTheme.textPrimary
@@ -2304,13 +2327,18 @@ Rectangle {
                 }
                 AppButton {
                     objectName: "spaceParentJoinButton"
-                    text: qsTr("Join space")
+                    text: spaceParentBanner.joining ? qsTr("Joining…")
+                          : qsTr("Join space")
                     kind: "primary"
                     enabled: !app.discovery.busy
-                    onClicked: app.discovery.join(
-                                   spaceParentBanner.spaceId,
-                                   spaceParentBanner.parentSpace.via || [],
-                                   true)
+                    onClicked: {
+                        spaceParentBanner.joinError = ""
+                        spaceParentBanner.joiningSpaceId = spaceParentBanner.spaceId
+                        app.discovery.join(
+                            spaceParentBanner.spaceId,
+                            spaceParentBanner.parentSpace.via || [],
+                            true)
+                    }
                     Accessible.role: Accessible.Button
                     Accessible.name: qsTr("Join the space this room belongs to")
                 }
