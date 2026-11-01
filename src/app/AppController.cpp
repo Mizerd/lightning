@@ -6413,10 +6413,10 @@ bool AppController::navigateBack()
 {
     if (m_currentScreen != MainScreen)
         return false;
-    if (!m_currentRoomId.isEmpty()) {
-        openLobby();
-        return true;
-    }
+    // An open room stays open: nothing is left to dismiss, and a stray Escape
+    // in the message box must not take the conversation away.
+    if (!m_currentRoomId.isEmpty())
+        return false;
     if (m_spaces && !m_spaces->activeSpaceId().isEmpty()) {
         openSpaceHome(QString());
         return true;

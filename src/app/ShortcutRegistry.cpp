@@ -504,8 +504,7 @@ void ShortcutRegistry::buildTables()
     // declared them.
     m_reserved = {
         { QStringLiteral("Esc"),
-          tr("closing the find bar, room information, a thread, Settings "
-             "or the open conversation") },
+          tr("closing the find bar, room information, a thread or Settings") },
         { QStringLiteral("Alt+V"),
           tr("the emoji picker's skin-tone selector") },
         { QStringLiteral("Ctrl+C"), tr("the message menu's Copy accelerator") },

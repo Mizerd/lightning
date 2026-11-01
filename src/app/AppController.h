@@ -968,11 +968,10 @@ public Q_SLOTS:
     // The Channels layout's "Lobby": no room open and no Space selected.
     // Navigation only, not a fake room.
     Q_INVOKABLE void openLobby();
-    // One step back, for Escape when nothing under the focus claimed it
-    // (GitHub #27): an open room closes to its Space's overview (or Home);
-    // with no room open, a Space or pseudo selection returns to Home.
-    // Returns whether it moved, so the key is consumed only then. Closing
-    // clears the timeline's room, so nothing more is marked read.
+    // One step back, for Escape when nothing under the focus claimed it:
+    // with no room open, a Space or pseudo selection returns to Home. An open
+    // room stays open. Returns whether it moved, so the key is consumed only
+    // then.
     Q_INVOKABLE bool navigateBack();
     // Room history, like a browser's: Back/Forward revisit the rooms opened in
     // this session (at most RoomHistory::kMaxBackEntries behind the open one),

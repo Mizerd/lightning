@@ -1,8 +1,9 @@
-// Escape steps back out of a conversation (GitHub #27), in the real shell:
-//   * Escape from the message box closes the room to its Space's overview,
-//     a second Escape returns to Home, and a third does nothing;
-//   * the room stops being the timeline's room, so nothing more is marked
-//     read (ReadReceiptCoordinator only ever sends for the model's room);
+// Escape in the real shell:
+//   * Escape never closes the open room, from the message box or the timeline,
+//     with a draft or without (the 0.10.3 QA round reported it as a lost room,
+//     Element and Discord keep it);
+//   * with no room open, Escape from a Space's overview returns to Home and a
+//     further one does nothing;
 //   * every earlier owner of Escape keeps it: a reply or an edit in the
 //     composer, another text field, and an open dialog;
 //   * an open popup (the read-receipt list, a profile card, the reaction
@@ -154,17 +155,34 @@ private Q_SLOTS:
         m_controller->composer()->cancelReplyOrEdit();
     }
 
-    void escapeClosesTheRoomThenLeavesTheSpace()
+    void escapeKeepsTheOpenRoom()
     {
         openRoomWithComposerFocused();
         QCOMPARE(m_controller->timeline()->roomId(), kRoom);
+        m_controller->composer()->setText(QStringLiteral("a draft"));
 
         escape();
+        QCOMPARE(m_controller->currentRoomId(), kRoom);
+        QCOMPARE(m_controller->timeline()->roomId(), kRoom);
+        QCOMPARE(m_controller->composer()->text(), QStringLiteral("a draft"));
+        m_controller->composer()->setText(QString());
+
+        // Nothing but a room around the focus: the timeline itself.
+        QQuickItem *timeline = item("timelineListView");
+        QVERIFY(timeline);
+        timeline->forceActiveFocus();
+        QTest::qWait(20);
+        escape();
+        QCOMPARE(m_controller->currentRoomId(), kRoom);
+    }
+
+    void escapeLeavesASpaceOverviewForHome()
+    {
+        m_controller->openSpaceHome(kSpace);
+        QTest::qWait(80);
         QCOMPARE(m_controller->currentRoomId(), QString());
-        QCOMPARE(m_controller->spaces()->activeSpaceId(), kSpace);
-        // The timeline holds no room, so the read-receipt policy has nothing
-        // to mark read.
-        QCOMPARE(m_controller->timeline()->roomId(), QString());
+        item("mainScreen")->forceActiveFocus();
+        QTest::qWait(20);
 
         escape();
         QCOMPARE(m_controller->spaces()->activeSpaceId(), QString());
@@ -190,7 +208,7 @@ private Q_SLOTS:
         QCOMPARE(m_controller->currentRoomId(), kRoom);
 
         escape();
-        QCOMPARE(m_controller->currentRoomId(), QString());
+        QCOMPARE(m_controller->currentRoomId(), kRoom);
     }
 
     void anEditKeepsTheFirstEscape()
@@ -277,7 +295,7 @@ private Q_SLOTS:
     // The read-receipt list, opened by a real click on a row's facepile. The
     // same tap reaches the timeline's own TapHandler, which used to take the
     // focus back from the popover, so one Escape went to the shell and closed
-    // the popover (with its room) AND the room.
+    // the popover (with its room) and stepped back as well.
     void theReceiptListTakesTheFirstEscape()
     {
         openRoomWithComposerFocused();
@@ -325,14 +343,11 @@ private Q_SLOTS:
         escape();
         QTRY_VERIFY(!popover->property("visible").toBool());
         QCOMPARE(m_controller->currentRoomId(), kRoom);
-
-        escape();
-        QCOMPARE(m_controller->currentRoomId(), QString());
     }
 
     // Every popup a timeline row opens owns Escape even when the keyboard
     // focus is somewhere else under the shell (here the message box): the
-    // first Escape closes the popup and only the next one leaves the room.
+    // first Escape closes the popup.
     void anOpenTimelinePopupKeepsEscapeWithoutTheFocus_data()
     {
         QTest::addColumn<QString>("name");
@@ -364,18 +379,21 @@ private Q_SLOTS:
     // keypress.
     void aToolTipDoesNotKeepEscape()
     {
-        openRoomWithComposerFocused();
+        m_controller->openSpaceHome(kSpace);
+        QTest::qWait(80);
+        item("mainScreen")->forceActiveFocus();
+        QTest::qWait(20);
         QQmlComponent component(m_engine);
         component.setData("import QtQuick.Controls\nToolTip { text: \"tip\" }\n",
                           QUrl(QStringLiteral("escapetooltip.qml")));
         std::unique_ptr<QObject> tip(component.create());
         QVERIFY2(tip, qPrintable(component.errorString()));
-        tip->setProperty("parent", QVariant::fromValue(item("messageComposer")));
+        tip->setProperty("parent", QVariant::fromValue(item("mainScreen")));
         QVERIFY(QMetaObject::invokeMethod(tip.get(), "open"));
         QTRY_VERIFY(tip->property("visible").toBool());
 
         escape();
-        QCOMPARE(m_controller->currentRoomId(), QString());
+        QCOMPARE(m_controller->spaces()->activeSpaceId(), QString());
     }
 
 private:

@@ -60,8 +60,8 @@ changes the reply target. Room changes clear remembered selection.
 
 Existing Page Up/Page Down, jump-to-start/end, Space/Shift+Space and
 composer caret behavior remain available. Escape keeps its contextual
-dismissal and back-navigation behavior; use Ctrl+Shift+W to resume selection
-without cancelling a reply or leaving the room.
+dismissal behavior and never closes the open room; use Ctrl+Shift+W to resume
+selection without cancelling a reply.
 
 ## Activity, the quick switcher and Settings
 

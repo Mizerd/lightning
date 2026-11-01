@@ -7,8 +7,9 @@ import MatrixClient
 Item {
     id: shellRoot
 
-    // Escape steps back (GitHub #27): the open room closes to its Space's
-    // overview (or Home), and with no room open a Space returns to Home.
+    // Escape steps back: with no room open a Space returns to Home. An open
+    // room stays open, as in Element and Discord (this closed it from GitHub
+    // #27 until the 0.10.3 QA round, which reported it as a lost room).
     // A Keys handler, not a Shortcut: Escape is reserved in ShortcutRegistry
     // and a window Shortcut takes the key before the focused item, so the
     // composer (closing a completion, cancelling a reply or an edit) and every
@@ -19,9 +20,7 @@ Item {
     // find bar, info panel, search, thread and pinned layers keep their
     // TimelinePane Shortcut, which runs first while one of them is open.
     Keys.onEscapePressed: (event) => {
-        // A text field other than the message box keeps Escape to itself:
-        // leaving the room-list search or a settings field must not also
-        // close the conversation.
+        // A text field other than the message box keeps Escape to itself.
         const focused = Window.activeFocusItem
         if (focused && (focused instanceof TextInput || focused instanceof TextEdit)
                 && !shellRoot.insideComposer(focused)) {
@@ -31,14 +30,13 @@ Item {
         // An open popup owns Escape even without the focus: the tap that
         // opened the read-receipt list also reached the timeline's own tap
         // handler, which took the focus back, so one Escape closed the
-        // popover AND the room. Close the popup; the room stays.
+        // popover and went on. Close the popup and stop.
         if (app.dismissPopupForEscape(shellRoot)) {
             event.accepted = true
             return
         }
         event.accepted = app.navigateBack()
-        // The composer is hidden with the room, which drops the keyboard
-        // focus; keep it here so the next Escape (lobby to Home) arrives.
+        // The overview it left may have held the focus; keep it here.
         if (event.accepted)
             shellRoot.forceActiveFocus()
     }
