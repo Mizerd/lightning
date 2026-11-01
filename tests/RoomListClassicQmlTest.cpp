@@ -340,13 +340,9 @@ RoomsPanel { width: 380; height: 700 }
         QVERIFY(empty);
         QTRY_VERIFY_WITH_TIMEOUT(empty->isVisible(), kTimeoutMs);
         QCoreApplication::processEvents();
-        const QRectF emptyRect = empty->mapRectToScene(
-            QRectF(0, 0, empty->width(), empty->height()));
         for (QQuickItem *h : headers()) {
-            QVERIFY2(!h->isVisible(),
-                     "a section header is still visible over an empty list");
-            const QRectF r = h->mapRectToScene(QRectF(0, 0, h->width(), h->height()));
-            QVERIFY(!h->isVisible() || !r.intersects(emptyRect));
+            QVERIFY2(!h->isVisible() || h->opacity() == 0.0,
+                     "a section header is still drawn over an empty list");
         }
         f.controller->roomList()->setSearchQuery(QString());
     }
@@ -381,7 +377,7 @@ RoomListClassicPresenter { objectName: "presenter"; width: 320; height: 900 }
             visualTree(f.item.get(), all);
             for (QQuickItem *it : all) {
                 if (it->objectName() == QStringLiteral("roomListSectionHeader")
-                    && it->isVisible())
+                    && it->isVisible() && it->opacity() > 0.0)
                     out.append(it);
             }
             return out;
@@ -446,6 +442,63 @@ RoomListClassicPresenter { objectName: "presenter"; width: 320; height: 900 }
             QVERIFY2(heads, qPrintable(QStringLiteral(
                 "a section header at y=%1 heads no row").arg(bottom - h->height())));
         }
+        model->setSearchQuery(QString());
+    }
+
+    // Live 2026-11-01 on 0.10.3 ("I have two Conversations tabs", also Rooms,
+    // Favourites and Low priority): ListView parks the label of a section
+    // that left the view hidden in its cache, and a `visible` binding on the
+    // delegate re-shows the parked item on the next count change, at its old
+    // place over the rows. No list emptying is involved here.
+    void aParkedSectionHeaderStaysHiddenWhenTheCountChanges()
+    {
+        Fixture f;
+        QVERIFY(load(f, R"QML(
+import QtQuick
+import MatrixClient
+RoomListClassicPresenter { objectName: "presenter"; width: 320; height: 900 }
+)QML", 320, 900));
+        RoomListModel *model = f.controller->roomList();
+        QTRY_VERIFY_WITH_TIMEOUT(model->rowCount() >= 3, kTimeoutMs);
+        const QString favourite = model->data(model->index(0, 0),
+                                              RoomListModel::NameRole).toString();
+        model->setRoomFavourite(model->data(model->index(0, 0),
+                                            RoomListModel::RoomIdRole).toString(),
+                                true);
+        auto visibleHeaders = [&] {
+            QList<QQuickItem *> all, out;
+            visualTree(f.item.get(), all);
+            for (QQuickItem *it : all) {
+                if (it->objectName() == QStringLiteral("roomListSectionHeader")
+                    && it->isVisible() && it->opacity() > 0.0)
+                    out.append(it);
+            }
+            return out;
+        };
+        auto headerPlaces = [&] {
+            QSet<int> ys;
+            for (QQuickItem *h : visibleHeaders())
+                ys.insert(qRound(h->mapToScene(QPointF(0, 0)).y()));
+            return ys.size();
+        };
+        QTRY_VERIFY_WITH_TIMEOUT(headerPlaces() >= 2, kTimeoutMs);
+
+        // One section left, rows still present: the other label is parked.
+        model->setSearchQuery(favourite);
+        QTRY_COMPARE_WITH_TIMEOUT(model->rowCount(), 1, kTimeoutMs);
+        QTRY_COMPARE_WITH_TIMEOUT(headerPlaces(), 1, kTimeoutMs);
+
+        // A count change that keeps rows is what re-showed it.
+        model->setRoomFavourite(model->data(model->index(0, 0),
+                                            RoomListModel::RoomIdRole).toString(),
+                                false);
+        model->setSearchQuery(QString());
+        QTRY_VERIFY_WITH_TIMEOUT(model->rowCount() >= 3, kTimeoutMs);
+        model->setSearchQuery(model->data(model->index(1, 0),
+                                          RoomListModel::NameRole).toString());
+        QTRY_VERIFY_WITH_TIMEOUT(model->rowCount() >= 1, kTimeoutMs);
+        QTest::qWait(100);
+        QCOMPARE(headerPlaces(), 1);
         model->setSearchQuery(QString());
     }
 

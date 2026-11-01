@@ -2475,6 +2475,11 @@ Item {
 
                     IconButton {
                         objectName: "composerHeightButton"
+                        // Multi-line only, like Element: a fixed extra button
+                        // beside the field reads as a spaced-out bar.
+                        visible: root.composerExpanded
+                                 || (root.richMode ? richInput.lineCount
+                                                   : input.lineCount) > 1
                         Layout.alignment: root.composerExpanded ? Qt.AlignBottom : Qt.AlignVCenter
                         implicitWidth: 28; implicitHeight: 28
                         radius: AppTheme.radiusControl

@@ -2087,6 +2087,9 @@ Rectangle {
                         }
                         IconButton {
                             objectName: "threadComposerHeightButton"
+                            visible: panel.composerExpanded
+                                     || (panel.richMode ? threadRichInput.lineCount
+                                                        : threadComposerInput.lineCount) > 1
                             Layout.alignment: panel.composerExpanded ? Qt.AlignBottom : Qt.AlignVCenter
                             implicitWidth: 24; implicitHeight: 24
                             radius: AppTheme.radiusControl

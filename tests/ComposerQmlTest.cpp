@@ -451,6 +451,15 @@ private slots:
 
     void inputRowHasExactControlOrder()
     {
+        // The height button stands only while the box is expanded or holds
+        // more than one line.
+        auto *bar = item("composerBar");
+        QVERIFY(bar);
+        bar->setProperty("composerExpanded", true);
+        QTest::qWait(30);
+        auto collapse = qScopeGuard([bar] {
+            bar->setProperty("composerExpanded", false);
+        });
         const char *order[] = {
             "composerAttachButton", "composerHeightButton",
             "composerFormatToggleButton",
@@ -468,6 +477,28 @@ private slots:
             QVERIFY2(x > lastX, name);
             lastX = x;
         }
+    }
+
+    // Live 2026-11-01 on 0.10.3: a fixed third button left of the field read
+    // as the bar having been spaced out. Multi-line only, like Element.
+    void heightButtonStandsOnlyForAMultiLineBox()
+    {
+        auto *bar = item("composerBar");
+        auto *button = item("composerHeightButton");
+        auto *input = item("composerInput");
+        QVERIFY(bar && button && input);
+        bar->setProperty("composerExpanded", false);
+        input->setProperty("text", QString());
+        QTest::qWait(30);
+        QVERIFY(!button->isVisible());
+        input->setProperty("text", QStringLiteral("one\ntwo"));
+        QTRY_VERIFY(button->isVisible());
+        bar->setProperty("composerExpanded", true);
+        input->setProperty("text", QString());
+        QTest::qWait(30);
+        QVERIFY(button->isVisible());
+        bar->setProperty("composerExpanded", false);
+        QTRY_VERIFY(!button->isVisible());
     }
 
     void formatToggleCollapsesAndExpandsToolbar()

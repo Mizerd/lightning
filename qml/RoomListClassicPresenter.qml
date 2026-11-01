@@ -158,8 +158,11 @@ Item {
                 // the list with none, ListView keeps the last section's label
                 // instance (the pinned CurrentLabelAtStart one included), and it
                 // was drawn over the empty state ("InvRooms added to this Space",
-                // live 2026-10-26).
-                visible: roomList.count > 0
+                // live 2026-10-26). Opacity, never `visible`: ListView parks a
+                // label it no longer needs with setVisible(false), and a
+                // binding here would re-show the parked item at its old place
+                // on every count change (doubled headers, live 2026-11-01).
+                opacity: roomList.count > 0 ? 1 : 0
 
                 Label {
                     anchors {
