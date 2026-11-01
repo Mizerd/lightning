@@ -2087,6 +2087,105 @@ private Q_SLOTS:
                      .arg(band.right()).arg(bubbleLeft)));
     }
 
+    // 0.10.3 hotfix (reported by WildRage): in Bubbles an own message with
+    // reactions had a wide empty band between its bubble and the pill row,
+    // because the receipt footer band was reserved whether or not anything
+    // sat in it. The gap is the design spacing (the layout's 2 + the Flow's
+    // top margin) in every layout and every receipt state, and a receipt that
+    // coexists with reactions shares the pills' line, right aligned, clear of
+    // the last pill.
+    static qreal reactionGap(QQuickItem *root)
+    {
+        auto *bubble = root->findChild<QQuickItem *>(
+            QStringLiteral("messageContentColumn"));
+        auto *flow = root->findChild<QQuickItem *>(
+            QStringLiteral("reactionsFlow"));
+        if (!bubble || !flow || !flow->isVisible())
+            return -1e9;
+        const qreal bottom =
+            bubble->mapToItem(root, QPointF(0, bubble->height())).y();
+        return flow->mapToItem(root, QPointF(0, 0)).y() - bottom;
+    }
+
+    void reactionsSitAtTheDesignGapUnderTheirMessage_data()
+    {
+        QTest::addColumn<int>("layoutId");
+        QTest::addColumn<bool>("own");
+        QTest::newRow("modern") << 0 << false;
+        QTest::newRow("compact") << 2 << false;
+        QTest::newRow("bubbles-incoming") << 1 << false;
+        QTest::newRow("bubbles-own") << 1 << true;
+    }
+    void reactionsSitAtTheDesignGapUnderTheirMessage()
+    {
+        QFETCH(int, layoutId);
+        QFETCH(bool, own);
+        AppController app(AppController::MockBackend);
+        QVERIFY(app.settings());
+        app.settings()->setMessageLayout(layoutId);
+
+        QVariantMap f = baseFixture();
+        f.insert(QStringLiteral("isOwn"), own);
+        f.insert(QStringLiteral("showSenderIdentity"), false);
+        f.insert(QStringLiteral("reactions"), reactions(2));
+        Delegate d;
+        QVERIFY(build(app, f, d, kRowWidth, layoutId == 1));
+
+        auto *flow = d.root->findChild<QQuickItem *>(
+            QStringLiteral("reactionsFlow"));
+        auto *strip = d.root->findChild<QQuickItem *>(
+            QStringLiteral("readReceiptStrip"));
+        auto *pile = d.root->findChild<QQuickItem *>(
+            QStringLiteral("readReceiptRow"));
+        QVERIFY(flow && strip && pile);
+        const qreal design = 2 + flow->property("designTopGap").toReal();
+        QVERIFY2(design > 2, "reactionsFlow does not publish designTopGap");
+
+        auto expectGap = [&](const char *state) {
+            QCoreApplication::processEvents();
+            const qreal gap = reactionGap(d.root);
+            QVERIFY2(qAbs(gap - design) <= 0.5,
+                     qPrintable(QStringLiteral("%1: gap bubble->reactions is "
+                                "%2, design is %3")
+                                .arg(QLatin1String(state)).arg(gap)
+                                .arg(design)));
+        };
+        auto setReceipts = [&](int n, bool sent) {
+            f.insert(QStringLiteral("readReceipts"),
+                     n ? receipts(n) : QVariantList{});
+            f.insert(QStringLiteral("readReceiptsTotal"), n);
+            f.insert(QStringLiteral("sentReceipt"), sent);
+            d.engine->rootContext()->setContextProperty("model", f);
+        };
+
+        expectGap("no receipts");
+        setReceipts(3, false);
+        QVERIFY(strip->isVisible());
+        expectGap("readers present");
+        // Receipt and pills share a line, receipt on the right and clear of
+        // the pills.
+        const QRectF band = chipBand(d.root);
+        const QPointF pt = pile->mapToItem(d.root, QPointF(0, 0));
+        const QRectF pileRect(pt, QSizeF(pile->width(), pile->height()));
+        QVERIFY(!band.isNull() && pileRect.width() > 0);
+        QVERIFY2(!pileRect.intersects(band),
+                 "the receipt overlaps the reaction pills");
+        QVERIFY2(pileRect.center().y() >= band.top() - 1.0
+                     && pileRect.center().y() <= band.bottom() + 1.0,
+                 "the receipt is not on the pills' line");
+        QVERIFY2(pileRect.left() >= band.right(),
+                 "the receipt is not to the right of the pills");
+        QVERIFY2(pileRect.right() <= d.root->width() + 0.5,
+                 "the receipt hangs past the row");
+        setReceipts(0, false);
+        QVERIFY(!strip->isVisible());
+        expectGap("readers left");
+        setReceipts(0, true);
+        expectGap("sent check only");
+        setReceipts(0, false);
+        expectGap("sent check left");
+    }
+
     // Bubbles: the body stays inside the bubble's padding (`bubblePad` is 10
     // in Bubbles, 0 elsewhere), so its cap must be the inner width.
     void aBubbleContainsItsOwnBodyText()

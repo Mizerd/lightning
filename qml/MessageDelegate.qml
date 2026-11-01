@@ -1318,16 +1318,22 @@ Item {
     // Every own Bubbles body reserves the same footer, including when its
     // receipt is empty. Both the sent check and reader chips are 18px tall;
     // receipt state must never change this row's measured height.
+    // Not when the message has reactions: the footer band would sit between
+    // the bubble and the pills as dead space (reported 2026-11-02), so the
+    // receipt joins the pills' line at the row's right edge instead, as it
+    // does in every other layout. Reactions arriving is a row-height change
+    // of its own, so nothing is lost by the footer giving way.
     readonly property bool ownBubbleReceiptFooter:
         root.bubbleMode && model.isOwn === true && !model.redacted
         && !root.isVirtualRow && !root.isStateActivity && !root.isCallEvent
-        && !root.isThreadKeyWait
+        && !root.isThreadKeyWait && reactionsFlow.shownReactions.length === 0
     readonly property real ownBubbleReceiptBandHeight: 18
 
     // Incoming Bubbles rows still use the side rail; leave its width clear.
     // Own Bubbles rows have a footer and need no horizontal inset.
     readonly property real bubbleReceiptInset:
         (root.bubbleMode && !root.ownBubbleReceiptFooter
+         && model.isOwn !== true
          && readReceiptStrip.visible && receiptRow.width > 0)
         ? receiptRow.width + AppTheme.spacingXS
         : 0
@@ -3557,7 +3563,8 @@ Item {
                                     bubbleRow.width
                                     - reactionsFlow.ownBubbleChipRun))
                 : root.avatarGutterWidth
-            Layout.topMargin: AppTheme.spacingXS
+            readonly property real designTopGap: AppTheme.spacingXS
+            Layout.topMargin: reactionsFlow.designTopGap
             spacing: AppTheme.spacingXS
             Repeater {
                 model: reactionsFlow.shownReactions
