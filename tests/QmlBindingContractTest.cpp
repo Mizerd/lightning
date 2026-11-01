@@ -2267,6 +2267,28 @@ private Q_SLOTS:
                      qPrintable(QStringLiteral("%1 has no IdleCaret").arg(id)));
         }
     }
+
+    // Fixed pixel sizes ignore Settings > Text size: these three surfaces
+    // stayed small while the rest of the app scaled.
+    void textSizeSettingReachesCallAndThreadChrome()
+    {
+        const QRegularExpression literal(
+            QStringLiteral("font\\.pixelSize:\\s*\\d"));
+        for (const QString &name : { QStringLiteral("ThreadSummaryCard.qml"),
+                                     QStringLiteral("VoiceConnectedBar.qml"),
+                                     QStringLiteral("RoomCallBanner.qml") }) {
+            const QString qml = read(name);
+            QVERIFY2(!qml.isEmpty(), qPrintable(name));
+            QVERIFY2(!literal.match(qml).hasMatch(),
+                     qPrintable(name + QStringLiteral(" has a literal pixelSize")));
+            QVERIFY2(qml.contains(QStringLiteral("AppTheme.scaled(")),
+                     qPrintable(name));
+        }
+        // A tile's play badge and a screen reader's press.
+        const QString tile = read(QStringLiteral("MediaBrowserTile.qml"));
+        QVERIFY(!tile.contains(QStringLiteral("\"#FFFFFF\"")));
+        QVERIFY(tile.contains(QStringLiteral("Accessible.onPressAction")));
+    }
 };
 
 QTEST_MAIN(QmlBindingContractTest)
