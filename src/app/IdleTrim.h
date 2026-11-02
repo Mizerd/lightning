@@ -14,6 +14,7 @@
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
+#include <limits>
 
 #if defined(__GLIBC__) && defined(__GLIBC_PREREQ)
 #if __GLIBC_PREREQ(2, 33)
@@ -144,10 +145,14 @@ private:
         s.msSinceInput = m_sinceInput.elapsed();
         s.windowHidden = !anyWindowShown();
         s.activeCalls = CallAllocatorHold::activeCalls();
-        s.freeArenaBytes = freeArenaBytes();
+        // mallinfo2 walks every arena under its lock, which is exactly what
+        // must not happen on the GUI thread under load. The cheap conditions
+        // decide here; the free-bytes floor is checked by the job, on the pool
+        // thread, immediately before the trim.
+        s.freeArenaBytes = std::numeric_limits<qint64>::max();
         s.msSinceLastTrim = m_haveTrimmed ? m_sinceTrim.elapsed() : -1;
         if (shouldIdleTrim(s)) {
-            runTrim(s.freeArenaBytes);
+            runTrim();
             return;
         }
         const qint64 wait = idleTrimWaitMs(s);
@@ -156,14 +161,27 @@ private:
 #endif
     }
 
-    void runTrim(qint64 freeBefore)
+    void runTrim()
     {
 #if defined(LIGHTNING_IDLE_TRIM)
-        if (m_running.exchange(true))
+        if (running().exchange(true))
             return;
         m_haveTrimmed = true;
         m_sinceTrim.restart();
-        QThreadPool::globalInstance()->start([this, freeBefore] {
+        // Captures nothing: the job may outlive this object (and the stack
+        // frame holding it) at quit, so it touches only static state.
+        QThreadPool::globalInstance()->start([] {
+            // A call may have started while the job waited for a thread.
+            if (CallAllocatorHold::activeCalls() > 0) {
+                running() = false;
+                return;
+            }
+            const qint64 freeBefore = freeArenaBytes();
+            if (freeBefore < 0
+                || static_cast<std::uint64_t>(freeBefore) < kIdleTrimMinFreeBytes) {
+                running() = false;
+                return;
+            }
             const qint64 rssBefore = residentBytes();
             const int released = malloc_trim(0);
             const qint64 rssAfter = residentBytes();
@@ -172,11 +190,16 @@ private:
                   static_cast<long long>(rssBefore >> 20),
                   static_cast<long long>(rssAfter >> 20),
                   static_cast<long long>(qMax<qint64>(rssBefore - rssAfter, 0)), released);
-            m_running = false;
+            running() = false;
         });
-#else
-        Q_UNUSED(freeBefore);
 #endif
+    }
+
+    // Static, so a job still running at quit never reaches a dead object.
+    static std::atomic<bool> &running()
+    {
+        static std::atomic<bool> flag{false};
+        return flag;
     }
 
     static qint64 residentBytes()
@@ -194,7 +217,6 @@ private:
     QElapsedTimer m_sinceInput;
     QElapsedTimer m_sinceTrim;
     bool m_haveTrimmed = false;
-    std::atomic<bool> m_running{false};
 };
 
 } // namespace lightning
