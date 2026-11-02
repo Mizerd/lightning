@@ -867,6 +867,31 @@ private slots:
         popover->setProperty("liveRole", QString());
     }
 
+    void theCreatorPillSaysCreatorNotAdministrator()
+    {
+        auto *popover = find(QStringLiteral("popover"));
+        QVERIFY(popover);
+        const auto chipShown = [popover](const QString &label) {
+            for (QObject *candidate : popover->findChildren<QObject *>()) {
+                if (candidate->property("label").toString() == label
+                    && candidate->property("visible").toBool()) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        popover->setProperty("role", QString());
+        popover->setProperty("liveRole", QStringLiteral("creator"));
+        QCOMPARE(popover->property("badgeRole").toString(),
+                 QStringLiteral("creator"));
+        QVERIFY(chipShown(QStringLiteral("Creator")));
+        QVERIFY(!chipShown(QStringLiteral("Administrator")));
+        popover->setProperty("liveRole", QStringLiteral("administrator"));
+        QVERIFY(chipShown(QStringLiteral("Administrator")));
+        QVERIFY(!chipShown(QStringLiteral("Creator")));
+        popover->setProperty("liveRole", QString());
+    }
+
     void theLiveRoleMappingMatchesTheRosterTiers()
     {
         auto *popover = find(QStringLiteral("popover"));
