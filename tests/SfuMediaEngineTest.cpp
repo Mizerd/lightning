@@ -6956,6 +6956,7 @@ private slots:
         SfuMediaEngine engine;
         QSignalSpy echoFailed(&engine, &SfuMediaEngine::echoCancellationFailed);
         QSignalSpy callFailed(&engine, &SfuMediaEngine::failed);
+        QSignalSpy publishFailed(&engine, &SfuMediaEngine::publishFailed);
         engine.setTestSourceMode(true);
         engine.start();
         const QString cid = QStringLiteral("cid-audio");
@@ -6968,6 +6969,13 @@ private slots:
         QTest::qWait(100);
         QCOMPARE(echoFailed.count(), 0);
         QCOMPARE(callFailed.count(), 0);
+        // The microphone's own failure is reported, once, not swallowed.
+        QCOMPARE(publishFailed.count(), 1);
+        QCOMPARE(publishFailed.at(0).at(0).toString(), cid);
+        QCOMPARE(publishFailed.at(0).at(1).toString(),
+                 QStringLiteral("audio_source_failed"));
+        engine.handleMicDspErrorForTest(cid, QStringLiteral("again"));
+        QCOMPARE(publishFailed.count(), 1);
     }
 
     void h264PayloaderKeepsTheByteTheKeyIndexLivesIn()

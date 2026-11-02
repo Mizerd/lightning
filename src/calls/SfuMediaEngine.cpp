@@ -1280,6 +1280,7 @@ void SfuMediaEngine::teardown(bool endOfCall)
     m_micEchoAfterStart = false;
     m_micDspRescueAfterStart = false;
     m_echoGivenUp = false;
+    m_micDspFailureReported = false;
     m_micSwapReplacesStart = false;
     m_micRtpVerdictOwed = false;
     m_micLiveFront.clear();
@@ -2503,6 +2504,11 @@ void SfuMediaEngine::handleMicDspError(const QString &cid,
 {
     if (!m_active || cid != m_micCid || !m_publishedBins.contains(cid))
         return;
+    // Echo cancellation was already given up and the dsp replaced: an error
+    // posted by the element that was replaced is stale, and is not judged
+    // again as the track's own failure.
+    if (m_echoGivenUp)
+        return;
     // Only an echo failure may say that echo cancellation failed. The dsp also
     // carries noise suppression and gain, and an error from one that was never
     // asked to cancel echo is the track's own failure: no notice about echo,
@@ -2520,8 +2526,17 @@ void SfuMediaEngine::handleMicDspError(const QString &cid,
         }
     }
     if (!echoWasOn) {
-        handlePublishError(cid, /*captureResourceError=*/false,
-                           /*captureBusyError=*/false);
+        // handlePublishError() would be a silent no-op here: only a video
+        // publish registers a watch. Say it, once, as the microphone's own
+        // failure; the call itself goes on.
+        qCWarning(lcSfuMedia)
+            << "call diagnosis: webrtcdsp errored on the microphone with echo "
+               "cancellation off; the microphone may be silent. reason="
+            << reason;
+        if (!m_micDspFailureReported) {
+            m_micDspFailureReported = true;
+            Q_EMIT publishFailed(cid, QStringLiteral("audio_source_failed"));
+        }
         return;
     }
     giveUpEchoCancellation(reason);

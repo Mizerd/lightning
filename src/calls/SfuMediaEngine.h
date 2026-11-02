@@ -1468,6 +1468,8 @@ private:
     bool m_micEchoAfterStart = false;
     /// Echo cancellation failed in this call; see handleMicDspError().
     bool m_echoGivenUp = false;
+    /// A webrtcdsp error with echo cancellation off was reported this call.
+    bool m_micDspFailureReported = false;
     /// A webrtcdsp error that arrived while the start was still running.
     bool m_micDspRescueAfterStart = false;
     bool m_micEchoAtStartForTest = false;
