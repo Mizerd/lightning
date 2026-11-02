@@ -605,6 +605,10 @@ Item {
             root.timelineView.hoveredActionsKey = ""
     }
     Component.onDestruction: releaseHoveredActions()
+    onRowOnScreenChanged: {
+        if (!rowOnScreen)
+            messageActionBarLoader.latched = false
+    }
 
     objectName: "messageDelegateRoot"
     function resetForReuse() {
@@ -2537,7 +2541,8 @@ Item {
                     : AppTheme.scrollbarWidth + AppTheme.spacing2
                       + root.actionBarReceiptReserve
                 z: 3
-                // Created on first need, then kept for the delegate's lifetime.
+                // Created on first need, then kept until the row leaves the
+                // screen.
                 // The latch write is deferred: onLoaded runs inside the
                 // `active` binding's evaluation, and writing a dependency there
                 // is a binding loop.
