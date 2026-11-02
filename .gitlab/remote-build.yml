@@ -45,13 +45,13 @@ test-nixos:
     - export QT_QPA_PLATFORM=offscreen HOME=$PWD/.ci-home XDG_RUNTIME_DIR=$PWD/.ci-run; mkdir -p $HOME $XDG_RUNTIME_DIR; chmod 700 $XDG_RUNTIME_DIR
     - mkdir -p /etc/dbus-1 /var/lib/dbus
     - |
-      cat > /etc/dbus-1/ci-session.conf <<'CONF'
+      cat > /etc/dbus-1/session.conf <<'CONF'
       <busconfig><type>session</type><listen>unix:tmpdir=/tmp</listen>
       <policy context="default"><allow send_destination="*" eavesdrop="true"/><allow eavesdrop="true"/><allow own="*"/></policy>
       </busconfig>
       CONF
     - nix develop -c dbus-uuidgen --ensure=/etc/machine-id
-    - nix develop -c dbus-run-session --config-file=/etc/dbus-1/ci-session.conf -- ctest --test-dir build-test -j16 --timeout 1500 --output-junit $PWD/out/ctest.xml --output-on-failure 2>&1 | tee out/ctest.log | tail -40
+    - nix develop -c dbus-run-session -- ctest --test-dir build-test -j16 --timeout 1500 --output-junit $PWD/out/ctest.xml --output-on-failure 2>&1 | tee out/ctest.log | tail -40
     - grep -q '100% tests passed' out/ctest.log
     - nix develop -c cargo test --manifest-path rust/Cargo.toml -j32 2>&1 | tee out/cargo.log | grep -E '^test result|FAILED|panicked' | head -20
   artifacts:
