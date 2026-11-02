@@ -14,16 +14,18 @@ Item {
     function forgetTransientBackupState() {
         if (app.backup)
             app.backup.dismissRecoveryKey()
-        if (typeof backupCard !== "undefined" && backupCard)
-            backupCard.pendingConfirm = ""
+        if (root.backupCardRef)
+            root.backupCardRef.pendingConfirm = ""
     }
     onVisibleChanged: {
         if (!visible) {
             root.forgetTransientBackupState()
+            root.keptSections = []
+            root.anchorCache = ({})
             if (settingsSearchField)
                 settingsSearchField.text = ""
-            if (typeof nameColorPicker !== "undefined" && nameColorPicker)
-                nameColorPicker.open = false
+            if (root.nameColorPickerRef)
+                root.nameColorPickerRef.open = false
         } else {
             Qt.callLater(root.ensurePageFocus)
         }
@@ -35,6 +37,9 @@ Item {
         onTriggered: root.shortcutRowsBuilt = true
     }
     onSectionChanged: {
+        root.anchorCache = ({})
+        if (root.keptSections.indexOf(root.section) < 0)
+            root.keptSections = root.keptSections.concat([root.section])
         if (root.section === "shortcuts")
             root.shortcutRowsBuilt = true
         root.setOutlineExpanded(root.section, true)
@@ -1463,6 +1468,13 @@ Item {
     }
 
     property string section: "appearance"
+    property var keptSections: []
+    function sectionLive(key) {
+        return root.section === key || root.keptSections.indexOf(key) >= 0
+    }
+    property bool identityEditing: false
+    property var nameColorPickerRef: null
+    property var backupCardRef: null
 
     readonly property bool navNarrow: root.width < 720
     property bool navOpenAtNarrow: false
@@ -1575,7 +1587,7 @@ Item {
         // is dead. `root.visible` is required: the screen is kept alive when
         // hidden, and a second enabled Escape in the window would make Qt fire
         // neither.
-        enabled: root.visible && !accountIdentityCard.editingDisplayName
+        enabled: root.visible && !root.identityEditing
                  && root.renamingSessionDeviceId === ""
         onActivated: root.dismissLayer()
     }
@@ -1584,8 +1596,8 @@ Item {
                                          : null
         if (settingsSearchField && settingsSearchField.text.length > 0)
             settingsSearchField.text = ""
-        else if (nameColorPicker.open)
-            nameColorPicker.open = false
+        else if (root.nameColorPickerRef && root.nameColorPickerRef.open)
+            root.nameColorPickerRef.open = false
         else if (root.isTextEditor(focused)
                  && focused !== settingsSearchField
                  && root.isInsideContent(focused)) {
@@ -1642,7 +1654,7 @@ Item {
             outline.focusEntry(available[next])
     }
     readonly property bool dialogShortcutsEnabled:
-        !accountIdentityCard.editingDisplayName && root.renamingSessionDeviceId === ""
+        !root.identityEditing && root.renamingSessionDeviceId === ""
     Connections {
         target: app
         function onSettingsDialogActionRequested(action) {
@@ -2565,8 +2577,11 @@ Item {
                     width: Math.min(860, contentFlick.width - AppTheme.spacing24 * 2)
                     spacing: AppTheme.spacing16
 
-                    ColumnLayout {
+                    Loader {
+                        Layout.fillWidth: true
+                        active: root.sectionLive("appearance")
                         visible: root.section === "appearance"
+                        sourceComponent: ColumnLayout {
                         Layout.fillWidth: true
                         spacing: AppTheme.spacing12
 
@@ -3755,10 +3770,14 @@ Item {
                                 }
                             }
                         }
+                        }
                     }
 
-                    ColumnLayout {
+                    Loader {
+                        Layout.fillWidth: true
+                        active: root.sectionLive("appearance")
                         visible: root.section === "appearance"
+                        sourceComponent: ColumnLayout {
                         Layout.fillWidth: true
                         spacing: AppTheme.spacing12
 
@@ -3815,10 +3834,14 @@ Item {
                             }
                         }
 
+                        }
                     }
 
-                    ColumnLayout {
+                    Loader {
+                        Layout.fillWidth: true
+                        active: root.sectionLive("appearance")
                         visible: root.section === "appearance"
+                        sourceComponent: ColumnLayout {
                         Layout.fillWidth: true
                         spacing: AppTheme.spacing12
 
@@ -4023,10 +4046,14 @@ Item {
                             }
                         }
 
+                        }
                     }
 
-                    ColumnLayout {
+                    Loader {
+                        Layout.fillWidth: true
+                        active: root.sectionLive("layout")
                         visible: root.section === "layout"
+                        sourceComponent: ColumnLayout {
                         Layout.fillWidth: true
                         spacing: AppTheme.spacing12
 
@@ -4569,10 +4596,14 @@ Item {
                             }
                         }
 
+                        }
                     }
 
-                    ColumnLayout {
+                    Loader {
+                        Layout.fillWidth: true
+                        active: root.sectionLive("chat")
                         visible: root.section === "chat"
+                        sourceComponent: ColumnLayout {
                         Layout.fillWidth: true
                         spacing: AppTheme.spacing12
 
@@ -5230,10 +5261,14 @@ Item {
                                 width: parent.width
                             }
                         }
+                        }
                     }
 
-                    ColumnLayout {
+                    Loader {
+                        Layout.fillWidth: true
+                        active: root.sectionLive("shortcuts")
                         visible: root.section === "shortcuts"
+                        sourceComponent: ColumnLayout {
                         Layout.fillWidth: true
                         spacing: AppTheme.spacing12
 
@@ -5417,10 +5452,14 @@ Item {
                                 }
                             }
                         }
+                        }
                     }
 
-                    ColumnLayout {
+                    Loader {
+                        Layout.fillWidth: true
+                        active: root.sectionLive("privacy")
                         visible: root.section === "privacy"
+                        sourceComponent: ColumnLayout {
                         Layout.fillWidth: true
                         spacing: AppTheme.spacing12
 
@@ -6655,10 +6694,14 @@ Item {
                                 }
                             }
                         }
+                        }
                     }
 
-                    ColumnLayout {
+                    Loader {
+                        Layout.fillWidth: true
+                        active: root.sectionLive("notifications")
                         visible: root.section === "notifications"
+                        sourceComponent: ColumnLayout {
                         Layout.fillWidth: true
                         spacing: AppTheme.spacing12
 
@@ -6910,10 +6953,19 @@ Item {
                         NotificationRulesSettings {
                             Layout.fillWidth: true
                         }
+                        }
                     }
 
-                    ColumnLayout {
+                    Loader {
+                        Layout.fillWidth: true
+                        active: root.sectionLive("sound")
                         visible: root.section === "sound"
+                        sourceComponent: ColumnLayout {
+                        NoiseSuppressionSelector {
+                            id: noiseTitles
+                            objectName: "noiseSuppressionTitleSource"
+                            visible: false
+                        }
                         Layout.fillWidth: true
                         spacing: AppTheme.spacing12
 
@@ -6974,7 +7026,7 @@ Item {
                                         Layout.fillWidth: true
                                         text: qsTr("%1 · an experiment, set in Labs or "
                                                    + "from the call's microphone menu")
-                                              .arg(noiseSelector.titleFor(
+                                              .arg(noiseTitles.titleFor(
                                                   app.settings.noiseSuppressionMode))
                                         textFormat: Text.PlainText
                                         color: AppTheme.stormTextMuted
@@ -7240,10 +7292,14 @@ Item {
                                 }
                             }
                         }
+                        }
                     }
 
-                    ColumnLayout {
+                    Loader {
+                        Layout.fillWidth: true
+                        active: root.sectionLive("account")
                         visible: root.section === "account"
+                        sourceComponent: ColumnLayout {
                         Layout.fillWidth: true
                         spacing: AppTheme.spacing12
 
@@ -7264,6 +7320,8 @@ Item {
                                     : ({})
                             }
                             Component.onCompleted: refreshAccountRecord()
+                            onEditingDisplayNameChanged: root.identityEditing = editingDisplayName
+                            Component.onDestruction: root.identityEditing = false
                             Connections {
                                 target: app.accounts
                                 function onAccountsChanged() {
@@ -7633,6 +7691,8 @@ Item {
                                     ColorPickerPanel {
                                         id: nameColorPicker
                                         objectName: "nameColorPicker"
+                                        Component.onCompleted: root.nameColorPickerRef = nameColorPicker
+                                        Component.onDestruction: root.nameColorPickerRef = null
                                         property bool open: false
                                         property string draft: ""
                                         Layout.fillWidth: true
@@ -8185,10 +8245,14 @@ Item {
                         SettingsBackupSection {
                             Layout.fillWidth: true
                         }
+                        }
                     }
 
-                    ColumnLayout {
+                    Loader {
+                        Layout.fillWidth: true
+                        active: root.sectionLive("privacy")
                         visible: root.section === "privacy"
+                        sourceComponent: ColumnLayout {
                         Layout.fillWidth: true
                         spacing: AppTheme.spacing12
 
@@ -8570,10 +8634,14 @@ Item {
                             }
                         }
 
+                        }
                     }
 
-                    ColumnLayout {
+                    Loader {
+                        Layout.fillWidth: true
+                        active: root.sectionLive("sessions")
                         visible: root.section === "sessions"
+                        sourceComponent: ColumnLayout {
                         Layout.fillWidth: true
                         spacing: AppTheme.spacing12
                         onVisibleChanged: {
@@ -8685,6 +8753,8 @@ Item {
                         Rectangle {
                             id: backupCard
                             objectName: "backupManagementCard"
+                            Component.onCompleted: root.backupCardRef = backupCard
+                            Component.onDestruction: root.backupCardRef = null
                             Layout.fillWidth: true
                             visible: app.cryptoHealth
                                      && app.cryptoHealth.cryptoSupported
@@ -9554,10 +9624,14 @@ Item {
                             }
                         }
 
+                        }
                     }
 
-                    ColumnLayout {
+                    Loader {
+                        Layout.fillWidth: true
+                        active: root.sectionLive("privacy")
                         visible: root.section === "privacy"
+                        sourceComponent: ColumnLayout {
                         Layout.fillWidth: true
                         spacing: AppTheme.spacing12
 
@@ -9909,10 +9983,14 @@ Item {
                                 }
                             }
                         }
+                        }
                     }
 
-                    ColumnLayout {
+                    Loader {
+                        Layout.fillWidth: true
+                        active: root.sectionLive("labs")
                         visible: root.section === "labs"
+                        sourceComponent: ColumnLayout {
                         Layout.fillWidth: true
                         spacing: AppTheme.spacing12
 
@@ -10053,6 +10131,7 @@ Item {
                                 }
                             }
                         }
+                        }
                     }
 
                     UpdatesSettingsSection {
@@ -10061,8 +10140,11 @@ Item {
                         Layout.fillWidth: true
                     }
 
-                    ColumnLayout {
+                    Loader {
+                        Layout.fillWidth: true
+                        active: root.sectionLive("about")
                         visible: root.section === "about"
+                        sourceComponent: ColumnLayout {
                         Layout.fillWidth: true
                         spacing: AppTheme.spacing12
 
@@ -10138,6 +10220,7 @@ Item {
                         Item {
                             Layout.fillWidth: true
                             Layout.preferredHeight: AppTheme.spacing24
+                        }
                         }
                     }
                 }
