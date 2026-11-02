@@ -2546,7 +2546,7 @@ Item {
                 // is a binding loop.
                 property bool latched: false
                 active: latched || root.actionsVisible
-                onLoaded: Qt.callLater(function() { latched = true })
+                onLoaded: Qt.callLater(function() { latched = root.rowOnScreen })
                 visible: root.actionsVisible
                 sourceComponent: Rectangle {
                 id: messageActionBar

@@ -1842,6 +1842,42 @@ private Q_SLOTS:
         QCOMPARE(d.root->implicitHeight(), shown);
     }
 
+    void theActionBarIsNotKeptBuiltForARowThatIsOffScreen()
+    {
+        AppController app(AppController::MockBackend);
+        const auto latchedAt = [&](qreal y) {
+            Delegate d;
+            if (!build(app, baseFixture(), d))
+                return QVariant();
+            QQmlComponent scene(d.engine.get());
+            scene.setData("import QtQuick\nFlickable { width: 1100; height: 650; "
+                          "contentWidth: width; contentHeight: 3000; clip: true }",
+                          QUrl());
+            std::unique_ptr<QObject> owner(scene.create());
+            auto *view = qobject_cast<QQuickItem *>(owner.get());
+            if (!view)
+                return QVariant();
+            view->setParentItem(d.window->contentItem());
+            d.root->setParentItem(view->property("contentItem").value<QQuickItem *>());
+            d.root->setY(y);
+            QQmlProperty::write(d.root, QStringLiteral("timelineView"),
+                                QVariant::fromValue(view));
+            QCoreApplication::processEvents();
+            auto *loader = forceActionBar(d.root);
+            if (!loader)
+                return QVariant();
+            for (int i = 0; i < 6; ++i)
+                QCoreApplication::processEvents();
+            return QQmlProperty::read(loader, QStringLiteral("latched"));
+        };
+        const QVariant off = latchedAt(2000);
+        QVERIFY(off.isValid());
+        QVERIFY(!off.toBool());
+        const QVariant on = latchedAt(100);
+        QVERIFY(on.isValid());
+        QVERIFY(on.toBool());
+    }
+
     void theActionBarDoesNotCoverAShortOwnBubble()
     {
         AppController app(AppController::MockBackend);
