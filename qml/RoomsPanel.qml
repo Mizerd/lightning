@@ -741,6 +741,54 @@ Rectangle {
                 }
             }
             }
+            // A column too narrow for the five chips scrolls sideways, and
+            // nothing said so: "Unreads" was simply cut at 640 px. A fade and
+            // a chevron on each edge that has more, which also scroll.
+            Repeater {
+                model: [ { side: "left" }, { side: "right" } ]
+                delegate: Item {
+                    id: chipEdge
+                    required property var modelData
+                    readonly property bool leftEdge: modelData.side === "left"
+                    objectName: leftEdge ? "roomFilterChipsMoreLeft"
+                                         : "roomFilterChipsMoreRight"
+                    visible: leftEdge ? chipsFlick.contentX > 1
+                                      : chipsFlick.contentX + chipsFlick.width
+                                        < chipsFlick.contentWidth - 1
+                    width: AppTheme.spacing24
+                    height: chipsFlick.height
+                    anchors.verticalCenter: chipsFlick.verticalCenter
+                    x: leftEdge ? chipsFlick.x : chipsFlick.x + chipsFlick.width - width
+                    z: 2
+                    Rectangle {
+                        anchors.fill: parent
+                        gradient: Gradient {
+                            orientation: Gradient.Horizontal
+                            GradientStop {
+                                position: 0.0
+                                color: chipEdge.leftEdge ? AppTheme.roomList : "transparent"
+                            }
+                            GradientStop {
+                                position: 1.0
+                                color: chipEdge.leftEdge ? "transparent" : AppTheme.roomList
+                            }
+                        }
+                    }
+                    Icon {
+                        anchors.verticalCenter: parent.verticalCenter
+                        x: chipEdge.leftEdge ? 0 : parent.width - width
+                        name: chipEdge.leftEdge ? "chevron_left" : "chevron_right"
+                        size: 16
+                        color: AppTheme.textSecondary
+                    }
+                    TapHandler {
+                        onTapped: chipsFlick.contentX = Math.max(0, Math.min(
+                            chipsFlick.contentWidth - chipsFlick.width,
+                            chipsFlick.contentX
+                            + (chipEdge.leftEdge ? -1 : 1) * chipsFlick.width / 2))
+                    }
+                }
+            }
         }
         Binding {
             target: app.roomList
