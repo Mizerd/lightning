@@ -1353,10 +1353,9 @@ impl TimelineRegistry {
                                 mention_user_ids,
                             );
                             unwedge_send_queue(&timeline);
-                            matches!(
-                                bounded(timeline.send_reply(content, reply_to)).await,
-                                Some(Ok(_))
-                            )
+                            // Never timed: send_reply ends in the queue push, and a
+                            // timeout there reports failure for a message still sent.
+                            timeline.send_reply(content, reply_to).await.is_ok()
                         }
                         None => {
                             let message =
@@ -1946,10 +1945,9 @@ impl TimelineRegistry {
             let content =
                 outgoing_content_without_relation(&body, &spec, mention_user_ids);
             unwedge_send_queue(&timeline);
-            if !matches!(
-                bounded(timeline.send_reply(content, reply_to)).await,
-                Some(Ok(_))
-            ) && registry.is_current(room_gen, lifecycle)
+            // Never timed: see the thread reply path.
+            if timeline.send_reply(content, reply_to).await.is_err()
+                && registry.is_current(room_gen, lifecycle)
             {
                 enqueue(
                     &events,
@@ -6651,6 +6649,17 @@ mod tests {
             registry.begin_reaction(target),
             "the slot must be reusable once the toggle has completed"
         );
+    }
+
+    #[test]
+    fn no_timeout_wraps_a_call_that_queues_a_message() {
+        let source = include_str!("timeline.rs");
+        let wrapped = ["bounded(timeline.send", "bounded(room.send", "bounded(queue.send"];
+        let guard = format!("{}{}", "fn no_timeout_wraps", "_a_call");
+        let production = source.split(&guard).next().unwrap();
+        for needle in wrapped {
+            assert!(!production.contains(needle), "{needle} can fail a sent message");
+        }
     }
 
     #[test]
