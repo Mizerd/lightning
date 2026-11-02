@@ -1772,6 +1772,43 @@ private Q_SLOTS:
         QVERIFY(!strip());
     }
 
+    void aPlainTextRowBuildsNoneOfItsRareParts()
+    {
+        AppController app(AppController::MockBackend);
+        QVERIFY(app.settings());
+        QVariantMap f = baseFixture();
+        f.insert(QStringLiteral("readReceipts"), QVariantList{});
+        f.insert(QStringLiteral("readReceiptsTotal"), 0);
+        f.insert(QStringLiteral("sentReceipt"), false);
+        f.insert(QStringLiteral("reactions"), QVariantList{});
+        Delegate d;
+        QVERIFY(build(app, f, d));
+        for (const char *name : {"readReceiptStrip", "reactionsFlow",
+                                 "replyNavigationTarget", "stateActivityGroup",
+                                 "unreadDivider", "undecryptableActions",
+                                 "decryptingSkeleton"}) {
+            QVERIFY2(!d.root->findChild<QObject *>(QLatin1String(name)), name);
+        }
+        const auto objects = d.root->findChildren<QObject *>().size();
+        QVERIFY2(objects < 250, qPrintable(QString::number(objects)));
+    }
+
+    void aGroupOfCallEventsOnlyTakesNoHeight()
+    {
+        AppController app(AppController::MockBackend);
+        QVariantMap f = baseFixture();
+        f.insert(QStringLiteral("isStateActivity"), true);
+        f.insert(QStringLiteral("stateGroupLeader"), true);
+        f.insert(QStringLiteral("stateGroupId"), QStringLiteral("g"));
+        QVariantMap call;
+        call.insert(QStringLiteral("eventKind"), QStringLiteral("m.call"));
+        f.insert(QStringLiteral("stateGroupEntries"), QVariantList{call});
+        Delegate d;
+        QVERIFY(build(app, f, d));
+        QCoreApplication::processEvents();
+        QCOMPARE(d.root->implicitHeight(), 0.0);
+    }
+
     void theActionBarDoesNotCoverAShortOwnBubble()
     {
         AppController app(AppController::MockBackend);
