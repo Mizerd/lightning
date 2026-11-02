@@ -982,12 +982,12 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     <message>
         <location filename="../qml/LoginScreen.qml" line="+572"/>
         <location filename="../src/app/AppController.cpp" line="+7449"/>
-        <location line="+1239"/>
+        <location line="+1234"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
         <translation>Lightning kann die gespeicherten Anmeldungen dieses Geräts gerade nicht lesen – der System-Schlüsselbund ist gesperrt oder nicht verfügbar. Entsperre ihn und versuche es erneut.</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-8029"/>
+        <location filename="../src/app/AppController.cpp" line="-8024"/>
         <location line="+3397"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
@@ -1060,13 +1060,13 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     <message>
         <location line="+1"/>
         <location line="+55"/>
-        <location line="+4837"/>
-        <location line="+986"/>
+        <location line="+4832"/>
+        <location line="+993"/>
         <source>Not connected</source>
         <translation>Nicht verbunden</translation>
     </message>
     <message>
-        <location line="-5875"/>
+        <location line="-5877"/>
         <source>Connecting…</source>
         <translation>Verbindet …</translation>
     </message>
@@ -1134,12 +1134,12 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4580"/>
+        <location line="+4575"/>
         <source>Not signed in.</source>
         <translation>Nicht angemeldet.</translation>
     </message>
     <message>
-        <location line="-4578"/>
+        <location line="-4573"/>
         <source>Room-key import failed.</source>
         <translation>Der Raumschlüssel-Import ist fehlgeschlagen.</translation>
     </message>
@@ -1370,15 +1370,15 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <translation>Das Löschen der lokalen Daten dieses Geräts würde das nicht beheben und Verschlüsselungsschlüssel zerstören, die du noch brauchst.</translation>
     </message>
     <message>
-        <location line="+659"/>
-        <location line="+977"/>
+        <location line="+654"/>
+        <location line="+984"/>
         <location line="+867"/>
         <location line="+15"/>
         <source>Removal did not finish: the account&apos;s data is still in use. Nothing was deleted.</source>
         <translation>Entfernen nicht abgeschlossen: Die Daten des Kontos sind noch in Gebrauch. Es wurde nichts gelöscht.</translation>
     </message>
     <message>
-        <location line="-1824"/>
+        <location line="-1831"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Your other accounts are still on this device; unlock the keyring and restart Lightning to continue with them.</source>
         <translation>Lightning kann die gespeicherten Anmeldungen dieses Geräts gerade nicht lesen – der System-Schlüsselbund ist gesperrt oder nicht verfügbar. Deine anderen Konten sind weiterhin auf diesem Gerät; entsperre den Schlüsselbund und starte Lightning neu, um mit ihnen fortzufahren.</translation>
     </message>
@@ -1415,12 +1415,12 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
     </message>
     <message>
         <location line="+46"/>
-        <location line="+720"/>
+        <location line="+727"/>
         <source>That account is not signed in on this device.</source>
         <translation>Dieses Konto ist auf diesem Gerät nicht angemeldet.</translation>
     </message>
     <message>
-        <location line="-688"/>
+        <location line="-695"/>
         <source>That account&apos;s sign-in has expired. Sign in to it again.</source>
         <translation>Die Anmeldung dieses Kontos ist abgelaufen. Melde dich erneut an.</translation>
     </message>
@@ -1440,7 +1440,7 @@ Deine Verschlüsselungsschlüssel, deine Anmeldung und alle Nachrichten auf dem 
         <translation>Das ausgewählte Konto konnte nicht aktiviert werden.</translation>
     </message>
     <message>
-        <location line="+289"/>
+        <location line="+296"/>
         <location line="+852"/>
         <source>This account can&apos;t be removed while the system keyring can&apos;t be read: its saved sign-in is there and would be left behind. Unlock the keyring, or start it, and try again.</source>
         <translation>Dieses Konto kann nicht entfernt werden, solange der System-Schlüsselbund nicht gelesen werden kann: Seine gespeicherte Anmeldung liegt dort und würde zurückbleiben. Entsperre oder starte den Schlüsselbund und versuche es erneut.</translation>
@@ -28463,7 +28463,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
 <context>
     <name>SpacesRail</name>
     <message>
-        <location filename="../qml/SpacesRail.qml" line="+986"/>
+        <location filename="../qml/SpacesRail.qml" line="+988"/>
         <location line="+4"/>
         <location line="+1173"/>
         <location line="+163"/>
@@ -32575,7 +32575,12 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Es werden die ersten 60 von %1 angezeigt.</translation>
     </message>
     <message>
-        <location line="-334"/>
+        <location line="+120"/>
+        <source>You are the only administrator. If you leave, nobody will be able to change this Space&apos;s settings or manage its rooms and members. Make someone else an administrator first.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-454"/>
         <source>Choose Space avatar</source>
         <translation>Space-Avatar auswählen</translation>
     </message>
@@ -32680,12 +32685,7 @@ Hinweis: Der Import von Schlüsseln verifiziert diese Sitzung nicht.</translatio
         <translation>Die darin enthaltenen Räume bleiben unberührt.</translation>
     </message>
     <message>
-        <location line="+17"/>
-        <source>You are the only administrator. If you leave, nobody will be able to change this room&apos;s settings or manage its members. Make someone else an administrator first.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+66"/>
+        <location line="+83"/>
         <source>Add a room to %1</source>
         <translation>Einen Raum zu %1 hinzufügen</translation>
     </message>

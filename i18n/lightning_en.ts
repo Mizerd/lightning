@@ -978,12 +978,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+8591"/>
+        <location filename="../src/app/AppController.cpp" line="+8586"/>
         <source>Room invitation</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5608"/>
+        <location line="-5603"/>
         <source>Joined %1</source>
         <translation>Joined %1</translation>
     </message>
@@ -1161,13 +1161,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+1"/>
         <location line="+55"/>
-        <location line="+4837"/>
-        <location line="+986"/>
+        <location line="+4832"/>
+        <location line="+993"/>
         <source>Not connected</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5875"/>
+        <location line="-5877"/>
         <source>Connecting…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1240,12 +1240,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4580"/>
+        <location line="+4575"/>
         <source>Not signed in.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4578"/>
+        <location line="-4573"/>
         <source>Room-key import failed.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1497,15 +1497,15 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+659"/>
-        <location line="+977"/>
+        <location line="+654"/>
+        <location line="+984"/>
         <location line="+867"/>
         <location line="+15"/>
         <source>Removal did not finish: the account&apos;s data is still in use. Nothing was deleted.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-1824"/>
+        <location line="-1831"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Your other accounts are still on this device; unlock the keyring and restart Lightning to continue with them.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1537,12 +1537,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+177"/>
-        <location line="+720"/>
+        <location line="+727"/>
         <source>That account is not signed in on this device.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-688"/>
+        <location line="-695"/>
         <source>That account&apos;s sign-in has expired. Sign in to it again.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1552,7 +1552,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+397"/>
+        <location line="+404"/>
         <location line="+852"/>
         <source>This account can&apos;t be removed while the system keyring can&apos;t be read: its saved sign-in is there and would be left behind. Unlock the keyring, or start it, and try again.</source>
         <translation type="unfinished"></translation>
@@ -1595,8 +1595,8 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+572"/>
-        <location filename="../src/app/AppController.cpp" line="-2602"/>
-        <location line="+1239"/>
+        <location filename="../src/app/AppController.cpp" line="-2604"/>
+        <location line="+1234"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -28443,7 +28443,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SpacesRail</name>
     <message>
-        <location filename="../qml/SpacesRail.qml" line="+986"/>
+        <location filename="../qml/SpacesRail.qml" line="+988"/>
         <location line="+4"/>
         <location line="+1173"/>
         <location line="+163"/>
@@ -32345,6 +32345,11 @@ Note: importing keys does not verify this session.</source>
         <source>The banner could not be saved (%1).</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <location line="+657"/>
+        <source>You are the only administrator. If you leave, nobody will be able to change this Space&apos;s settings or manage its rooms and members. Make someone else an administrator first.</source>
+        <translation type="unfinished"></translation>
+    </message>
     <message numerus="yes">
         <location filename="../qml/SpaceLobby.qml" line="+140"/>
         <source>%n room(s)</source>
@@ -32355,7 +32360,7 @@ Note: importing keys does not verify this session.</source>
         </translation>
     </message>
     <message numerus="yes">
-        <location filename="../qml/TimelinePane.qml" line="+68"/>
+        <location filename="../qml/TimelinePane.qml" line="-589"/>
         <source>%n joined room(s)</source>
         <comment>joined rooms inside a Space</comment>
         <translation>
@@ -32660,12 +32665,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+17"/>
-        <source>You are the only administrator. If you leave, nobody will be able to change this room&apos;s settings or manage its members. Make someone else an administrator first.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+66"/>
+        <location line="+83"/>
         <source>Add a room to %1</source>
         <translation type="unfinished"></translation>
     </message>

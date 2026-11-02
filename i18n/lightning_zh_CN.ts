@@ -970,7 +970,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+8591"/>
+        <location filename="../src/app/AppController.cpp" line="+8586"/>
         <source>Room invitation</source>
         <translation>房间邀请</translation>
     </message>
@@ -1090,7 +1090,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>来电</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-6571"/>
+        <location filename="../src/app/AppController.cpp" line="-6566"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>因账号已变更，退出登录已取消。未重置任何内容。</translation>
     </message>
@@ -1142,13 +1142,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+1"/>
         <location line="+55"/>
-        <location line="+4837"/>
-        <location line="+986"/>
+        <location line="+4832"/>
+        <location line="+993"/>
         <source>Not connected</source>
         <translation>未连接</translation>
     </message>
     <message>
-        <location line="-5875"/>
+        <location line="-5877"/>
         <source>Connecting…</source>
         <translation>正在连接…</translation>
     </message>
@@ -1221,12 +1221,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4580"/>
+        <location line="+4575"/>
         <source>Not signed in.</source>
         <translation>尚未登录。</translation>
     </message>
     <message>
-        <location line="-4578"/>
+        <location line="-4573"/>
         <source>Room-key import failed.</source>
         <translation>房间密钥导入失败。</translation>
     </message>
@@ -1488,15 +1488,15 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>清除此设备的本地数据无法解决该问题，反而会销毁你仍然需要的加密密钥。</translation>
     </message>
     <message>
-        <location line="+659"/>
-        <location line="+977"/>
+        <location line="+654"/>
+        <location line="+984"/>
         <location line="+867"/>
         <location line="+15"/>
         <source>Removal did not finish: the account&apos;s data is still in use. Nothing was deleted.</source>
         <translation>移除未完成：该账号的数据仍在使用中。未删除任何内容。</translation>
     </message>
     <message>
-        <location line="-1824"/>
+        <location line="-1831"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Your other accounts are still on this device; unlock the keyring and restart Lightning to continue with them.</source>
         <translation>Lightning 目前无法读取本设备保存的登录信息：系统密钥环已锁定或不可用。你的其他账号仍保存在本设备上；请解锁密钥环并重新启动 Lightning 以继续使用它们。</translation>
     </message>
@@ -1528,12 +1528,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+177"/>
-        <location line="+720"/>
+        <location line="+727"/>
         <source>That account is not signed in on this device.</source>
         <translation>该账号未在此设备上登录。</translation>
     </message>
     <message>
-        <location line="-688"/>
+        <location line="-695"/>
         <source>That account&apos;s sign-in has expired. Sign in to it again.</source>
         <translation>该账号的登录已过期，请重新登录。</translation>
     </message>
@@ -1543,7 +1543,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>系统密钥环不再返回该账号保存的登录信息。未删除任何内容：请重新登录该账号以继续在本设备上使用。</translation>
     </message>
     <message>
-        <location line="+397"/>
+        <location line="+404"/>
         <location line="+852"/>
         <source>This account can&apos;t be removed while the system keyring can&apos;t be read: its saved sign-in is there and would be left behind. Unlock the keyring, or start it, and try again.</source>
         <translation>在系统密钥环无法读取时，无法移除此账号：其保存的登录信息仍在，移除后会残留。请解锁或启动密钥环后重试。</translation>
@@ -1586,8 +1586,8 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+572"/>
-        <location filename="../src/app/AppController.cpp" line="-2602"/>
-        <location line="+1239"/>
+        <location filename="../src/app/AppController.cpp" line="-2604"/>
+        <location line="+1234"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
         <translation>Lightning 目前无法读取本设备保存的登录信息：系统密钥环已锁定或不可用。请解锁后重试。</translation>
     </message>
@@ -28375,7 +28375,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SpacesRail</name>
     <message>
-        <location filename="../qml/SpacesRail.qml" line="+986"/>
+        <location filename="../qml/SpacesRail.qml" line="+988"/>
         <location line="+4"/>
         <location line="+1173"/>
         <location line="+163"/>
@@ -32220,6 +32220,11 @@ Note: importing keys does not verify this session.</source>
         <source>The banner could not be saved (%1).</source>
         <translation>横幅无法保存（%1）。</translation>
     </message>
+    <message>
+        <location line="+657"/>
+        <source>You are the only administrator. If you leave, nobody will be able to change this Space&apos;s settings or manage its rooms and members. Make someone else an administrator first.</source>
+        <translation type="unfinished"></translation>
+    </message>
     <message numerus="yes">
         <location filename="../qml/SpaceLobby.qml" line="+140"/>
         <source>%n room(s)</source>
@@ -32229,7 +32234,7 @@ Note: importing keys does not verify this session.</source>
         </translation>
     </message>
     <message numerus="yes">
-        <location filename="../qml/TimelinePane.qml" line="+68"/>
+        <location filename="../qml/TimelinePane.qml" line="-589"/>
         <source>%n joined room(s)</source>
         <comment>joined rooms inside a Space</comment>
         <translation type="unfinished">
@@ -32533,12 +32538,7 @@ Note: importing keys does not verify this session.</source>
         <translation>其中的房间不受影响。</translation>
     </message>
     <message>
-        <location line="+17"/>
-        <source>You are the only administrator. If you leave, nobody will be able to change this room&apos;s settings or manage its members. Make someone else an administrator first.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+66"/>
+        <location line="+83"/>
         <source>Add a room to %1</source>
         <translation>向 %1 添加房间</translation>
     </message>

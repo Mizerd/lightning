@@ -978,7 +978,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+8591"/>
+        <location filename="../src/app/AppController.cpp" line="+8586"/>
         <source>Room invitation</source>
         <translation>রুমের আমন্ত্রণ</translation>
     </message>
@@ -1099,7 +1099,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>আগত কল</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-6571"/>
+        <location filename="../src/app/AppController.cpp" line="-6566"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>অ্যাকাউন্ট বদলে যাওয়ায় সাইন আউট বাতিল হয়েছে। কিছুই রিসেট হয়নি।</translation>
     </message>
@@ -1151,13 +1151,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+1"/>
         <location line="+55"/>
-        <location line="+4837"/>
-        <location line="+986"/>
+        <location line="+4832"/>
+        <location line="+993"/>
         <source>Not connected</source>
         <translation>সংযুক্ত নয়</translation>
     </message>
     <message>
-        <location line="-5875"/>
+        <location line="-5877"/>
         <source>Connecting…</source>
         <translation>সংযোগ করা হচ্ছে…</translation>
     </message>
@@ -1230,12 +1230,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4580"/>
+        <location line="+4575"/>
         <source>Not signed in.</source>
         <translation>সাইন ইন করা নেই।</translation>
     </message>
     <message>
-        <location line="-4578"/>
+        <location line="-4573"/>
         <source>Room-key import failed.</source>
         <translation>রুম-কী আমদানি ব্যর্থ হয়েছে।</translation>
     </message>
@@ -1497,15 +1497,15 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>এই ডিভাইসের স্থানীয় ডেটা মুছলে এটি ঠিক হবে না, বরং আপনার এখনও প্রয়োজনীয় এনক্রিপশন কী নষ্ট হবে।</translation>
     </message>
     <message>
-        <location line="+659"/>
-        <location line="+977"/>
+        <location line="+654"/>
+        <location line="+984"/>
         <location line="+867"/>
         <location line="+15"/>
         <source>Removal did not finish: the account&apos;s data is still in use. Nothing was deleted.</source>
         <translation>অপসারণ সম্পন্ন হয়নি: অ্যাকাউন্টের ডেটা এখনও ব্যবহৃত হচ্ছে। কিছুই মোছা হয়নি।</translation>
     </message>
     <message>
-        <location line="-1824"/>
+        <location line="-1831"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Your other accounts are still on this device; unlock the keyring and restart Lightning to continue with them.</source>
         <translation>Lightning এখন এই ডিভাইসের সংরক্ষিত সাইন-ইন পড়তে পারছে না — সিস্টেম কীরিং লক করা বা অনুপলব্ধ। আপনার অন্য অ্যাকাউন্টগুলো এখনও এই ডিভাইসে আছে; সেগুলো নিয়ে চালিয়ে যেতে কীরিং আনলক করে Lightning পুনরায় চালু করুন।</translation>
     </message>
@@ -1537,12 +1537,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+177"/>
-        <location line="+720"/>
+        <location line="+727"/>
         <source>That account is not signed in on this device.</source>
         <translation>ওই অ্যাকাউন্টটি এই ডিভাইসে সাইন ইন করা নেই।</translation>
     </message>
     <message>
-        <location line="-688"/>
+        <location line="-695"/>
         <source>That account&apos;s sign-in has expired. Sign in to it again.</source>
         <translation>ওই অ্যাকাউন্টের সাইন-ইনের মেয়াদ শেষ হয়েছে। আবার সাইন ইন করুন।</translation>
     </message>
@@ -1552,7 +1552,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>আপনার সিস্টেম কীরিং আর ওই অ্যাকাউন্টের সংরক্ষিত সাইন-ইন ফেরত দিচ্ছে না। কিছুই মোছা হয়নি: এই ডিভাইসে চালিয়ে যেতে আবার সাইন ইন করুন।</translation>
     </message>
     <message>
-        <location line="+397"/>
+        <location line="+404"/>
         <location line="+852"/>
         <source>This account can&apos;t be removed while the system keyring can&apos;t be read: its saved sign-in is there and would be left behind. Unlock the keyring, or start it, and try again.</source>
         <translation>সিস্টেম কীরিং পড়া না গেলে এই অ্যাকাউন্ট সরানো যাবে না: এর সংরক্ষিত সাইন-ইন সেখানে আছে এবং পেছনে থেকে যাবে। কীরিং আনলক করুন বা চালু করুন, তারপর আবার চেষ্টা করুন।</translation>
@@ -1595,8 +1595,8 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+572"/>
-        <location filename="../src/app/AppController.cpp" line="-2602"/>
-        <location line="+1239"/>
+        <location filename="../src/app/AppController.cpp" line="-2604"/>
+        <location line="+1234"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
         <translation>Lightning এখন এই ডিভাইসের সংরক্ষিত সাইন-ইন পড়তে পারছে না — সিস্টেম কীরিং লক করা বা অনুপলব্ধ। এটি আনলক করে আবার চেষ্টা করুন।</translation>
     </message>
@@ -28454,7 +28454,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SpacesRail</name>
     <message>
-        <location filename="../qml/SpacesRail.qml" line="+986"/>
+        <location filename="../qml/SpacesRail.qml" line="+988"/>
         <location line="+4"/>
         <location line="+1173"/>
         <location line="+163"/>
@@ -32351,6 +32351,11 @@ Note: importing keys does not verify this session.</source>
         <source>The banner could not be saved (%1).</source>
         <translation>ব্যানারটি সংরক্ষণ করা যায়নি (%1)।</translation>
     </message>
+    <message>
+        <location line="+657"/>
+        <source>You are the only administrator. If you leave, nobody will be able to change this Space&apos;s settings or manage its rooms and members. Make someone else an administrator first.</source>
+        <translation type="unfinished"></translation>
+    </message>
     <message numerus="yes">
         <location filename="../qml/SpaceLobby.qml" line="+140"/>
         <source>%n room(s)</source>
@@ -32361,7 +32366,7 @@ Note: importing keys does not verify this session.</source>
         </translation>
     </message>
     <message numerus="yes">
-        <location filename="../qml/TimelinePane.qml" line="+68"/>
+        <location filename="../qml/TimelinePane.qml" line="-589"/>
         <source>%n joined room(s)</source>
         <comment>joined rooms inside a Space</comment>
         <translation type="unfinished">
@@ -32671,12 +32676,7 @@ Note: importing keys does not verify this session.</source>
         <translation>ভেতরের রুমগুলি অক্ষত থাকে।</translation>
     </message>
     <message>
-        <location line="+17"/>
-        <source>You are the only administrator. If you leave, nobody will be able to change this room&apos;s settings or manage its members. Make someone else an administrator first.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+66"/>
+        <location line="+83"/>
         <source>Add a room to %1</source>
         <translation>%1-এ একটি রুম যোগ করুন</translation>
     </message>

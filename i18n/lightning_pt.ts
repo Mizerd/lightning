@@ -980,7 +980,7 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+8591"/>
+        <location filename="../src/app/AppController.cpp" line="+8586"/>
         <source>Room invitation</source>
         <translation>Convite para a sala</translation>
     </message>
@@ -1101,7 +1101,7 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
         <translation>Chamada recebida</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-6571"/>
+        <location filename="../src/app/AppController.cpp" line="-6566"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>O fim da sessão foi cancelado porque a conta mudou. Nada foi reposto.</translation>
     </message>
@@ -1153,13 +1153,13 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
     <message>
         <location line="+1"/>
         <location line="+55"/>
-        <location line="+4837"/>
-        <location line="+986"/>
+        <location line="+4832"/>
+        <location line="+993"/>
         <source>Not connected</source>
         <translation>Sem ligação</translation>
     </message>
     <message>
-        <location line="-5875"/>
+        <location line="-5877"/>
         <source>Connecting…</source>
         <translation>A ligar…</translation>
     </message>
@@ -1232,12 +1232,12 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4580"/>
+        <location line="+4575"/>
         <source>Not signed in.</source>
         <translation>Sessão não iniciada.</translation>
     </message>
     <message>
-        <location line="-4578"/>
+        <location line="-4573"/>
         <source>Room-key import failed.</source>
         <translation>A importação de chaves de sala falhou.</translation>
     </message>
@@ -1499,15 +1499,15 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
         <translation>Limpar os dados locais deste dispositivo não resolveria isto e destruiria chaves de encriptação de que ainda precisa.</translation>
     </message>
     <message>
-        <location line="+659"/>
-        <location line="+977"/>
+        <location line="+654"/>
+        <location line="+984"/>
         <location line="+867"/>
         <location line="+15"/>
         <source>Removal did not finish: the account&apos;s data is still in use. Nothing was deleted.</source>
         <translation>A remoção não terminou: os dados da conta ainda estão em uso. Nada foi eliminado.</translation>
     </message>
     <message>
-        <location line="-1824"/>
+        <location line="-1831"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Your other accounts are still on this device; unlock the keyring and restart Lightning to continue with them.</source>
         <translation>O Lightning não consegue ler neste momento os inícios de sessão guardados neste dispositivo — o porta-chaves do sistema está bloqueado ou indisponível. As suas outras contas continuam neste dispositivo; desbloqueie o porta-chaves e reinicie o Lightning para continuar com elas.</translation>
     </message>
@@ -1539,12 +1539,12 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
     </message>
     <message>
         <location line="+177"/>
-        <location line="+720"/>
+        <location line="+727"/>
         <source>That account is not signed in on this device.</source>
         <translation>Essa conta não tem sessão iniciada neste dispositivo.</translation>
     </message>
     <message>
-        <location line="-688"/>
+        <location line="-695"/>
         <source>That account&apos;s sign-in has expired. Sign in to it again.</source>
         <translation>O início de sessão dessa conta expirou. Inicie sessão novamente.</translation>
     </message>
@@ -1554,7 +1554,7 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
         <translation>O porta-chaves do sistema já não devolve o início de sessão guardado dessa conta. Nada foi eliminado: volte a iniciar sessão nela para continuar neste dispositivo.</translation>
     </message>
     <message>
-        <location line="+397"/>
+        <location line="+404"/>
         <location line="+852"/>
         <source>This account can&apos;t be removed while the system keyring can&apos;t be read: its saved sign-in is there and would be left behind. Unlock the keyring, or start it, and try again.</source>
         <translation>Esta conta não pode ser removida enquanto o porta-chaves do sistema não puder ser lido: o seu início de sessão guardado está lá e ficaria para trás. Desbloqueie o porta-chaves, ou inicie-o, e tente novamente.</translation>
@@ -1597,8 +1597,8 @@ Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensa
     </message>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+572"/>
-        <location filename="../src/app/AppController.cpp" line="-2602"/>
-        <location line="+1239"/>
+        <location filename="../src/app/AppController.cpp" line="-2604"/>
+        <location line="+1234"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
         <translation>O Lightning não consegue ler neste momento os inícios de sessão guardados neste dispositivo — o porta-chaves do sistema está bloqueado ou indisponível. Desbloqueie-o e tente novamente.</translation>
     </message>
@@ -28463,7 +28463,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
 <context>
     <name>SpacesRail</name>
     <message>
-        <location filename="../qml/SpacesRail.qml" line="+986"/>
+        <location filename="../qml/SpacesRail.qml" line="+988"/>
         <location line="+4"/>
         <location line="+1173"/>
         <location line="+163"/>
@@ -32360,6 +32360,11 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <source>The banner could not be saved (%1).</source>
         <translation>Não foi possível guardar o banner (%1).</translation>
     </message>
+    <message>
+        <location line="+657"/>
+        <source>You are the only administrator. If you leave, nobody will be able to change this Space&apos;s settings or manage its rooms and members. Make someone else an administrator first.</source>
+        <translation type="unfinished"></translation>
+    </message>
     <message numerus="yes">
         <location filename="../qml/SpaceLobby.qml" line="+140"/>
         <source>%n room(s)</source>
@@ -32370,7 +32375,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
         </translation>
     </message>
     <message numerus="yes">
-        <location filename="../qml/TimelinePane.qml" line="+68"/>
+        <location filename="../qml/TimelinePane.qml" line="-589"/>
         <source>%n joined room(s)</source>
         <comment>joined rooms inside a Space</comment>
         <translation type="unfinished">
@@ -32680,12 +32685,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation>As salas lá dentro não são afetadas.</translation>
     </message>
     <message>
-        <location line="+17"/>
-        <source>You are the only administrator. If you leave, nobody will be able to change this room&apos;s settings or manage its members. Make someone else an administrator first.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+66"/>
+        <location line="+83"/>
         <source>Add a room to %1</source>
         <translation>Adicionar uma sala a %1</translation>
     </message>
