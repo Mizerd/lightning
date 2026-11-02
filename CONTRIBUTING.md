@@ -12,6 +12,10 @@ GitLab, which is not open to the public and which GitHub is synchronised from
 (force-pushed): anything committed directly to GitHub's own branches is
 overwritten by the next push.
 
+Release packages are also mirrored to
+<https://gitlab.com/lightning-matrix/lightning> as a last-resort download
+source. Send issues and pull requests to GitHub, not there.
+
 Anyone can clone the repository. There are two ways to send a change and
 neither needs an account anywhere but GitHub — a pull request is the simpler of
 the two.

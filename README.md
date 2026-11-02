@@ -1,33 +1,73 @@
 <div align="center">
 
-<img src="data/icons/lightning.svg" width="96" alt="">
+<img src="data/icons/lightning.svg" width="96" alt="Lightning logo">
 
 # Lightning
 
-A native desktop Matrix client: Qt 6 on top of the official Rust Matrix SDK.
+**A native Matrix client for the desktop. Qt 6, not Electron.**<br>
+Built on the official Rust Matrix SDK, with search that works in encrypted
+rooms and MatrixRTC group calls.
 
+[![Latest release](https://img.shields.io/github/v/release/Mizerd/lightning?label=release)](https://github.com/Mizerd/lightning/releases/latest)
 [![Flathub](https://img.shields.io/flathub/v/org.lightning_matrix.Lightning?logo=flathub&label=flathub)](https://flathub.org/apps/org.lightning_matrix.Lightning)
-[![Latest release](https://img.shields.io/github/v/release/Mizerd/lightning?label=release)](https://github.com/Mizerd/lightning/releases)
 [![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue.svg)](LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/Mizerd/lightning?style=flat&logo=github)](https://github.com/Mizerd/lightning/stargazers)
 [![Matrix room](https://img.shields.io/badge/matrix-%23lightning%3Amatrix.smetonis.net-0dbd8b?logo=matrix)](https://matrix.to/#/%23lightning%3Amatrix.smetonis.net)
 
+**[Website](https://www.lightning-matrix.org)** ·
+**[Get it on Flathub](https://flathub.org/apps/org.lightning_matrix.Lightning)** ·
+**[All downloads](https://github.com/Mizerd/lightning/releases/latest)** ·
+**[Install guide](docs/install.md)**
+
+<a href="https://flathub.org/apps/org.lightning_matrix.Lightning"><img width="200" alt="Get it on Flathub" src="https://flathub.org/api/badge?locale=en"></a>
+
+<img src="docs/screenshots/flathub/01-conversation.png" width="900" alt="Lightning in its default theme: a room conversation with a shared picture, replies, reactions and a thread">
+
+<table>
+  <tr>
+    <td><img src="docs/screenshots/flathub/02-call.png" width="280" alt="A group call with a screen share on the stage"></td>
+    <td><img src="docs/screenshots/flathub/03-threads.png" width="280" alt="A thread and its replies beside the conversation"></td>
+    <td><img src="docs/screenshots/flathub/04-themes.png" width="280" alt="The theme editor building a custom theme"></td>
+  </tr>
+  <tr>
+    <td align="center">Group calls</td>
+    <td align="center">Threads</td>
+    <td align="center">Themes</td>
+  </tr>
+</table>
+
 </div>
+
+> **Beta.** Lightning is usable day to day but young, and is listed as Beta in
+> the [Matrix client directory](https://matrix.org/ecosystem/clients/lightning/).
+> Expect rough edges, and please [report them](https://github.com/Mizerd/lightning/issues).
+
+## Why Lightning
+
+- **Actually native.** Qt 6 / QML with C++ for the app. No Electron, no web
+  view, not a fork of another client.
+- **The official SDK does the Matrix part.** Sync, timelines, threads, media
+  and end-to-end encryption come from `matrix-rust-sdk`. Lightning implements
+  no cryptography of its own.
+- **Search that covers encrypted rooms.** A local index on your computer, since
+  a server cannot search ciphertext. The catch: message content is stored
+  unencrypted on disk (see [Security and privacy](#security-and-privacy)).
+- **Group calls.** MatrixRTC audio, camera and screen sharing, tested against
+  Element Call, Sable and Lightning on Linux and Windows. Not tested on macOS.
+- **Linux first, also Windows and macOS.** Flatpak, AppImage, deb, rpm, snap,
+  a Nix flake, and Windows and macOS builds. Windows and macOS packages are
+  unsigned.
+- **No telemetry.** No analytics or crash reporting. Lightning has not been
+  formally security audited.
+- **Free software.** GPL-3.0-or-later.
+
+If Lightning is useful to you, a star on GitHub helps other people find it.
+Bug reports and patches help more: see [Contributing](#contributing).
 
 Lightning is a [Matrix](https://matrix.org/) client for Linux, Windows and
 macOS. The interface is Qt 6 / QML with C++ for the application layer, and the
 official [`matrix-rust-sdk`](https://github.com/matrix-org/matrix-rust-sdk)
 does synchronisation, timelines, end-to-end encryption, threads and media.
-Lightning implements no Matrix cryptography of its own. It is not Electron,
-not a web view, and not a fork of another client.
-
-Linux is the primary target. Lightning is usable day to day but young: it is
-listed as **Beta** in the [Matrix client
-directory](https://matrix.org/ecosystem/clients/lightning/), so expect rough
-edges.
-
-<p align="center">
-  <img src="docs/screenshots/readme-hero.png" width="800" alt="Lightning in its default dark theme: a room conversation with a shared picture, replies, reactions and a thread">
-</p>
 
 ## Features
 
@@ -63,9 +103,7 @@ with a configuration-file example.
 
 ## Install
 
-<a href="https://flathub.org/apps/org.lightning_matrix.Lightning"><img width="200" alt="Get it on Flathub" src="https://flathub.org/api/badge?locale=en"></a>
-
-On Linux, Flathub is the easiest route. The Flatpak brings its own Qt,
+On Linux, [Flathub](https://flathub.org/apps/org.lightning_matrix.Lightning) is the easiest route. The Flatpak brings its own Qt,
 GStreamer and C library, so it also runs on distributions too old for the deb,
 the rpm and the AppImage.
 
@@ -110,6 +148,13 @@ Bug reports, testing and focused patches are welcome. Read
   is synchronised from, and then closed, not merged, even when it ships. The
   [issue tracker](https://github.com/Mizerd/lightning/issues) is the place to
   report a bug.
+- Credit: your commits keep your name and email whichever route you use, and
+  you appear in the contributor list. Details in
+  [CONTRIBUTING.md](CONTRIBUTING.md).
+- Mirrors: GitHub is the public home and the place for issues and pull
+  requests. Release packages are also mirrored to
+  [gitlab.com/lightning-matrix/lightning](https://gitlab.com/lightning-matrix/lightning)
+  as a last-resort download source. It is not a separate project.
 - Chat: [#lightning:matrix.smetonis.net](https://matrix.to/#/%23lightning%3Amatrix.smetonis.net).
   Website: <https://www.lightning-matrix.org>.
 
