@@ -985,7 +985,8 @@ private Q_SLOTS:
         QVERIFY(bridge.open(QIODevice::ReadOnly));
         const QString bridgeSrc = QString::fromUtf8(bridge.readAll());
         QVERIFY(bridgeSrc.contains(QStringLiteral("bootstrap_cross_signing(")));
-        QVERIFY(bridgeSrc.contains(QStringLiteral("recovery.enable()")));
+        QVERIFY(bridgeSrc.contains(QStringLiteral("StoragePlan::EnableRecovery) => recovery")));
+        QVERIFY(bridgeSrc.contains(QStringLiteral(".enable()")));
     }
 
     void unreadNavigationUsesSdkMarkerAndBottomThreshold()
@@ -1787,7 +1788,7 @@ private Q_SLOTS:
     {
         const QString pane = read(QStringLiteral("TimelinePane.qml"));
         const int shortcutAt = pane.indexOf(QStringLiteral(
-            "// Escape closes the room info panel first"));
+            "!timeline.emojiPickerOpen && !middleClickScroller.active"));
         QVERIFY(shortcutAt >= 0);
         const int handlerAt = pane.indexOf(QStringLiteral("onActivated: {"),
                                            shortcutAt);

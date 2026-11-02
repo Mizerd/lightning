@@ -662,10 +662,10 @@ private slots:
         QVERIFY(file.open(QIODevice::ReadOnly));
         const QString src = QString::fromUtf8(file.readAll());
         QVERIFY(!src.isEmpty());
-        const int at = src.indexOf(QStringLiteral("Storm §3.6 corner watermark"));
+        const int iconAt = src.indexOf(QStringLiteral("name: \"bolt\""));
+        QVERIFY2(iconAt > 0, "the watermark no longer draws a bolt");
+        const int at = src.lastIndexOf(QStringLiteral("Item {"), iconAt);
         QVERIFY2(at > 0, "the watermark block is gone");
-        const int iconAt = src.indexOf(QStringLiteral("name: \"bolt\""), at);
-        QVERIFY2(iconAt > at, "the watermark no longer draws a bolt");
         const QString block = src.mid(at, iconAt - at);
         QVERIFY2(block.contains(QStringLiteral("visible: !bannerImage.visible")),
                  "the bolt is painted over a user's own banner");

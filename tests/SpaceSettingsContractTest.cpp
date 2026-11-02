@@ -209,7 +209,7 @@ private Q_SLOTS:
 
         const int lobby = pane.indexOf(QStringLiteral("SpaceLobby {"), settings);
         const int card = pane.indexOf(QStringLiteral("objectName: \"spacePeopleCard\""));
-        const int end = pane.indexOf(QStringLiteral("// Child-removal confirmation"), card);
+        const int end = pane.indexOf(QStringLiteral("id: removeChildConfirm"), card);
         QVERIFY2(lobby > 0 && card > lobby && end > card,
                  "the people card is no longer after the Space's channel list");
         const QString cardBlock = pane.mid(card, end - card);

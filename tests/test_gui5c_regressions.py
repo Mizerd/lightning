@@ -47,8 +47,8 @@ class Gui5cRegressions(unittest.TestCase):
 
     def test_batch_outcomes_have_the_action_bar_surface(self):
         panel = source("qml/RoomsPanel.qml")
-        overlay = panel.split("// Selection controls float over the list", 1)[1]
-        overlay = overlay.split("// The chosen layout", 1)[0]
+        overlay = "Rectangle {\n" + panel.split("id: batchOverlay\n", 1)[1]
+        overlay = overlay.split("readonly property bool channelsChosen", 1)[0]
         self.assertRegex(overlay, re.compile(
             r"Rectangle\s*\{[^{}]*height: batchOverlayContent.implicitHeight"
             r"[^{}]*color: AppTheme.roomList", re.S))

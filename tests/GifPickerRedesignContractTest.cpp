@@ -51,7 +51,7 @@ private Q_SLOTS:
         QVERIFY(!picker.contains(QStringLiteral("qsTr(\"Favorites\")")));
         const int start = picker.indexOf(QStringLiteral("objectName: \"gifListTabs\""));
         QVERIFY(start >= 0);
-        const int end = picker.indexOf(QStringLiteral("// ── Category chips"), start);
+        const int end = picker.indexOf(QStringLiteral("objectName: \"gifCategoryChips\""), start);
         QVERIFY(end > start);
         const QString block = picker.mid(start, end - start);
         QVERIFY(block.contains(QStringLiteral("value: \"saved\",")));
@@ -170,7 +170,7 @@ private Q_SLOTS:
     void footerKeepsRealAttributionAndAddsSendHintOnly()
     {
         const QString picker = read(QStringLiteral(QML_DIR "/GifPicker.qml"));
-        const int footerStart = picker.indexOf(QStringLiteral("── Footer:"));
+        const int footerStart = picker.indexOf(QStringLiteral("id: footerRow"));
         QVERIFY(footerStart >= 0);
         const QString footer = picker.mid(footerStart);
         QVERIFY(footer.contains(QStringLiteral("text: picker.providerTab ? picker.gif.attribution")));
@@ -293,7 +293,7 @@ private Q_SLOTS:
         {
             const int start = picker.indexOf(QStringLiteral("id: grid"));
             QVERIFY(start >= 0);
-            const int end = picker.indexOf(QStringLiteral("// A highlighted/"), start);
+            const int end = picker.indexOf(QStringLiteral("target: picker.activeModel"), start);
             QVERIFY(end > start);
             const QString gridHead = picker.mid(start, end - start);
             QVERIFY(gridHead.contains(QStringLiteral(

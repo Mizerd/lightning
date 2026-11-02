@@ -4689,7 +4689,7 @@ Item {
 
         const int rowAt = panel.indexOf(QStringLiteral("id: memberRowComponent"));
         QVERIFY2(rowAt > 0, "the member row component is gone");
-        const int rowEnd = panel.indexOf(QStringLiteral("── Widgets"), rowAt);
+        const int rowEnd = panel.indexOf(QStringLiteral("visible: root.section === \"widgets\""), rowAt);
         QVERIFY2(rowEnd > rowAt,
                  "the section after the roster is gone: re-anchor this scope "
                  "rather than deleting the bound, or the check silently "
@@ -5094,7 +5094,7 @@ Item {
                  "the Linux refusals do not come from the policy, or no "
                  "longer tell it whether the build is sandboxed — a Flatpak "
                  "would be told to install a host package it cannot load");
-        QVERIFY2(body.contains(QStringLiteral("offerLinuxDisplayPicker(/*autoSelectSingle=*/true)")),
+        QVERIFY2(body.contains(QStringLiteral("offerLinuxDisplayPicker(true)")),
                  "the no-portal route does not offer Lightning's own picker");
         const int helperBegin = source.indexOf(
             QStringLiteral("void SfuCallController::offerLinuxDisplayPicker("));

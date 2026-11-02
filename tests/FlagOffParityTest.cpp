@@ -313,12 +313,15 @@ private Q_SLOTS:
         QFile file(QStringLiteral(SOURCE_DIR "/src/app/AppController.cpp"));
         QVERIFY(file.open(QIODevice::ReadOnly));
         const QStringList lines = QString::fromUtf8(file.readAll()).split(QLatin1Char('\n'));
-        const QString sectionMarker =
-            QStringLiteral("// ── Concurrent live accounts (Labs) ──");
         int sectionStart = -1;
         for (int i = 0; i < lines.size(); ++i) {
-            if (lines.at(i).startsWith(sectionMarker)) {
-                sectionStart = i;
+            if (lines.at(i).contains(QLatin1String("kStoreCloseBudgetMs == 15000"))) {
+                for (int j = i; j > 0; --j) {
+                    if (lines.at(j).startsWith(QLatin1String("namespace {"))) {
+                        sectionStart = j;
+                        break;
+                    }
+                }
                 break;
             }
         }

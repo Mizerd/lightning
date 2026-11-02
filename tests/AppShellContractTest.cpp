@@ -22,7 +22,7 @@ private slots:
         const QString s = readQml("Main.qml");
         const int pa = s.indexOf(QStringLiteral("objectName: \"cornerPassiveHost\""));
         QVERIFY(pa > 0);
-        const int next = s.indexOf(QStringLiteral("// Picture-in-picture"), pa);
+        const int next = s.indexOf(QStringLiteral("CallPipWindow {"), pa);
         QVERIFY(next > pa);
         const QString host = s.mid(pa, next - pa);
         QVERIFY(!host.contains(QStringLiteral("z: 900")));

@@ -253,7 +253,7 @@ private Q_SLOTS:
         };
         const QString lists = read("src/models/RoomListModel.cpp");
         QVERIFY(!lists.isEmpty());
-        const int chip = lists.indexOf(QStringLiteral("case 3: // Unreads"));
+        const int chip = lists.indexOf(QStringLiteral("case 3:\n"));
         QVERIFY(chip >= 0);
         const QString chipBody = lists.mid(chip, 500);
         QVERIFY2(!chipBody.contains(QStringLiteral("r.hasUnreadMessages")),

@@ -218,7 +218,7 @@ Window {
                                    QStringLiteral("    function insideComposer("));
         const QString cardKeys = slice(QStringLiteral("VerifySessionPrompt.qml"),
                                        QStringLiteral("    signal regionCycleRequested("),
-                                       QStringLiteral("    // (end of the card's F6 hand-off)"));
+                                       QStringLiteral("    visible: opacity > 0\n"));
         QVERIFY2(!body.isEmpty(), "F6 region code missing from MainScreen.qml");
         QVERIFY2(!cardKeys.isEmpty(), "the card's F6 hand-off is missing");
         const QString scene = QStringLiteral(R"QML(
@@ -276,7 +276,7 @@ ApplicationWindow {
     {
         const QString fn = slice(QStringLiteral("MessageDelegate.qml"),
                                  QStringLiteral("    function focusNeighbourRow("),
-                                 QStringLiteral("    // Keyboard focus ring (C74-F02)"));
+                                 QStringLiteral("    Rectangle {\n        objectName: \"messageRowFocusRing\""));
         QVERIFY2(!fn.isEmpty(), "focusNeighbourRow missing from MessageDelegate.qml");
         const QString scene = QStringLiteral(R"QML(
 import QtQuick
@@ -348,7 +348,7 @@ Window {
     {
         const QString fn = slice(QStringLiteral("TimelinePane.qml"),
                                  QStringLiteral("                function revealRow(row) {"),
-                                 QStringLiteral("                // Jump to latest glides"));
+                                 QStringLiteral("                property int smoothJumpViewports"));
         QVERIFY2(!fn.isEmpty(), "revealRow missing from TimelinePane.qml");
         const QString scene = QStringLiteral(R"QML(
 import QtQuick
@@ -415,10 +415,10 @@ Window {
     void closingSettingsRestoresFocus()
     {
         const QString tracker = slice(QStringLiteral("Main.qml"),
-                                      QStringLiteral("    // The last item that held the keyboard focus"),
+                                      QStringLiteral("    property Item lastMainFocus: null"),
                                       QStringLiteral("    Component.onCompleted: {"));
         const QString loaderBody = slice(QStringLiteral("Main.qml"),
-                                         QStringLiteral("        // Closing Settings (Escape) hands the focus back"),
+                                         QStringLiteral("        property Item returnFocusTo: null"),
                                          QStringLiteral("    }\n    Timer {\n        interval: 2500"));
         QVERIFY2(!tracker.isEmpty() && !loaderBody.isEmpty(),
                  "Settings focus code missing from Main.qml");

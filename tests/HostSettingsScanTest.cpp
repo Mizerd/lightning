@@ -238,21 +238,23 @@ void HostSettingsScanTest::appControllersHostWiringNeverReachesTheActiveAccount(
         QFAIL("LIGHTNING_SOURCE_DIR not defined for this target: the scan cannot run");
     const QString text = readSource(QStringLiteral("src/app/AppController.cpp"));
     QVERIFY2(!text.isEmpty(), "AppController.cpp not readable");
-    const QString begin = QStringLiteral("live-accounts host wiring: begin");
-    const QString end = QStringLiteral("live-accounts host wiring: end");
+    const QStringList begins{
+        QStringLiteral("m_accountActivity = std::make_unique<AccountActivityModel>(this);"),
+        QStringLiteral("connect(pool, &la::SessionPool::liveHostCountChanged")};
+    const QStringList ends{
+        QStringLiteral("la::SessionPool *pool = m_sessionPool.get();"),
+        QStringLiteral("connect(m_settings.get(), &SettingsManager::sessionChanged, pool")};
     int regions = 0;
     QStringList all;
-    qsizetype from = 0;
-    while (true) {
-        const qsizetype b = text.indexOf(begin, from);
+    for (int i = 0; i < begins.size(); ++i) {
+        const qsizetype b = text.indexOf(begins.at(i));
         if (b < 0)
-            break;
-        const qsizetype e = text.indexOf(end, b);
+            continue;
+        const qsizetype e = text.indexOf(ends.at(i), b);
         QVERIFY2(e > b, "a host wiring region is never closed");
         ++regions;
         all << violations(QStringLiteral("AppController.cpp (host wiring %1)").arg(regions),
                           text.mid(b, e - b), false);
-        from = e;
     }
     QCOMPARE(regions, 2);
     QVERIFY2(all.isEmpty(), qPrintable(all.join(QLatin1Char('\n'))));

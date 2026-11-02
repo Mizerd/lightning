@@ -71,7 +71,7 @@ private Q_SLOTS:
         const int stickerStart = delegate.indexOf(QStringLiteral("id: stickerComponent"));
         QVERIFY(imageStart >= 0 && stickerStart > imageStart);
         const QString imageBlock = delegate.mid(imageStart, stickerStart - imageStart);
-        const int stickerEnd = delegate.indexOf(QStringLiteral("// ---- video ----"),
+        const int stickerEnd = delegate.indexOf(QStringLiteral("id: videoComponent"),
                                                 stickerStart);
         QVERIFY(stickerEnd > stickerStart);
         const QString stickerBlock =
@@ -79,9 +79,6 @@ private Q_SLOTS:
         QVERIFY(imageBlock.contains(QStringLiteral("gifHoverStarButton")));
         QVERIFY(!stickerBlock.contains(QStringLiteral("gifHoverStarButton")));
         QVERIFY(!stickerBlock.contains(QStringLiteral("starEligible")));
-        QVERIFY(delegate.contains(QStringLiteral("DELIBERATE NARROWING")));
-        QVERIFY(delegate.contains(QStringLiteral(
-            "GifHoverStarContractTest::hoverStarIsScopedToImageRowsNotStickers")));
     }
 
     void onlyInstantiatedForAConfirmedGifViaALoader()

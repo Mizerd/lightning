@@ -7268,10 +7268,10 @@ true);
         const QByteArray handler = c.mid(at, 1800);
         QVERIFY2(handler.contains("portalFailureFallsBackToDisplays(")
                      && handler.contains(
-                         "offerLinuxDisplayPicker(/*autoSelectSingle=*/false)"),
+                         "offerLinuxDisplayPicker(false)"),
                  "the portal failure handler does not fall back to an "
                  "always-asking picker");
-        QVERIFY2(c.contains("offerLinuxDisplayPicker(/*autoSelectSingle=*/true)"),
+        QVERIFY2(c.contains("offerLinuxDisplayPicker(true)"),
                  "the no-portal route lost its single-display shortcut");
         QFile portal(QStringLiteral(SOURCE_DIR "/src/calls/ScreenCastPortal.cpp"));
         QVERIFY(portal.open(QIODevice::ReadOnly));
