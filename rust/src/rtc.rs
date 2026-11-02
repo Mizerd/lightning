@@ -3292,7 +3292,8 @@ pub(crate) fn register_rtc_handlers(
         let events = Arc::clone(events);
         let timelines = Arc::clone(timelines);
         let handle = client.add_event_handler(
-            move |ev: matrix_sdk::ruma::events::room::encrypted::ToDeviceRoomEncryptedEvent| {
+            move |ev: matrix_sdk::ruma::events::room::encrypted::ToDeviceRoomEncryptedEvent,
+                  client: Client| {
                 let events = Arc::clone(&events);
                 let timelines = Arc::clone(&timelines);
                 async move {
@@ -3324,12 +3325,23 @@ pub(crate) fn register_rtc_handlers(
                             );
                         }
                     }
+                    let own_key = client
+                        .encryption()
+                        .curve25519_key()
+                        .await
+                        .map(|k| k.to_base64());
+                    let cause = olm_envelope_cause(
+                        &ev.content.scheme,
+                        own_key.as_deref(),
+                    );
                     enqueue(&events, json!({
                         "type": "rtc_key_discarded",
                         "lifecycle": timelines.lifecycle(),
-                        "reason": "an olm to-device message from them would \
-                                   not decrypt on this device, so if it was \
-                                   carrying the key the key never arrived",
+                        "reason": format!(
+                            "an olm to-device message from them would not \
+                             decrypt on this device, so if it was carrying \
+                             the key the key never arrived ({cause})"
+                        ),
                         "sender": sender,
                     }));
                 }
@@ -3341,10 +3353,55 @@ pub(crate) fn register_rtc_handlers(
     RtcHandlerGuards { _guards: guards }
 }
 
+fn olm_envelope_cause(
+    scheme: &matrix_sdk::ruma::events::room::encrypted::EncryptedEventScheme,
+    own_curve25519: Option<&str>,
+) -> &'static str {
+    use matrix_sdk::ruma::events::room::encrypted::EncryptedEventScheme;
+    match scheme {
+        EncryptedEventScheme::OlmV1Curve25519AesSha2(olm) => {
+            match own_curve25519 {
+                Some(own) if !olm.ciphertext.contains_key(own) => {
+                    "cause: the message was encrypted to a different \
+                     identity key than this device holds, so the sender \
+                     has stale or wrong keys for this device"
+                }
+                Some(_) => {
+                    "cause: the message is addressed to this device, so \
+                     the session failed or the sender device is unknown or \
+                     untrusted"
+                }
+                None => "cause: this device's identity key is unavailable",
+            }
+        }
+        _ => "cause: the message does not use the olm algorithm",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use matrix_sdk::ruma::events::StaticEventContent;
+
+    #[test]
+    fn olm_envelope_cause_names_a_key_mismatch() {
+        use matrix_sdk::ruma::events::room::encrypted::{
+            CiphertextInfo, EncryptedEventScheme, OlmV1Curve25519AesSha2Content,
+        };
+        let mut map = BTreeMap::new();
+        map.insert(
+            "theirs".to_owned(),
+            CiphertextInfo::new("x".to_owned(), 0u8.into()),
+        );
+        let scheme = EncryptedEventScheme::OlmV1Curve25519AesSha2(
+            OlmV1Curve25519AesSha2Content::new(map, "sender".to_owned()),
+        );
+        assert!(olm_envelope_cause(&scheme, Some("mine"))
+            .contains("different identity key"));
+        assert!(olm_envelope_cause(&scheme, Some("theirs"))
+            .contains("addressed to this device"));
+        assert!(olm_envelope_cause(&scheme, None).contains("unavailable"));
+    }
 
     #[tokio::test]
     async fn membership_refresh_keeps_one_cleanup_timer() {
