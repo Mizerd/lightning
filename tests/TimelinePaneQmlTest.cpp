@@ -10461,7 +10461,7 @@ false);
         auto *infoIcon = root->findChild<QQuickItem *>(QStringLiteral("spaceParentInfoIcon"));
         QVERIFY(infoIcon);
         const QString tip =
-            infoIcon->property("ToolTip.text").toString();
+            infoIcon->property("tipText").toString();
         QVERIFY(tip.contains(QStringLiteral("does not join you to any of its other rooms")));
         QVERIFY(tip.contains(QStringLiteral("Other members of the Space can see that you joined")));
         QCOMPARE(label->property("textFormat").toInt(), int(Qt::PlainText));

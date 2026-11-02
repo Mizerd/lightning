@@ -1867,11 +1867,12 @@ Rectangle {
                     size: 18
                     color: AppTheme.chipInfoInk
                     HoverHandler { id: spaceParentInfoHover }
-                    ToolTip.text: qsTr("Joining only adds the Space to your sidebar and lets you see its rooms. It does not join you to any of its other rooms. Other members of the Space can see that you joined it. You can leave at any time, and you can also join later from this room's info panel.")
+                    readonly property string tipText: qsTr("Joining adds the Space to your sidebar and lets you see its rooms. It does not join you to any of its other rooms. Other members of the Space can see that you joined it. You can leave at any time, and you can also join later from this room's info panel.")
+                    ToolTip.text: tipText
                     ToolTip.visible: spaceParentInfoHover.hovered
                     ToolTip.delay: 400
                     Accessible.role: Accessible.StaticText
-                    Accessible.name: ToolTip.text
+                    Accessible.name: tipText
                 }
                 Text {
                     objectName: "spaceParentBannerText"
