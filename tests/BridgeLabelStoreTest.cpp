@@ -5,6 +5,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QTemporaryDir>
+#include <QThread>
 #include <QThreadPool>
 #include <QtTest>
 
@@ -26,6 +27,8 @@ private Q_SLOTS:
     void aCorruptFileIsDiscardedRatherThanHalfRead();
     void theStoreIsInertWithoutAPath();
     void removeStoreDeletesTheFile();
+    void removingAnotherStoreDoesNotCancelThisOnesQueuedWrite();
+    void aQueuedWriteForAStoreRemovedWithoutBeingOpenIsCancelled();
     void theCapEvictsAFutureStampedRowBeforeAFreshOne();
     void theCapDropsTheOldestRowsFirst();
     void aDeferredAnswerTouchesTheDiskOnlyWhenFlushed();
@@ -333,6 +336,43 @@ void BridgeLabelStoreTest::anAsyncFlushWritesOffThreadAndADeleteCancelsAQueuedOn
     QThreadPool::globalInstance()->waitForDone(10000);
     QVERIFY2(!QFile::exists(path()),
              "a write queued before the delete brought the file back");
+}
+
+void BridgeLabelStoreTest::removingAnotherStoreDoesNotCancelThisOnesQueuedWrite()
+{
+    // Hold the pool so the write is still queued when the other account's
+    // store is removed.
+    QThreadPool *global = QThreadPool::globalInstance();
+    const int saved = global->maxThreadCount();
+    global->setMaxThreadCount(1);
+    global->start([] { QThread::msleep(300); });
+    BridgeLabelStore store;
+    QVERIFY(store.openFor(path()));
+    store.rememberDeferred(QStringLiteral("!a:example.org"), QString(), QString());
+    store.flushAsync();
+    QVERIFY(BridgeLabelStore::removeStore(path() + QStringLiteral(".other")));
+    global->waitForDone(10000);
+    global->setMaxThreadCount(saved);
+    QVERIFY2(QFile::exists(path()),
+             "another account's removal cancelled this account's write");
+}
+
+void BridgeLabelStoreTest::aQueuedWriteForAStoreRemovedWithoutBeingOpenIsCancelled()
+{
+    QThreadPool *global = QThreadPool::globalInstance();
+    const int saved = global->maxThreadCount();
+    global->setMaxThreadCount(1);
+    global->start([] { QThread::msleep(300); });
+    BridgeLabelStore store;
+    QVERIFY(store.openFor(path()));
+    store.rememberDeferred(QStringLiteral("!a:example.org"), QString(), QString());
+    store.flushAsync();
+    store.close(); // as when another account became the active one
+    QVERIFY(BridgeLabelStore::removeStore(path()));
+    global->waitForDone(10000);
+    global->setMaxThreadCount(saved);
+    QVERIFY2(!QFile::exists(path()),
+             "a queued write brought a removed account's file back");
 }
 
 QTEST_MAIN(BridgeLabelStoreTest)

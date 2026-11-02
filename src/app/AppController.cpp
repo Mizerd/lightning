@@ -8041,13 +8041,8 @@ void AppController::onLoggedOut()
             matrix::app_data::bridgeLabelsFile(m_lastSessionUserId);
         const bool bridgeExisted = !bridgeFile.isEmpty()
                                    && QFile::exists(bridgeFile);
-        // Answers still waiting for the coalescing timer are dropped, not
-        // flushed: the loggedOut handler's flush would write the file back
-        // after the delete below.
-        if (!bridgeFile.isEmpty() && m_bridgeLabels.filePath() == bridgeFile) {
-            m_bridgeSaveTimer.stop();
-            m_bridgeLabels.close();
-        }
+        // The loggedOut handler has already flushed and closed the store; the
+        // delete below also cancels any write still queued for this file.
         if (!BridgeLabelStore::removeStore(bridgeFile)) {
             qCWarning(lcApp)
                 << "bridge badge store sign-out cleanup FAILED slug="
@@ -8972,6 +8967,13 @@ bool AppController::removeAccountLocalStateFiles(
     if (!bridgeFile.isEmpty() && m_bridgeLabels.filePath() == bridgeFile) {
         m_bridgeSaveTimer.stop();
         m_bridgeLabels.close(); // pending answers are dropped, not written
+    }
+    // Whether or not it was open: a write queued earlier (by an account that
+    // is not the active one, or one already closed) must not bring the file
+    // back after the sweep below. Cancels per file, and waits for one in flight.
+    if (!BridgeLabelStore::removeStore(bridgeFile)) {
+        qCWarning(lcApp) << "removing account bridge badge store FAILED"
+                         << "slug=" << identity.slug;
     }
     const auto starredOutcome = matrix::app_data::removeAppDataDir(starredDir);
     // A failure leaves decrypted material behind, so it warns.
