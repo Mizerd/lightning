@@ -806,6 +806,8 @@ QString RichComposition::markdownForPlainBox(const QTextDocument &document)
     // Not inside code: the spaces after "1." in a fenced or indented block
     // are the author's, and collapsing them changes the code they wrote.
     box = withoutMarkerPadding(box);
+    while (box.endsWith(QLatin1Char('\n')))
+        box.chop(1);
     return document.property(kOpenedLiterally).toBool()
         ? withoutWriterEscapes(box) : box;
 }

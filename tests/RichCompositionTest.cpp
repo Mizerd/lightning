@@ -534,6 +534,14 @@ private Q_SLOTS:
                  QStringLiteral("1. ") + text);
     }
 
+    void theBoxDoesNotEndInBlankLines()
+    {
+        QTextDocument document;
+        QTextCursor(&document).insertText(QStringLiteral("one line"));
+        const QString box = RichComposition::markdownForPlainBox(document);
+        QCOMPARE(box, QStringLiteral("one line"));
+    }
+
     void markerPaddingSurvivesInsideCodeBlocks_data()
     {
         QTest::addColumn<QString>("markdown");
