@@ -8848,9 +8848,9 @@ Rectangle {
                         textFormat: Text.PlainText
                         text: qsTr("You are the only administrator. If you "
                                    + "leave, nobody will be able to change "
-                                   + "this room's settings or manage its "
-                                   + "members. Make someone else an "
-                                   + "administrator first.")
+                                   + "this Space's settings or manage its "
+                                   + "rooms and members. Make someone else "
+                                   + "an administrator first.")
                         wrapMode: Text.WordWrap
                         font.family: AppTheme.menuFont
                         font.pixelSize: AppTheme.scaled(AppTheme.textBody)
