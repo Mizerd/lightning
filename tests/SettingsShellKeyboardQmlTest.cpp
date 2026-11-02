@@ -44,8 +44,27 @@ private:
         }
         return nullptr;
     }
+    void buildEverySection() const
+    {
+        if (auto *screen = findItem(m_window->contentItem(),
+                                    QLatin1String("settingsScreenRoot"))) {
+            screen->setProperty(
+                "keptSections",
+                QStringList{ QStringLiteral("appearance"), QStringLiteral("layout"),
+                             QStringLiteral("chat"), QStringLiteral("shortcuts"),
+                             QStringLiteral("privacy"), QStringLiteral("notifications"),
+                             QStringLiteral("sound"), QStringLiteral("account"),
+                             QStringLiteral("sessions"), QStringLiteral("labs"),
+                             QStringLiteral("about") });
+            QCoreApplication::processEvents();
+        }
+    }
+
     QQuickItem *item(const char *name) const
     {
+        if (auto *hit = findItem(m_window->contentItem(), QLatin1String(name)))
+            return hit;
+        buildEverySection();
         return findItem(m_window->contentItem(), QLatin1String(name));
     }
     void openSection(const QString &section)

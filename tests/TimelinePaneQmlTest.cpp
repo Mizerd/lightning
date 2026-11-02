@@ -93,6 +93,23 @@ class TimelinePaneQmlTest : public QObject
     Q_OBJECT
 
 private:
+    static QObject *settingsItemNamed(QObject *root, const QString &name)
+    {
+        root->setProperty("section", QStringLiteral("chat"));
+        std::function<QObject *(QQuickItem *)> walk =
+            [&](QQuickItem *node) -> QObject * {
+            if (node->objectName() == name)
+                return node;
+            for (QQuickItem *child : node->childItems()) {
+                if (QObject *hit = walk(child))
+                    return hit;
+            }
+            return nullptr;
+        };
+        auto *top = qobject_cast<QQuickItem *>(root);
+        return top ? walk(top) : nullptr;
+    }
+
     // Logs in on the mock backend and waits for the room list to populate.
     // Returns the room id at `row` of the (client-order) room list.
     static QString loginAndRoomIdAt(AppController &controller, int row)
@@ -2925,8 +2942,7 @@ false, rows, threshold));
             QVERIFY(createdSpy.wait(kSignalTimeoutMs));
         QObject *root = createdSpy.at(0).at(0).value<QObject *>();
         QVERIFY(root != nullptr);
-        QObject *check = root->findChild<QObject *>(
-            QStringLiteral("showRoomActivityCheck"));
+        QObject *check = settingsItemNamed(root, QStringLiteral("showRoomActivityCheck"));
         QVERIFY(check != nullptr);
         QCOMPARE(check->property("checked").toBool(), true);
 
@@ -2969,8 +2985,7 @@ false, rows, threshold));
             QVERIFY(createdSpy.wait(kSignalTimeoutMs));
         QObject *root = createdSpy.at(0).at(0).value<QObject *>();
         QVERIFY(root != nullptr);
-        QObject *combo = root->findChild<QObject *>(
-            QStringLiteral("timelineWheelSpeedCombo"));
+        QObject *combo = settingsItemNamed(root, QStringLiteral("timelineWheelSpeedCombo"));
         QVERIFY(combo != nullptr);
         QTRY_COMPARE_WITH_TIMEOUT(combo->property("currentValue").toInt(), 1,
                                   kSignalTimeoutMs);

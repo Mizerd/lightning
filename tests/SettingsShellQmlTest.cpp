@@ -125,8 +125,29 @@ private:
         return nullptr;
     }
 
+    void buildEverySection() const
+    {
+        if (auto *screen = findItem(m_window->contentItem(),
+                                    QStringLiteral("settingsScreenRoot"))) {
+            screen->setProperty(
+                "keptSections",
+                QStringList{ QStringLiteral("appearance"), QStringLiteral("layout"),
+                             QStringLiteral("chat"), QStringLiteral("shortcuts"),
+                             QStringLiteral("privacy"), QStringLiteral("notifications"),
+                             QStringLiteral("sound"), QStringLiteral("account"),
+                             QStringLiteral("sessions"), QStringLiteral("labs"),
+                             QStringLiteral("about") });
+            QCoreApplication::processEvents();
+        }
+    }
+
     QQuickItem *item(const char *name) const
     {
+        if (auto *hit = m_window->findChild<QQuickItem *>(QLatin1String(name)))
+            return hit;
+        if (auto *hit = findItem(m_window->contentItem(), QLatin1String(name)))
+            return hit;
+        buildEverySection();
         if (auto *hit = m_window->findChild<QQuickItem *>(QLatin1String(name)))
             return hit;
         return findItem(m_window->contentItem(), QLatin1String(name));
@@ -148,6 +169,10 @@ private:
     {
         QList<QQuickItem *> out;
         collectItems(m_window->contentItem(), QLatin1String(name), out);
+        if (out.isEmpty()) {
+            buildEverySection();
+            collectItems(m_window->contentItem(), QLatin1String(name), out);
+        }
         return out;
     }
 
