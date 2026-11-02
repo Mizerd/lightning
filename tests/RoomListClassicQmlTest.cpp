@@ -170,7 +170,7 @@ private Q_SLOTS:
         const auto selectAt = menuSource.indexOf("objectName: \"roomSelectItem\"");
         QVERIFY(selectAt >= 0);
         QVERIFY(menuSource.mid(selectAt, 160).contains("iconName: \"check_circle\""));
-        QFile icons(QStringLiteral(LIGHTNING_SOURCE_DIR "/qml/Icon.qml"));
+        QFile icons(QStringLiteral(LIGHTNING_SOURCE_DIR "/qml/IconGlyphs.js"));
         QVERIFY(icons.open(QIODevice::ReadOnly));
         QVERIFY(icons.readAll().contains("\"check_circle\": "));
     }

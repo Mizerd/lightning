@@ -116,7 +116,7 @@ private Q_SLOTS:
 
     void updatesIconReusesAnExistingVerifiedCodepoint()
     {
-        const QString icon = read(QStringLiteral("Icon.qml"));
+        const QString icon = read(QStringLiteral("IconGlyphs.js"));
         QVERIFY(!icon.isEmpty());
         QVERIFY(icon.contains(QStringLiteral("\"download\": \"\\uf090\"")));
     }

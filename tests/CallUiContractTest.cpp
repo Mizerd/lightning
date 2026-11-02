@@ -4410,7 +4410,7 @@ Item {
 
     void everyIconTheVolumeSurfacesAskForIsInTheBundledSubset()
     {
-        const QString icons = read(QStringLiteral(QML_DIR "/Icon.qml"));
+        const QString icons = read(QStringLiteral(QML_DIR "/IconGlyphs.js"));
         QVERIFY(!icons.isEmpty());
         for (const auto &name : {"volume_up", "volume_off", "graphic_eq",
                                  "mic", "settings"}) {

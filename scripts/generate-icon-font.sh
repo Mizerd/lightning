@@ -2,11 +2,11 @@
 # Regenerate the bundled Material Symbols Rounded subset (Apache-2.0).
 #
 # Downloads the upstream variable font + codepoints, subsets it to exactly
-# the icon names listed below (the set qml/Icon.qml maps), and instances it
+# the icon names listed below (the set qml/IconGlyphs.js maps), and instances it
 # to wght 500, FILL 0, GRAD 0, opsz 20. Glyphs are drawn at 16-24 px, where
 # the opsz 20 master keeps strokes at one optical weight; the upstream default
 # (wght 400, opsz 24) read thin and uneven beside Inter text. Adding an
-# icon = add its name here AND to the map in qml/Icon.qml, then rerun.
+# icon = add its name here AND to the map in qml/IconGlyphs.js, then rerun.
 # Requires fonttools (e.g. nix shell nixpkgs#python3Packages.fonttools).
 set -euo pipefail
 cd "$(dirname "$0")/.."

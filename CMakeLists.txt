@@ -1114,6 +1114,7 @@ set(APP_QML_FILES
     qml/Main.qml
     qml/SharedToolTipGuard.qml
     qml/Icon.qml
+    qml/IconGlyphs.js
     qml/IconButton.qml
     qml/AppButton.qml
     qml/SegmentedControl.qml
@@ -1459,7 +1460,7 @@ function(_lightning_configure_qml_module target _scope)
             # Brand face for the trust surface; never a selectable body face.
             "data/fonts/SpaceGrotesk[wght].ttf"
             # Icon glyphs for interface chrome (Apache-2.0 subset; see
-            # scripts/generate-icon-font.sh and qml/Icon.qml).
+            # scripts/generate-icon-font.sh and qml/IconGlyphs.js).
             data/fonts/MaterialSymbolsRounded-subset.ttf
             # Window icon for source runs and Windows, which has no icon theme.
             # 256px stays crisp on high-DPI.

@@ -146,7 +146,7 @@ private Q_SLOTS:
 
     void everyReferencedIconNameIsMapped()
     {
-        const QString iconQml = readAll(QStringLiteral(QML_DIR "/Icon.qml"));
+        const QString iconQml = readAll(QStringLiteral(QML_DIR "/IconGlyphs.js"));
         QVERIFY(!iconQml.isEmpty());
         QSet<QString> mapped;
         QRegularExpression mapEntry(QStringLiteral("\"([a-z0-9_]+)\": \"\\\\u"));
@@ -183,7 +183,7 @@ private Q_SLOTS:
 
     void everyRuntimeChosenIconNameIsMapped()
     {
-        const QString iconQml = readAll(QStringLiteral(QML_DIR "/Icon.qml"));
+        const QString iconQml = readAll(QStringLiteral(QML_DIR "/IconGlyphs.js"));
         QVERIFY(!iconQml.isEmpty());
         QSet<QString> mapped;
         QRegularExpression mapEntry(QStringLiteral("\"([a-z0-9_]+)\": \"\\\\u"));
@@ -257,9 +257,18 @@ private Q_SLOTS:
             SOURCE_DIR "/scripts/generate-icon-font.sh")));
     }
 
-    void everyMappedIconIsInTheSubsetScript()
+    void iconInstancesShareOneGlyphTable()
     {
         const QString iconQml = readAll(QStringLiteral(QML_DIR "/Icon.qml"));
+        QVERIFY(!iconQml.isEmpty());
+        QVERIFY(iconQml.contains(QStringLiteral("IconGlyphs.codepoints[name]")));
+        QVERIFY(!QRegularExpression(QStringLiteral("\"[a-z0-9_]+\": \"\\\\u"))
+                     .match(iconQml).hasMatch());
+    }
+
+    void everyMappedIconIsInTheSubsetScript()
+    {
+        const QString iconQml = readAll(QStringLiteral(QML_DIR "/IconGlyphs.js"));
         QVERIFY(!iconQml.isEmpty());
         const QString script = readAll(QStringLiteral(
             SOURCE_DIR "/scripts/generate-icon-font.sh"));
@@ -279,7 +288,7 @@ private Q_SLOTS:
             const QString name = it.next().captured(1);
             QVERIFY2(listed.contains(name),
                      qPrintable(QStringLiteral(
-                         "Icon.qml maps '%1' but scripts/generate-icon-font.sh"
+                         "IconGlyphs.js maps '%1' but scripts/generate-icon-font.sh"
                          " does not subset it — the glyph would render blank")
                                     .arg(name)));
         }
@@ -291,7 +300,7 @@ private Q_SLOTS:
             SOURCE_DIR "/data/fonts/MaterialSymbolsRounded-subset.ttf"));
         QVERIFY(covered.size() >= 40);
 
-        const QString iconQml = readAll(QStringLiteral(QML_DIR "/Icon.qml"));
+        const QString iconQml = readAll(QStringLiteral(QML_DIR "/IconGlyphs.js"));
         QVERIFY(!iconQml.isEmpty());
         const QRegularExpression mapEntry(QStringLiteral(
             "\"([a-z0-9_]+)\": \"\\\\u([0-9A-Fa-f]{4})\""));
@@ -302,7 +311,7 @@ private Q_SLOTS:
             const uint cp = match.captured(2).toUInt(nullptr, 16);
             QVERIFY2(covered.contains(cp),
                      qPrintable(QStringLiteral(
-                         "Icon.qml maps '%1' to U+%2 but the subset font has "
+                         "IconGlyphs.js maps '%1' to U+%2 but the subset font has "
                          "no glyph there — it would render blank")
                          .arg(match.captured(1),
                               match.captured(2).toUpper())));
