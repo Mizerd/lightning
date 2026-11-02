@@ -26,6 +26,16 @@ Rectangle {
     property bool targetPositioned: false
     property bool targetBuilt: false
     property bool landingPending: false
+    property bool barDismissed: false
+    function loadTowards(delta) {
+        if (delta < 0
+                && list.contentY - list.originY + list.topMargin < list.height)
+            app.eventContext.loadOlder()
+        else if (delta > 0
+                 && list.originY + list.contentHeight + list.bottomMargin
+                    - list.contentY < 2 * list.height)
+            app.eventContext.loadNewer()
+    }
     Timer {
         id: highlightTimer
         interval: 2400
@@ -48,6 +58,7 @@ Rectangle {
                 view.targetPositioned = false
                 view.targetBuilt = false
                 view.landingPending = false
+                view.barDismissed = false
             }
         }
         function onTargetLocated(row) {
@@ -68,6 +79,12 @@ Rectangle {
         target: app.eventContext.model
         function onOlderPrepended(count) {
             Qt.callLater(function() {
+                // ListView keeps a reader who is past the first row in place;
+                // only one sitting on that row is pushed down by the insert.
+                var first = list.itemAtIndex(count)
+                if (!first || first.y < list.contentY)
+                    return
+                contextWheel.stopGlide()
                 list.positionViewAtIndex(count, ListView.Beginning)
             })
         }
@@ -93,6 +110,7 @@ Rectangle {
 
         Rectangle {
             objectName: "contextTopBar"
+            visible: !view.barDismissed
             Layout.fillWidth: true
             implicitHeight: barRow.implicitHeight + AppTheme.spacing12 * 2
             color: AppTheme.surface
@@ -123,9 +141,24 @@ Rectangle {
                     text: qsTr("Jump to latest")
                     onClicked: app.eventContext.jumpToLatest()
                 }
+                IconButton {
+                    objectName: "contextBarDismiss"
+                    iconName: "close"
+                    size: "md"
+                    Accessible.name: qsTr("Dismiss")
+                    ToolTip.text: qsTr("Dismiss")
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 500
+                    onClicked: view.barDismissed = true
+                }
             }
         }
-        Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: AppTheme.border }
+        Rectangle {
+            visible: !view.barDismissed
+            Layout.fillWidth: true
+            implicitHeight: 1
+            color: AppTheme.border
+        }
 
         Item {
             Layout.fillWidth: true
@@ -156,15 +189,26 @@ Rectangle {
                 rightMargin: AppTheme.spacing12
                 boundsBehavior: Flickable.StopAtBounds
 
+                SmoothWheelArea { id: contextWheel }
+                property real lastContentY: 0
+                onContentYChanged: {
+                    var delta = contentY - lastContentY
+                    lastContentY = contentY
+                    if (moving || contextWheel.active)
+                        view.loadTowards(delta)
+                }
+
                 activeFocusOnTab: true
                 Keys.onPressed: (event) => {
                     var step = 48
                     var page = Math.max(step, list.height - step)
-                    var top = -list.topMargin
-                    var bottom = list.contentHeight + list.bottomMargin
-                                 - list.height
+                    var top = list.originY - list.topMargin
+                    var bottom = list.originY + list.contentHeight
+                                 + list.bottomMargin - list.height
                     function go(y) {
-                        list.contentY = Math.max(top, Math.min(bottom, y))
+                        var next = Math.max(top, Math.min(bottom, y))
+                        view.loadTowards(next - list.contentY)
+                        list.contentY = next
                         event.accepted = true
                     }
                     if (event.key === Qt.Key_Down) go(list.contentY + step)
@@ -281,13 +325,14 @@ Rectangle {
                             kind: "ghost"
                             size: "sm"
                             visible: !app.eventContext.loadingNewer
-                            enabled: app.eventContext.canLoadNewer
                             text: app.eventContext.newerFailed
                                   ? qsTr("Could not load. Try again")
                                   : app.eventContext.canLoadNewer
                                     ? qsTr("Load newer messages")
-                                    : qsTr("Use Jump to latest for newer messages")
-                            onClicked: app.eventContext.loadNewer()
+                                    : qsTr("Jump to latest")
+                            onClicked: app.eventContext.canLoadNewer
+                                       ? app.eventContext.loadNewer()
+                                       : app.eventContext.jumpToLatest()
                         }
                     }
                 }

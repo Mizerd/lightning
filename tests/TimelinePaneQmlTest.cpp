@@ -11182,6 +11182,87 @@ false);
         QCOMPARE(mock->eventContextPaginateCount(), 1);
     }
 
+    void aContextViewBarStaysDismissedUntilTheNextJump()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        auto events = textFixture(roomId, 40, QStringLiteral("bar"),
+                                  QStringLiteral("body"));
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+        QQuickItem *root = paneWithEvents(controller, engine, window, roomId,
+                                         events, 0, 600, &timeline);
+        QVERIFY(root != nullptr);
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        mock->setEventContextEnabled(true);
+        auto *context = controller.eventContext();
+        QVERIFY(context->open(roomId, events.at(10).eventId));
+        auto *overlay = root->findChild<QQuickItem *>(QStringLiteral("contextView"));
+        QVERIFY(overlay != nullptr);
+        QTRY_VERIFY(overlay->isVisible());
+        auto *bar = overlay->findChild<QQuickItem *>(QStringLiteral("contextTopBar"));
+        auto *dismiss = overlay->findChild<QQuickItem *>(
+            QStringLiteral("contextBarDismiss"));
+        QVERIFY(bar != nullptr);
+        QVERIFY(dismiss != nullptr);
+        QTRY_VERIFY(bar->isVisible() && dismiss->width() > 0);
+        QTest::mouseClick(&window, Qt::LeftButton, Qt::NoModifier,
+                          dismiss->mapToScene(QPointF(dismiss->width() / 2,
+                                                      dismiss->height() / 2)).toPoint());
+        QTRY_VERIFY(!bar->isVisible());
+        QVERIFY(overlay->isVisible());
+        QCoreApplication::processEvents();
+        QVERIFY(!bar->isVisible());
+
+        QVERIFY(context->open(roomId, events.at(20).eventId));
+        QTRY_VERIFY(bar->isVisible());
+    }
+
+    void aContextViewScrollsAsFarPerNotchAsTheTimelineAndLoadsOlderRows()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        auto events = textFixture(roomId, 60, QStringLiteral("wheel"),
+                                  QStringLiteral("body"));
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+        QQuickItem *root = paneWithEvents(controller, engine, window, roomId,
+                                         events, 0, 200, &timeline);
+        QVERIFY(root != nullptr);
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        mock->setEventContextEnabled(true);
+        auto *context = controller.eventContext();
+        QVERIFY(context->open(roomId, events.at(30).eventId));
+        auto *overlay = root->findChild<QQuickItem *>(QStringLiteral("contextView"));
+        QVERIFY(overlay != nullptr);
+        QTRY_VERIFY(overlay->isVisible());
+        auto *list = overlay->findChild<QQuickItem *>(QStringLiteral("contextList"));
+        QVERIFY(list != nullptr);
+        QTRY_VERIFY(list->property("count").toInt() > 0);
+        QTRY_VERIFY(list->isVisible());
+        QVERIFY(QMetaObject::invokeMethod(list, "positionViewAtEnd"));
+        QCoreApplication::processEvents();
+        const double originY = list->property("originY").toDouble();
+        const double before = list->property("contentY").toDouble();
+        const double extent = before - originY;
+        QVERIFY2(extent > 50.0, "the fixture leaves no room to scroll");
+        const double per = controller.timelineScroll()->notchDistance(list->height());
+        QVERIFY2(per > 40.0, "a notch here is not longer than Qt's default");
+        sendWheelNotch(window, list->mapToScene(
+            QPointF(list->width() / 2, list->height() / 2)), 120, false);
+        QTRY_VERIFY2(before - list->property("contentY").toDouble()
+                         >= qMin(per, extent) - 1.0,
+                     "a notch moved the context view less than the timeline's");
+        QTRY_VERIFY2(mock->eventContextPaginateCount() >= 1,
+                     "scrolling towards the top asked for no older rows");
+    }
+
     void aPendingInviteShowsTheInviteCardInsteadOfTheComposer()
     {
         AppController controller(AppController::MockBackend);

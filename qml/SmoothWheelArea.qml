@@ -47,12 +47,16 @@ WheelHandler {
             t.contentY = value
     }
 
-    readonly property real minContentY: 0
-    readonly property real maxContentY: horizontal
-        ? Math.max(0, (scrollTarget ? scrollTarget.contentWidth : 0)
-                       - (scrollTarget ? scrollTarget.width : 0))
-        : Math.max(0, (scrollTarget ? scrollTarget.contentHeight : 0)
-                       - (scrollTarget ? scrollTarget.height : 0))
+    // A ListView's origin moves as rows are inserted above the first one.
+    readonly property real minContentY: !scrollTarget ? 0
+        : horizontal ? scrollTarget.originX - scrollTarget.leftMargin
+                     : scrollTarget.originY - scrollTarget.topMargin
+    readonly property real maxContentY: !scrollTarget ? 0
+        : Math.max(minContentY, horizontal
+            ? scrollTarget.originX + scrollTarget.contentWidth
+              + scrollTarget.rightMargin - scrollTarget.width
+            : scrollTarget.originY + scrollTarget.contentHeight
+              + scrollTarget.bottomMargin - scrollTarget.height)
 
     readonly property bool smoothScrollingEnabled: {
         if (typeof app === "undefined" || !app || !app.settings)
