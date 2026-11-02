@@ -486,7 +486,22 @@ Item {
         sourceComponent: AppMenu {
             objectName: "inviteContextMenu"
             AppMenuItem {
+                objectName: "inviteAcceptItem"
+                iconName: "person_add"
+                text: qsTr("Accept invitation")
+                onTriggered: root.acceptInvite()
+            }
+            AppMenuItem {
+                objectName: "inviteRejectItem"
+                iconName: "close"
+                text: qsTr("Reject invitation")
+                danger: true
+                onTriggered: root.rejectInvite()
+            }
+            AppMenuItem {
                 objectName: "inviteIgnoreUserItem"
+                visible: root.inviterUserId !== ""
+                enabled: visible
                 iconName: "block"
                 text: qsTr("Ignore user")
                 onTriggered: app.moderation.ignoreUser(root.inviterUserId)
@@ -496,14 +511,12 @@ Item {
     TapHandler {
         acceptedButtons: Qt.RightButton
         acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-        enabled: model.membership === "joined"
-                 || (root.isInviteRow && root.inviterUserId !== "")
+        enabled: model.membership === "joined" || root.isInviteRow
         onTapped: root.openRowMenu()
     }
     TapHandler {
         acceptedDevices: PointerDevice.TouchScreen
-        enabled: model.membership === "joined"
-                 || (root.isInviteRow && root.inviterUserId !== "")
+        enabled: model.membership === "joined" || root.isInviteRow
         onLongPressed: root.openRowMenu()
     }
     Keys.onPressed: (event) => {

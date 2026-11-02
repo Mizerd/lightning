@@ -410,14 +410,33 @@ private Q_SLOTS:
         QVERIFY(keysBlock.contains(QStringLiteral("model.membership === \"joined\"")));
         QVERIFY(keysBlock.contains(QStringLiteral("root.openRowMenu()")));
         QVERIFY(delegate.contains(QStringLiteral(
-            "enabled: model.membership === \"joined\"\n"
-            "                 || (root.isInviteRow && root.inviterUserId !== \"\")")));
+            "enabled: model.membership === \"joined\" || root.isInviteRow")));
         QVERIFY(delegate.contains(QStringLiteral(
             "onTapped: root.openRowMenu()")));
         QVERIFY(delegate.contains(QStringLiteral(
             "readonly property bool isInviteRow: model.membership === \"invited\"")));
         QVERIFY(delegate.contains(QStringLiteral(
             "const host = root.isInviteRow ? inviteMenuLoader : roomMenuLoader")));
+    }
+
+    void theClassicInviteMenuAnswersTheInviteWhoeverSentIt()
+    {
+        const QString delegate = read(QStringLiteral("RoomDelegate.qml"));
+        const int start = delegate.indexOf(QStringLiteral("objectName: \"inviteContextMenu\""));
+        QVERIFY(start >= 0);
+        const int end = delegate.indexOf(QStringLiteral("TapHandler {"), start);
+        QVERIFY(end > start);
+        const QString menu = delegate.mid(start, end - start);
+        QVERIFY(menu.contains(QStringLiteral("text: qsTr(\"Accept invitation\")")));
+        QVERIFY(menu.contains(QStringLiteral("onTriggered: root.acceptInvite()")));
+        QVERIFY(menu.contains(QStringLiteral("text: qsTr(\"Reject invitation\")")));
+        QVERIFY(menu.contains(QStringLiteral("onTriggered: root.rejectInvite()")));
+        const int ignore = menu.indexOf(QStringLiteral("objectName: \"inviteIgnoreUserItem\""));
+        QVERIFY(ignore > 0);
+        QVERIFY(menu.mid(ignore).contains(
+            QStringLiteral("visible: root.inviterUserId !== \"\"")));
+        QCOMPARE(delegate.count(QStringLiteral(
+            "enabled: model.membership === \"joined\" || root.isInviteRow")), 2);
     }
 
     void theDestructiveConfirmUsesAppButtonsAndClosesOnPressOutside()
