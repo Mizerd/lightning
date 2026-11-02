@@ -1818,6 +1818,30 @@ private Q_SLOTS:
         QCOMPARE(d.root->implicitHeight(), 0.0);
     }
 
+    void aStateGroupKeepsItsHeightWhileTheTimelineIsHidden()
+    {
+        AppController app(AppController::MockBackend);
+        QVariantMap f = baseFixture();
+        f.insert(QStringLiteral("isStateActivity"), true);
+        f.insert(QStringLiteral("stateGroupLeader"), true);
+        f.insert(QStringLiteral("stateGroupId"), QStringLiteral("g"));
+        QVariantMap topic;
+        topic.insert(QStringLiteral("eventKind"), QStringLiteral("m.room.topic"));
+        f.insert(QStringLiteral("stateGroupEntries"), QVariantList{topic});
+        Delegate d;
+        QVERIFY(build(app, f, d));
+        QTRY_VERIFY(d.root->implicitHeight() > 0);
+        const qreal shown = d.root->implicitHeight();
+
+        d.window->contentItem()->setVisible(false);
+        QCoreApplication::processEvents();
+        QCOMPARE(d.root->implicitHeight(), shown);
+
+        d.window->contentItem()->setVisible(true);
+        QCoreApplication::processEvents();
+        QCOMPARE(d.root->implicitHeight(), shown);
+    }
+
     void theActionBarDoesNotCoverAShortOwnBubble()
     {
         AppController app(AppController::MockBackend);

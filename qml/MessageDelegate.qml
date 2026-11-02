@@ -223,7 +223,8 @@ Item {
         : isVirtualRow ? virtualRowLoader.implicitHeight
         : isCallEvent ? callEventRow.implicitHeight + AppTheme.spacingS * 2
         : isThreadKeyWait ? threadKeyWaitRow.implicitHeight + AppTheme.spacingS * 2
-        : isStateActivity ? (stateActivity.visible ? stateActivity.implicitHeight : 0)
+        : isStateActivity ? (stateActivity.item !== null && stateActivity.item.entryCount > 0
+                             ? stateActivity.implicitHeight : 0)
         : layout.implicitHeight + messageTopSpacing
     property bool heightSeedActive: false
     property real heightSeed: 0
