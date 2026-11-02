@@ -370,6 +370,19 @@ private Q_SLOTS:
         QCOMPARE(c.positionYForTest(), 5800.0);
     }
 
+    void pageTargetExtendsAGlideInFlightAndRedirectsOnReversal()
+    {
+        TimelineScrollController c;
+        QCOMPARE(c.pageTargetY(800.0, 5000.0), 5800.0);
+
+        c.animateTo(5800.0, 5000.0, kMinY, kMaxY);
+        c.advanceMotion(16.0);
+        QVERIFY(c.motionActive());
+        QCOMPARE(c.pageTargetY(800.0, c.positionYForTest()), 6600.0);
+        QVERIFY(c.pageTargetY(-800.0, c.positionYForTest())
+                < c.positionYForTest());
+    }
+
     void cancelStopsEngineWithoutSettleSignal()
     {
         TimelineScrollController c;

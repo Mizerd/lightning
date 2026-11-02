@@ -4108,7 +4108,8 @@ Rectangle {
 
                 function keyboardPage(direction) {
                     noteReaderTookControl()
-                    beginWheelTo(contentY - direction * height * 0.9)
+                    beginWheelTo(app.timelineScroll.pageTargetY(
+                        -direction * height * 0.9, contentY))
                 }
                 function goToEarliestLoaded() {
                     root.stopAutoscroll()

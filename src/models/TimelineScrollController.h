@@ -78,6 +78,15 @@ public:
                                double minContentY, double maxContentY,
                                double viewportHeight = 0.0);
 
+    // A same-direction page extends the glide in flight; a reversal starts
+    // from the live position.
+    Q_INVOKABLE double pageTargetY(double deltaY, double contentY) const
+    {
+        const int dir = deltaY > 0.0 ? 1 : (deltaY < 0.0 ? -1 : 0);
+        const bool extend = m_motionActive && dir != 0 && dir == m_direction;
+        return (extend ? m_targetY : contentY) + deltaY;
+    }
+
     Q_INVOKABLE double wheelTargetY(double angleDeltaY, double contentY,
                                     double minContentY, double maxContentY,
                                     double viewportHeight);
