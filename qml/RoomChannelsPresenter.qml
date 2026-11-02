@@ -20,6 +20,21 @@ Item {
 
     signal roomActivated(string roomId)
     signal roomOpenedByPointer(string roomId)
+
+    property string pendingAcceptRoomId: ""
+    function openAcceptedRoom() {
+        const id = pendingAcceptRoomId
+        if (id === "" || app.roomList.findRoom(id).membership !== "joined")
+            return
+        pendingAcceptRoomId = ""
+        roomActivated(id)
+    }
+    Connections {
+        target: app.roomList
+        function onDataChanged() { root.openAcceptedRoom() }
+        function onRowsInserted() { root.openAcceptedRoom() }
+        function onModelReset() { root.openAcceptedRoom() }
+    }
     signal lobbyActivated()
     signal createRoomRequested()
     signal joinAddressRequested()
@@ -202,6 +217,7 @@ Item {
                     onHoveredChanged: app.spaceChannels.setRoomHovered(
                         rowLoader.model.roomId, hovered)
                     onClicked: {
+                        root.pendingAcceptRoomId = ""
                         const byPointer = pointerActivation
                         pointerActivation = false
                         if (heldForMenu) {
@@ -224,7 +240,10 @@ Item {
                     onSetNotificationMode: mode => app.setRoomNotificationMode(rowLoader.model.roomId, mode)
                     onCopyRoomLink: root.roomLinkCopyRequested(rowLoader.model.roomId)
                     onLeaveRoomRequested: root.leaveRoomRequested(rowLoader.model.roomId, rowLoader.model.name)
-                    onAcceptInvite: app.roomList.acceptInvite(rowLoader.model.roomId)
+                    onAcceptInvite: {
+                        root.pendingAcceptRoomId = rowLoader.model.roomId
+                        app.roomList.acceptInvite(rowLoader.model.roomId)
+                    }
                     onRejectInvite: app.roomInfo.leaveRoom(rowLoader.model.roomId)
                     onChatBackgroundRequested: root.chatBackgroundRequested(rowLoader.model.roomId, rowLoader.model.name)
                     onInviteRequested: root.inviteRequested(rowLoader.model.roomId)

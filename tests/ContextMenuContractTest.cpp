@@ -439,6 +439,22 @@ private Q_SLOTS:
             "enabled: model.membership === \"joined\" || root.isInviteRow")), 2);
     }
 
+    void acceptingAnInviteOpensTheRoomOnceItIsJoined()
+    {
+        for (const QString &name : {QStringLiteral("RoomListClassicPresenter.qml"),
+                                    QStringLiteral("RoomChannelsPresenter.qml")}) {
+            const QString src = read(name);
+            QVERIFY2(!src.isEmpty(), qPrintable(name));
+            QVERIFY2(src.contains(QStringLiteral("root.pendingAcceptRoomId = ")), qPrintable(name));
+            QVERIFY2(src.contains(QStringLiteral(
+                "app.roomList.findRoom(id).membership !== \"joined\"")), qPrintable(name));
+            QVERIFY2(src.contains(QStringLiteral("target: app.roomList")), qPrintable(name));
+            QVERIFY2(src.contains(QStringLiteral("function onDataChanged()")), qPrintable(name));
+            QVERIFY2(src.contains(QStringLiteral("roomActivated(id)")), qPrintable(name));
+            QVERIFY2(src.contains(QStringLiteral("root.pendingAcceptRoomId = \"\"")), qPrintable(name));
+        }
+    }
+
     void theDestructiveConfirmUsesAppButtonsAndClosesOnPressOutside()
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));

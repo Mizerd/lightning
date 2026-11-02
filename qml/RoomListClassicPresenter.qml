@@ -24,6 +24,21 @@ Item {
     signal roomActivated(string roomId)
     signal roomOpenedByPointer(string roomId)
 
+    property string pendingAcceptRoomId: ""
+    function openAcceptedRoom() {
+        const id = pendingAcceptRoomId
+        if (id === "" || app.roomList.findRoom(id).membership !== "joined")
+            return
+        pendingAcceptRoomId = ""
+        roomActivated(id)
+    }
+    Connections {
+        target: app.roomList
+        function onDataChanged() { root.openAcceptedRoom() }
+        function onRowsInserted() { root.openAcceptedRoom() }
+        function onModelReset() { root.openAcceptedRoom() }
+    }
+
     readonly property string conversationSectionLabel: {
         switch (app.roomList ? app.roomList.filterMode : 0) {
         case 1:  return qsTr("People")
@@ -195,6 +210,7 @@ Item {
             }
             showGroupDivider: app.roomList.favouritesBoundaryRoomId.length > 0 && model.roomId === app.roomList.favouritesBoundaryRoomId
             onClicked: {
+                root.pendingAcceptRoomId = ""
                 ListView.view.currentIndex = index
                 const modifiers = app.currentKeyboardModifiers()
                 if (app.roomBatch.selecting || (modifiers & (Qt.ControlModifier | Qt.ShiftModifier))) {
@@ -206,7 +222,10 @@ Item {
                     root.roomOpenedByPointer(model.roomId)
                 }
             }
-            onAcceptInvite: app.roomList.acceptInvite(model.roomId)
+            onAcceptInvite: {
+                root.pendingAcceptRoomId = model.roomId
+                app.roomList.acceptInvite(model.roomId)
+            }
             onRejectInvite: app.roomList.rejectInvite(model.roomId)
             onMarkRead: app.roomList.markRoomRead(model.roomId)
             onMarkUnread: app.roomList.markRoomUnread(model.roomId)
