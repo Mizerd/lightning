@@ -14,7 +14,7 @@ printf 'module MatrixClient\n' > "$imports/MatrixClient/qmldir"
 for name in AppTheme VoiceMiniPlayer VoicePlayerBar VoicePlayerLogic \
             VoiceSeekBar VoiceSpeedChip AudioPlayerCard CoverArtButton IconButton Icon \
             Avatar Skeleton AnimationFileHold MediaVolumeControl AppMenu \
-            AppMenuItem MenuKeycap StormNode MotionPolicy; do
+            AppMenuItem MenuKeycap StormNode MotionPolicy PlainToolTip; do
     ln -s "$repo/qml/$name.qml" "$imports/MatrixClient/$name.qml"
     if [[ $name = AppTheme || $name = MotionPolicy ]]; then
         printf 'singleton '

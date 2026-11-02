@@ -50,7 +50,7 @@ Item {
         border.width: 2
         border.color: AppTheme.focusRing
     }
-    ToolTip {
+    PlainToolTip {
         parent: root
         visible: hover.hovered && root.enabled
         delay: 600
