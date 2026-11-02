@@ -1,4 +1,5 @@
 #include "app/AllocatorPolicy.h"
+#include "app/IdleTrim.h"
 
 #include <QTest>
 
@@ -93,6 +94,64 @@ private slots:
 #else
         QSKIP("glibc only");
 #endif
+    }
+
+    static lightning::IdleTrimState ready()
+    {
+        lightning::IdleTrimState s;
+        s.msSinceInput = lightning::kIdleTrimQuietMs;
+        s.freeArenaBytes = static_cast<qint64>(lightning::kIdleTrimMinFreeBytes);
+        return s;
+    }
+
+private slots:
+    void idleTrimNeedsEveryCondition()
+    {
+        using lightning::shouldIdleTrim;
+        QVERIFY(shouldIdleTrim(ready()));
+
+        auto s = ready();
+        s.msSinceInput -= 1;
+        QVERIFY2(!shouldIdleTrim(s), "input within the quiet window");
+        s.windowHidden = true;
+        QVERIFY2(shouldIdleTrim(s), "a hidden window needs no quiet window");
+
+        s = ready();
+        s.activeCalls = 1;
+        QVERIFY(!shouldIdleTrim(s));
+
+        s = ready();
+        s.freeArenaBytes -= 1;
+        QVERIFY2(!shouldIdleTrim(s), "below the free threshold");
+        s.freeArenaBytes = -1;
+        QVERIFY2(!shouldIdleTrim(s), "allocator cannot say");
+    }
+
+    void idleTrimRunsOncePerWindow()
+    {
+        using lightning::shouldIdleTrim;
+        auto s = ready();
+        s.msSinceLastTrim = 0;
+        QVERIFY(!shouldIdleTrim(s));
+        s.msSinceLastTrim = lightning::kIdleTrimMinGapMs - 1;
+        QVERIFY(!shouldIdleTrim(s));
+        s.msSinceLastTrim = lightning::kIdleTrimMinGapMs;
+        QVERIFY(shouldIdleTrim(s));
+    }
+
+    void idleTrimWaitIsOnlyForTime()
+    {
+        using lightning::idleTrimWaitMs;
+        auto s = ready();
+        s.msSinceInput = 10 * 1000;
+        QCOMPARE(idleTrimWaitMs(s), lightning::kIdleTrimQuietMs - 10 * 1000);
+        s.msSinceLastTrim = 60 * 1000;
+        QCOMPARE(idleTrimWaitMs(s), lightning::kIdleTrimMinGapMs - 60 * 1000);
+        s.activeCalls = 1;
+        QCOMPARE(idleTrimWaitMs(s), qint64(-1));
+        s = ready();
+        s.freeArenaBytes = 0;
+        QCOMPARE(idleTrimWaitMs(s), qint64(-1));
     }
 };
 

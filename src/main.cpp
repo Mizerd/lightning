@@ -45,6 +45,7 @@
 #include "app/FrameIntervalProbe.h"
 #include "app/WindowFrameTheme.h"
 #include "app/AllocatorPolicy.h"
+#include "app/IdleTrim.h"
 #include "app/LogColor.h"
 #include "app/ForeignQtEnvironment.h"
 #include "app/QmlGcPolicy.h"
@@ -2764,6 +2765,13 @@ int main(int argc, char *argv[])
     // initialise GStreamer.
     controller.enableCallMediaEngine();
     controller.enableCallSounds();
+
+    // Gives the allocator's free arena memory back once the app has been quiet
+    // for a minute; see IdleTrim.h.
+    lightning::IdleTrim idleTrim(&app);
+    app.installEventFilter(&idleTrim);
+    QObject::connect(&controller, &AppController::currentRoomIdChanged,
+                     &idleTrim, [&idleTrim] { idleTrim.noteActivity(); });
 
     // Another launch on this data root: raise the window the way a tray click
     // does. On Wayland the launcher's activation token lets it take focus;

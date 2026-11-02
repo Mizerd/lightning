@@ -2359,7 +2359,7 @@ if(BUILD_TESTING)
         tests/AllocatorPolicyTest.cpp
     )
     target_include_directories(allocator-policy-test PRIVATE src)
-    target_link_libraries(allocator-policy-test PRIVATE Qt6::Core Qt6::Test)
+    target_link_libraries(allocator-policy-test PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
     add_test(NAME allocator-policy COMMAND allocator-policy-test)
 
     qt_add_executable(log-color-test
