@@ -27,6 +27,8 @@ private Q_SLOTS:
     void removeStoreDeletesTheFile();
     void theCapEvictsAFutureStampedRowBeforeAFreshOne();
     void theCapDropsTheOldestRowsFirst();
+    void aDeferredAnswerTouchesTheDiskOnlyWhenFlushed();
+    void closingDropsDeferredAnswersSoASignOutCannotResurrectTheFile();
 
 private:
     QString path() const { return m_dir.filePath(QStringLiteral("bridge-labels.json")); }
@@ -264,6 +266,47 @@ void BridgeLabelStoreTest::theCapDropsTheOldestRowsFirst()
              "the cap dropped an arbitrary row instead of the oldest one");
     QVERIFY(store.knows(QStringLiteral("!r%1:example.org")
                             .arg(BridgeLabelStore::kMaxEntries + 9)));
+}
+
+void BridgeLabelStoreTest::aDeferredAnswerTouchesTheDiskOnlyWhenFlushed()
+{
+    BridgeLabelStore store;
+    QVERIFY(store.openFor(path()));
+    // The first visit to every room used to rewrite and fsync the whole file
+    // on the GUI thread; a deferred answer must not create or change it.
+    for (int i = 0; i < 50; ++i)
+        store.rememberDeferred(QStringLiteral("!r%1:example.org").arg(i),
+                               QString(), QString());
+    QVERIFY(store.isDirty());
+    QVERIFY2(!QFile::exists(path()),
+             "a deferred answer wrote the file before flush()");
+    // Held in memory, so the app still treats the room as answered.
+    QVERIFY(store.knows(QStringLiteral("!r7:example.org")));
+
+    QVERIFY(store.flush());
+    QVERIFY(!store.isDirty());
+    QVERIFY(QFile::exists(path()));
+    BridgeLabelStore reopened;
+    QVERIFY(reopened.openFor(path()));
+    QCOMPARE(reopened.count(), 50);
+    // A clean store does not write again.
+    QVERIFY(QFile::remove(path()));
+    QVERIFY(store.flush());
+    QVERIFY2(!QFile::exists(path()), "flush() of a clean store rewrote the file");
+}
+
+void BridgeLabelStoreTest::closingDropsDeferredAnswersSoASignOutCannotResurrectTheFile()
+{
+    BridgeLabelStore store;
+    QVERIFY(store.openFor(path()));
+    store.rememberDeferred(QStringLiteral("!a:example.org"),
+                           QStringLiteral("whatsapp"), QStringLiteral("WhatsApp"));
+    store.close();
+    QVERIFY(!store.isDirty());
+    QVERIFY(store.flush()); // nothing open, nothing to write
+    QVERIFY2(!QFile::exists(path()),
+             "a closed store wrote pending answers, which would put a signed-out "
+             "account's room list back on disk");
 }
 
 QTEST_MAIN(BridgeLabelStoreTest)

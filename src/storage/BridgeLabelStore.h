@@ -68,6 +68,18 @@ public:
                   const QString &label);
 
     // Every fresh POSITIVE row, for seeding the room list at startup.
+    // Same as remember(), but the file is not written: the answer is held in
+    // memory and flushed by flush(). remember() rewrites the whole file and
+    // QSaveFile fsyncs it, which is a synchronous disk wait on the GUI thread
+    // for every first visit to a room; a caller that answers from the GUI
+    // thread uses this and flushes once after a quiet moment.
+    void rememberDeferred(const QString &roomId, const QString &networkId,
+                          const QString &label);
+    bool isDirty() const { return m_dirty; }
+    // Writes the deferred answers, if any. close() drops them instead: a
+    // closing store may be the one a sign-out is about to delete.
+    bool flush();
+
     QHash<QString, Entry> positiveLabels() const;
 
     // Total rows, fresh or not.
@@ -87,4 +99,5 @@ private:
 
     QString m_filePath;
     QHash<QString, Entry> m_entries;
+    bool m_dirty = false;
 };

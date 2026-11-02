@@ -1741,6 +1741,8 @@ private:
     // The bridge answers, persisted per account so badges paint before any
     // request (see matrix::app_data::bridgeLabelsFile).
     BridgeLabelStore m_bridgeLabels;
+    // Single-shot: flushes deferred bridge answers (see rememberDeferred).
+    QTimer m_bridgeSaveTimer;
     QString m_requestedSettingsSection;
     bool m_settingsSearchFocusRequested = false;
     QString m_connectionStatus;

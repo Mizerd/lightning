@@ -54,6 +54,7 @@ void BridgeLabelStore::close()
 {
     m_filePath.clear();
     m_entries.clear();
+    m_dirty = false;
 }
 
 void BridgeLabelStore::load()
@@ -183,7 +184,32 @@ void BridgeLabelStore::remember(const QString &roomId, const QString &networkId,
     entry.learnedAt = nowSecs();
     m_entries.insert(roomId, entry);
     pruneToCap();
-    save();
+    m_dirty = !save();
+}
+
+void BridgeLabelStore::rememberDeferred(const QString &roomId,
+                                        const QString &networkId,
+                                        const QString &label)
+{
+    if (!isOpen() || roomId.isEmpty())
+        return;
+    Entry entry;
+    entry.networkId = networkId;
+    entry.label = label;
+    entry.learnedAt = nowSecs();
+    m_entries.insert(roomId, entry);
+    pruneToCap();
+    m_dirty = true;
+}
+
+bool BridgeLabelStore::flush()
+{
+    if (!m_dirty || !isOpen())
+        return true;
+    const bool ok = save();
+    // A failed write stays dirty so the next flush retries it.
+    m_dirty = !ok;
+    return ok;
 }
 
 QHash<QString, BridgeLabelStore::Entry> BridgeLabelStore::positiveLabels() const

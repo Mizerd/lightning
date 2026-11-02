@@ -1383,12 +1383,22 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 // once its protocol may be in the curated table. Failed reads
                 // never reach here.
                 if (!best.label.isEmpty() || bridges.isEmpty())
-                    m_bridgeLabels.remember(roomId, best.networkId, best.label);
+                    {
+                    m_bridgeLabels.rememberDeferred(roomId, best.networkId,
+                                                    best.label);
+                    // Coalesced: one write after the burst of first visits,
+                    // not an fsync on the GUI thread for each of them.
+                    m_bridgeSaveTimer.start();
+                }
             });
     // Notify once per newly seen invite; invites present before initial sync
     // are seeded silently so a restart never re-announces them. The room list
     // can drop and re-add an invite within one burst (a re-sort, a resync),
     // so the tracker, not this handler, decides what is new and what is gone.
+    m_bridgeSaveTimer.setSingleShot(true);
+    m_bridgeSaveTimer.setInterval(3000);
+    connect(&m_bridgeSaveTimer, &QTimer::timeout, this,
+            [this] { m_bridgeLabels.flush(); });
     m_inviteNoticeTimer.setSingleShot(true);
     connect(&m_inviteNoticeTimer, &QTimer::timeout, this,
             &AppController::processInviteNotices);
@@ -4147,6 +4157,8 @@ void AppController::prepareForShutdown()
     if (m_shuttingDown)
         return;
     m_shuttingDown = true;
+    m_bridgeSaveTimer.stop();
+    m_bridgeLabels.flush();
 
     // Every step below runs synchronously on the GUI thread while the window
     // is still closing, and each is independently bounded further down (the
@@ -7974,7 +7986,10 @@ void AppController::onLoggedOut()
     // Same scope, same reason: the next account's rooms are not these rooms.
     m_bridgeReadRooms.clear();
     // Closed on both paths, switch included, so a late answer cannot write
-    // into the next account's file.
+    // into the next account's file. Answers still waiting for the coalescing
+    // timer are written first; a sign-out deletes the file afterwards.
+    m_bridgeSaveTimer.stop();
+    m_bridgeLabels.flush();
     m_bridgeLabels.close();
     // No playback (or decrypted-media handle) survives sign-out, nor what
     // the session learned about its files (tags, cover art).
@@ -8026,6 +8041,13 @@ void AppController::onLoggedOut()
             matrix::app_data::bridgeLabelsFile(m_lastSessionUserId);
         const bool bridgeExisted = !bridgeFile.isEmpty()
                                    && QFile::exists(bridgeFile);
+        // Answers still waiting for the coalescing timer are dropped, not
+        // flushed: the loggedOut handler's flush would write the file back
+        // after the delete below.
+        if (!bridgeFile.isEmpty() && m_bridgeLabels.filePath() == bridgeFile) {
+            m_bridgeSaveTimer.stop();
+            m_bridgeLabels.close();
+        }
         if (!BridgeLabelStore::removeStore(bridgeFile)) {
             qCWarning(lcApp)
                 << "bridge badge store sign-out cleanup FAILED slug="
@@ -8947,8 +8969,10 @@ bool AppController::removeAccountLocalStateFiles(
     // open store would write it back on its next answer, so close it first.
     const QString bridgeFile =
         matrix::app_data::bridgeLabelsFile(identity.userId);
-    if (!bridgeFile.isEmpty() && m_bridgeLabels.filePath() == bridgeFile)
-        m_bridgeLabels.close();
+    if (!bridgeFile.isEmpty() && m_bridgeLabels.filePath() == bridgeFile) {
+        m_bridgeSaveTimer.stop();
+        m_bridgeLabels.close(); // pending answers are dropped, not written
+    }
     const auto starredOutcome = matrix::app_data::removeAppDataDir(starredDir);
     // A failure leaves decrypted material behind, so it warns.
     if (starredOutcome == matrix::app_data::DirRemoval::Failed) {
