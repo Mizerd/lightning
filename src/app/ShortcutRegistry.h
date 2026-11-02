@@ -129,6 +129,8 @@ public:
     int bindingRevision() const { return m_revision; }
 
 private:
+    QString actionForKeyIn(ActionContext context, int key, int modifiers) const;
+
     struct Action {
         QString id;
         QString category;

@@ -1080,6 +1080,25 @@ private Q_SLOTS:
         QVERIFY(roles.values().contains(QByteArray("shortcutCurrent")));
     }
 
+    void shiftedDigitKeysMatchTheirShiftDigitBindings()
+    {
+        SettingsManager settings;
+        ShortcutRegistry registry(&settings);
+        const auto ctrlShift = Qt::ControlModifier | Qt::ShiftModifier;
+
+        QCOMPARE(registry.editorActionForKey(Qt::Key_Asterisk, ctrlShift),
+                 QStringLiteral("composer.list"));
+        QCOMPARE(registry.editorActionForKey(Qt::Key_ParenLeft, ctrlShift),
+                 QStringLiteral("composer.quote"));
+        QCOMPARE(registry.editorOverrideFor(Qt::Key_Asterisk, ctrlShift, false),
+                 QStringLiteral("composer.list"));
+        QCOMPARE(registry.editorActionForKey(Qt::Key_8, ctrlShift),
+                 QStringLiteral("composer.list"));
+        QVERIFY(registry.editorActionForKey(Qt::Key_Asterisk,
+                                            Qt::ControlModifier).isEmpty());
+        QVERIFY(registry.editorActionForKey(Qt::Key_Exclam, ctrlShift).isEmpty());
+    }
+
     void editorActionForKeyAnswersEveryEditorBindingAndNothingElse()
     {
         SettingsManager settings;

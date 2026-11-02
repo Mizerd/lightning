@@ -4,6 +4,7 @@
 
 #include <QKeyCombination>
 #include <QKeySequence>
+#include <QStringList>
 
 namespace {
 
@@ -532,30 +533,51 @@ QString ShortcutRegistry::sequenceFor(const QString &actionId) const
     return {};
 }
 
-QString ShortcutRegistry::editorActionForKey(int key, int modifiers) const
+namespace {
+int unshiftedDigit(int key)
 {
-    const QString seq = sequenceFromKeyEvent(key, modifiers);
-    if (seq.isEmpty())
-        return {};
-    for (int i = 0; i < m_actions.size(); ++i) {
-        if (m_actions.at(i).context == EditorContext
-            && m_resolved.at(i) == seq)
-            return m_actions.at(i).id;
+    switch (key) {
+    case Qt::Key_Exclam: return Qt::Key_1;
+    case Qt::Key_At: return Qt::Key_2;
+    case Qt::Key_NumberSign: return Qt::Key_3;
+    case Qt::Key_Dollar: return Qt::Key_4;
+    case Qt::Key_Percent: return Qt::Key_5;
+    case Qt::Key_AsciiCircum: return Qt::Key_6;
+    case Qt::Key_Ampersand: return Qt::Key_7;
+    case Qt::Key_Asterisk: return Qt::Key_8;
+    case Qt::Key_ParenLeft: return Qt::Key_9;
+    case Qt::Key_ParenRight: return Qt::Key_0;
+    default: return 0;
+    }
+}
+}
+
+QString ShortcutRegistry::actionForKeyIn(ActionContext context, int key,
+                                         int modifiers) const
+{
+    QStringList candidates{sequenceFromKeyEvent(key, modifiers)};
+    const int digit = unshiftedDigit(key);
+    if (digit != 0 && (modifiers & Qt::ShiftModifier))
+        candidates << sequenceFromKeyEvent(digit, modifiers);
+    for (const QString &seq : std::as_const(candidates)) {
+        if (seq.isEmpty())
+            continue;
+        for (int i = 0; i < m_actions.size(); ++i) {
+            if (m_actions.at(i).context == context && m_resolved.at(i) == seq)
+                return m_actions.at(i).id;
+        }
     }
     return {};
 }
 
+QString ShortcutRegistry::editorActionForKey(int key, int modifiers) const
+{
+    return actionForKeyIn(EditorContext, key, modifiers);
+}
+
 QString ShortcutRegistry::timelineActionForKey(int key, int modifiers) const
 {
-    const QString seq = sequenceFromKeyEvent(key, modifiers);
-    if (seq.isEmpty())
-        return {};
-    for (int i = 0; i < m_actions.size(); ++i) {
-        if (m_actions.at(i).context == TimelineContext
-            && m_resolved.at(i) == seq)
-            return m_actions.at(i).id;
-    }
-    return {};
+    return actionForKeyIn(TimelineContext, key, modifiers);
 }
 
 QString ShortcutRegistry::messageSelectionActionForKey(int key, int modifiers) const
@@ -607,7 +629,7 @@ QString ShortcutRegistry::editorOverrideFor(int key, int modifiers,
     const QString action = editorActionForKey(key, modifiers);
     if (action.isEmpty() || hasSelection)
         return action;
-    const QString seq = sequenceFromKeyEvent(key, modifiers);
+    const QString seq = sequenceFor(action);
     for (int i = 0; i < m_actions.size(); ++i) {
         if (m_actions.at(i).context == GlobalContext
             && m_resolved.at(i) == seq)
