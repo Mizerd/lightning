@@ -1409,26 +1409,30 @@ Item {
                 implicitHeight: root.showsIdentity && !root.smallAvatarMode
                                 ? 34 : bodyLabel.implicitHeight
 
-                Avatar {
-                    objectName: "senderAvatar"
+                Loader {
                     anchors.top: parent.top
-                    visible: root.showsIdentity && !root.compactMode
-                             && !root.smallAvatarMode
-                             && !(root.bubbleMode && model.isOwn === true)
-                    onScreen: root.rowOnScreen
-                    size: 32
-                    mxc: model.senderAvatarMxc || ""
-                    name: model.senderDisplayName || model.senderInitials
-                    colorKey: model.sender || ""
-                    Accessible.name: qsTr("Avatar for %1").arg(
-                                         model.senderDisplayName || model.sender)
+                    active: root.showsIdentity && !root.compactMode
+                            && !root.smallAvatarMode
+                            && !(root.bubbleMode && model.isOwn === true)
+                    sourceComponent: Avatar {
+                        objectName: "senderAvatar"
+                                 && !root.smallAvatarMode
+                                 && !(root.bubbleMode && model.isOwn === true)
+                        onScreen: root.rowOnScreen
+                        size: 32
+                        mxc: model.senderAvatarMxc || ""
+                        name: model.senderDisplayName || model.senderInitials
+                        colorKey: model.sender || ""
+                        Accessible.name: qsTr("Avatar for %1").arg(
+                                             model.senderDisplayName || model.sender)
 
-                    TapHandler {
-                        enabled: root.rowActionsEnabled
-                        acceptedButtons: Qt.LeftButton
-                        onTapped: root.openSenderProfileForRow(parent)
+                        TapHandler {
+                            enabled: root.rowActionsEnabled
+                            acceptedButtons: Qt.LeftButton
+                            onTapped: root.openSenderProfileForRow(parent)
+                        }
+                        HoverHandler { cursorShape: Qt.PointingHandCursor }
                     }
-                    HoverHandler { cursorShape: Qt.PointingHandCursor }
                 }
 
                 Loader {
