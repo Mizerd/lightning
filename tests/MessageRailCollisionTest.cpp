@@ -429,8 +429,10 @@ private Q_SLOTS:
         QCOMPARE(rect(card, d.root), cardBefore);
         QList<QQuickItem *> occupied;
         auto *flow = findVisual(d.root, QStringLiteral("reactionsFlow"));
-        QVERIFY(flow);
-        for (auto *chip : flow->childItems()) {
+        QCOMPARE(flow != nullptr, caption == QLatin1String("reactions"));
+        const QList<QQuickItem *> chips =
+            flow ? flow->childItems() : QList<QQuickItem *>{};
+        for (auto *chip : chips) {
             if (chip->isVisible() && (chip->objectName() == QLatin1String("reactionChip")
                                     || chip->objectName() == QLatin1String("reactionAddChip")))
                 occupied.append(chip);
@@ -1769,7 +1771,7 @@ private Q_SLOTS:
         f.insert(QStringLiteral("readReceiptsTotal"), 0);
         d.engine->rootContext()->setContextProperty("model", f);
         verifyHeight("removing receipts changed the row height");
-        QVERIFY(!strip());
+        QTRY_VERIFY(!strip());
     }
 
     void aPlainTextRowBuildsNoneOfItsRareParts()
@@ -1938,11 +1940,12 @@ private Q_SLOTS:
 
         auto *flow = d.root->findChild<QQuickItem *>(
             QStringLiteral("reactionsFlow"));
-        auto *strip = d.root->findChild<QQuickItem *>(
-            QStringLiteral("readReceiptStrip"));
-        auto *pile = d.root->findChild<QQuickItem *>(
-            QStringLiteral("readReceiptRow"));
-        QVERIFY(flow && strip && pile);
+        const auto strip = [&d] {
+            return d.root->findChild<QQuickItem *>(
+                QStringLiteral("readReceiptStrip"));
+        };
+        QVERIFY(flow);
+        QVERIFY(!strip());
         const qreal design = 2 + flow->property("designTopGap").toReal();
         QVERIFY2(design > 2, "reactionsFlow does not publish designTopGap");
 
@@ -1965,7 +1968,10 @@ private Q_SLOTS:
 
         expectGap("no receipts");
         setReceipts(3, false);
-        QVERIFY(strip->isVisible());
+        QTRY_VERIFY(strip() && strip()->isVisible());
+        auto *pile = d.root->findChild<QQuickItem *>(
+            QStringLiteral("readReceiptRow"));
+        QVERIFY(pile);
         expectGap("readers present");
         const QRectF band = chipBand(d.root);
         const QPointF pt = pile->mapToItem(d.root, QPointF(0, 0));
@@ -1981,7 +1987,7 @@ private Q_SLOTS:
         QVERIFY2(pileRect.right() <= d.root->width() + 0.5,
                  "the receipt hangs past the row");
         setReceipts(0, false);
-        QVERIFY(!strip->isVisible());
+        QTRY_VERIFY(!strip());
         expectGap("readers left");
         setReceipts(0, true);
         expectGap("sent check only");
