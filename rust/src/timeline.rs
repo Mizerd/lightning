@@ -253,6 +253,12 @@ pub const SHUTDOWN_ABORTED_JOIN_MS: u64 = 250;
 
 type EventQueue = Arc<Mutex<VecDeque<String>>>;
 
+const SEND_STEP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+async fn bounded<T>(step: impl std::future::Future<Output = T>) -> Option<T> {
+    tokio::time::timeout(SEND_STEP_TIMEOUT, step).await.ok()
+}
+
 type SendJob = std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>;
 
 struct SendLane {
@@ -1330,7 +1336,9 @@ impl TimelineRegistry {
         let open_thread = self.thread_timeline_for(&room_id, &root_event_id);
         let lane = send_lane_key(&room_id, &root_event_id);
         self.spawn_ordered(runtime, lane, async move {
-            let watcher = watch_thread_send(&client, &room_id).await;
+            let watcher = bounded(watch_thread_send(&client, &room_id))
+                .await
+                .flatten();
             let send_on = |timeline: Arc<Timeline>| {
                 let body = body.clone();
                 let reply_to = reply_to.clone();
@@ -1345,7 +1353,10 @@ impl TimelineRegistry {
                                 mention_user_ids,
                             );
                             unwedge_send_queue(&timeline);
-                            timeline.send_reply(content, reply_to).await.is_ok()
+                            matches!(
+                                bounded(timeline.send_reply(content, reply_to)).await,
+                                Some(Ok(_))
+                            )
                         }
                         None => {
                             let message =
@@ -1364,8 +1375,11 @@ impl TimelineRegistry {
             let sent = if let Some((timeline, _gen, _lc)) = open_thread {
                 send_on(timeline).await
             } else {
-                match build_transient_thread_timeline(&client, &room_id, &root_event_id)
-                    .await
+                match bounded(build_transient_thread_timeline(
+                    &client, &room_id, &root_event_id,
+                ))
+                .await
+                .flatten()
                 {
                     Some(timeline) => send_on(timeline).await,
                     None => false,
@@ -1450,15 +1464,18 @@ impl TimelineRegistry {
         let open_thread = self.thread_timeline_for(&room_id, &thread_root_id);
         let lane = send_lane_key(&room_id, &thread_root_id);
         self.spawn_ordered(runtime, lane, async move {
-            let watcher = watch_thread_send(&client, &room_id).await;
+            let watcher = bounded(watch_thread_send(&client, &room_id))
+                .await
+                .flatten();
             let sent = if let Some((timeline, _gen, _lc)) = open_thread {
                 unwedge_send_queue(&timeline);
                 timeline.send(content).await.is_ok()
             } else {
-                match build_transient_thread_timeline(
+                match bounded(build_transient_thread_timeline(
                     &client, &room_id, &thread_root_id,
-                )
+                ))
                 .await
+                .flatten()
                 {
                     Some(timeline) => {
                         unwedge_send_queue(&timeline);
@@ -1626,9 +1643,10 @@ impl TimelineRegistry {
     ) {
         let job: SendJob = Box::pin(job);
         let lane_id = {
-            let Ok(mut lanes) = self.send_lanes.lock() else {
-                return;
-            };
+            let mut lanes = self
+                .send_lanes
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             if let Some(lane) = lanes.get_mut(&key) {
                 lane.jobs.push_back(job);
                 return;
@@ -1641,9 +1659,10 @@ impl TimelineRegistry {
         runtime.spawn(async move {
             loop {
                 let next = {
-                    let Ok(mut lanes) = registry.send_lanes.lock() else {
-                        return;
-                    };
+                    let mut lanes = registry
+                        .send_lanes
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
                     match lanes.get_mut(&key) {
                         Some(lane) if lane.id == lane_id => match lane.jobs.pop_front() {
                             Some(job) => job,
@@ -1655,19 +1674,19 @@ impl TimelineRegistry {
                         _ => return,
                     }
                 };
-                next.await;
+                let _ = tokio::spawn(next).await;
             }
         });
     }
 
     fn clear_send_lanes(&self) {
-        if let Ok(mut lanes) = self.send_lanes.lock() {
-            lanes.clear();
-        }
+        self.send_lanes
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clear();
     }
 
     pub fn advance_lifecycle(&self) {
-        self.clear_send_lanes();
         self.lifecycle_gen.fetch_add(1, Ordering::SeqCst);
         self.room_gen.fetch_add(1, Ordering::SeqCst);
         self.thread_gen.fetch_add(1, Ordering::SeqCst);
@@ -1927,8 +1946,10 @@ impl TimelineRegistry {
             let content =
                 outgoing_content_without_relation(&body, &spec, mention_user_ids);
             unwedge_send_queue(&timeline);
-            if timeline.send_reply(content, reply_to).await.is_err()
-                && registry.is_current(room_gen, lifecycle)
+            if !matches!(
+                bounded(timeline.send_reply(content, reply_to)).await,
+                Some(Ok(_))
+            ) && registry.is_current(room_gen, lifecycle)
             {
                 enqueue(
                     &events,
@@ -1969,12 +1990,17 @@ impl TimelineRegistry {
         let open_thread = self.thread_timeline_for(&room_id, &root_event_id);
         let lane = send_lane_key(&room_id, &root_event_id);
         self.spawn_ordered(runtime, lane, async move {
-            let watcher = watch_thread_send(&client, &room_id).await;
+            let watcher = bounded(watch_thread_send(&client, &room_id))
+                .await
+                .flatten();
             let timeline = match open_thread {
                 Some((timeline, _gen, _lc)) => Some(timeline),
                 None => {
-                    build_transient_thread_timeline(&client, &room_id, &root_event_id)
-                        .await
+                    bounded(build_transient_thread_timeline(
+                        &client, &room_id, &root_event_id,
+                    ))
+                    .await
+                    .flatten()
                 }
             };
             let sent = if let Some(timeline) = timeline {
@@ -6664,13 +6690,20 @@ mod tests {
             .expect("runtime");
         let seen = Arc::new(Mutex::new(Vec::new()));
         let (gate_tx, gate_rx) = tokio::sync::oneshot::channel::<()>();
+        let (first_tx, first_rx) = tokio::sync::oneshot::channel::<()>();
+        {
+            let seen = Arc::clone(&seen);
+            registry.spawn_ordered(&runtime, "room".to_owned(), async move {
+                let _ = first_rx.await;
+                seen.lock().unwrap().push(0u64);
+            });
+        }
         registry.spawn_ordered(&runtime, "stalled".to_owned(), async move {
             let _ = gate_rx.await;
         });
-        for n in 0..50u64 {
+        for n in 1..50u64 {
             let seen = Arc::clone(&seen);
             registry.spawn_ordered(&runtime, "room".to_owned(), async move {
-                tokio::time::sleep(std::time::Duration::from_micros((50 - n) * 20)).await;
                 seen.lock().unwrap().push(n);
             });
         }
@@ -6681,17 +6714,70 @@ mod tests {
         });
         runtime.block_on(async {
             for _ in 0..200 {
-                if seen.lock().unwrap().len() == 50 && *reached.lock().unwrap() {
+                if *reached.lock().unwrap() {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        });
+        assert!(seen.lock().unwrap().is_empty(), "a later job overtook the first");
+        assert!(*reached.lock().unwrap(), "a stalled lane blocked another key");
+        first_tx.send(()).unwrap();
+        runtime.block_on(async {
+            for _ in 0..200 {
+                if seen.lock().unwrap().len() == 50 {
                     break;
                 }
                 tokio::time::sleep(std::time::Duration::from_millis(10)).await;
             }
         });
         assert_eq!(*seen.lock().unwrap(), (0..50).collect::<Vec<_>>());
-        assert!(*reached.lock().unwrap(), "a stalled lane blocked another key");
         registry.shutdown(&runtime);
         assert!(registry.send_lanes.lock().unwrap().is_empty());
         drop(gate_tx);
+    }
+
+    #[test]
+    fn a_panicking_job_does_not_wedge_its_lane() {
+        let registry = Arc::new(TimelineRegistry::new(Arc::new(Mutex::new(VecDeque::new()))));
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .expect("runtime");
+        registry.spawn_ordered(&runtime, "room".to_owned(), async {
+            panic!("send job panic");
+        });
+        let ran = Arc::new(Mutex::new(0u32));
+        for _ in 0..2 {
+            let ran = Arc::clone(&ran);
+            registry.spawn_ordered(&runtime, "room".to_owned(), async move {
+                *ran.lock().unwrap() += 1;
+            });
+        }
+        runtime.block_on(async {
+            for _ in 0..200 {
+                if *ran.lock().unwrap() == 2 {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        });
+        assert_eq!(*ran.lock().unwrap(), 2, "jobs after a panic were dropped");
+        let later = Arc::clone(&ran);
+        registry.spawn_ordered(&runtime, "room".to_owned(), async move {
+            *later.lock().unwrap() += 1;
+        });
+        runtime.block_on(async {
+            for _ in 0..200 {
+                if *ran.lock().unwrap() == 3 {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        });
+        assert_eq!(*ran.lock().unwrap(), 3, "the lane stayed wedged after a panic");
     }
 
     #[test]
