@@ -2503,6 +2503,27 @@ void SfuMediaEngine::handleMicDspError(const QString &cid,
 {
     if (!m_active || cid != m_micCid || !m_publishedBins.contains(cid))
         return;
+    // Only an echo failure may say that echo cancellation failed. The dsp also
+    // carries noise suppression and gain, and an error from one that was never
+    // asked to cancel echo is the track's own failure: no notice about echo,
+    // and the ordinary publish-error path.
+    bool echoWasOn = false;
+    if (GstElement *bin = m_publishedBins.value(cid, nullptr)) {
+        if (GST_IS_BIN(bin)) {
+            if (GstElement *dsp = gst_bin_get_by_name(GST_BIN(bin),
+                                                      calls::noise::kDspName)) {
+                gboolean on = FALSE;
+                g_object_get(dsp, "echo-cancel", &on, nullptr);
+                echoWasOn = on;
+                gst_object_unref(dsp);
+            }
+        }
+    }
+    if (!echoWasOn) {
+        handlePublishError(cid, /*captureResourceError=*/false,
+                           /*captureBusyError=*/false);
+        return;
+    }
     giveUpEchoCancellation(reason);
     if (microphoneStarting()) {
         // Replacing an element in a bin another thread is starting.

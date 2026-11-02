@@ -4190,9 +4190,10 @@ private slots:
             engine.publishVideo(QStringLiteral("cid-video"),
                                 /*screenShare=*/false, /*nodeId=*/-1);
             engine.publishAudio(QStringLiteral("cid-audio"));
-            // The wait matters: a bin that has not started streaming does not
-            // take the deferred path.
-            QTest::qWait(400);
+            // A bin that has not started streaming does not take the deferred
+            // path, so wait for the condition, not for a time: packets are
+            // leaving the microphone bin.
+            QTRY_VERIFY_WITH_TIMEOUT(engine.microphoneRtpOutForTest() > 0, 5000);
             outstanding = engine.teardownCounterForTest();
             engine.unpublish(QStringLiteral("cid-video"));
             engine.unpublish(QStringLiteral("cid-audio"));
@@ -6943,6 +6944,30 @@ private slots:
         const int attempts = engine.echoEngageAttemptsForTest();
         engine.engageEchoCancellation();
         QCOMPARE(engine.echoEngageAttemptsForTest(), attempts);
+    }
+
+    // webrtcdsp also carries noise suppression and gain. An error from one
+    // that was never asked to cancel echo is not an echo failure, and must not
+    // tell the user echo cancellation failed.
+    void aDspErrorWithoutEchoCancellationSaysNothingAboutEcho()
+    {
+        if (!gst_init_check(nullptr, nullptr, nullptr))
+            QSKIP("GStreamer not available");
+        SfuMediaEngine engine;
+        QSignalSpy echoFailed(&engine, &SfuMediaEngine::echoCancellationFailed);
+        QSignalSpy callFailed(&engine, &SfuMediaEngine::failed);
+        engine.setTestSourceMode(true);
+        engine.start();
+        const QString cid = QStringLiteral("cid-audio");
+        engine.publishAudio(cid);
+        QVERIFY(engine.lastAudioDescriptionForTest().contains(
+                    QLatin1String("echo-cancel=false"))
+                || !engine.lastAudioDescriptionForTest().contains(
+                    QLatin1String("echo-cancel=true")));
+        engine.handleMicDspErrorForTest(cid, QStringLiteral("gain stage failed"));
+        QTest::qWait(100);
+        QCOMPARE(echoFailed.count(), 0);
+        QCOMPARE(callFailed.count(), 0);
     }
 
     void h264PayloaderKeepsTheByteTheKeyIndexLivesIn()

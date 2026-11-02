@@ -1068,6 +1068,9 @@ public:
     /// cancellation must not be able to silence the microphone even so. The
     /// chain is rebuilt without it, for the rest of the call.
     void handleMicDspError(const QString &cid, const QString &reason);
+    /// Test seam: what the bus handler marshals for a webrtcdsp error.
+    void handleMicDspErrorForTest(const QString &cid, const QString &reason)
+    { handleMicDspError(cid, reason); }
     /// GUI thread: a hardware encoder died under a running share.
     void handleShareEncoderFailed(const QString &cid);
     int echoEngageAttemptsForTest() const { return m_echoEngageAttempts; }
