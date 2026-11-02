@@ -65,6 +65,7 @@ class RustTimelineIngestTest : public QObject
 private Q_SLOTS:
     // Item conversion.
     void parsesEventItem();
+    void aWhitespaceOnlyDisplayNameIsNoName();
     void parsesFormattedBody();
     // Issue #15: the account's push-rule verdict rides on both producers.
     void readsThePushVerdictOnlyFromARealBoolean();
@@ -185,6 +186,21 @@ QJsonObject threadRootItem(const QString &eventId, int replyCount,
     return item;
 }
 } // namespace
+
+// A name of spaces drew an invisible sender; it must read as an empty one so
+// the localpart fallback applies downstream.
+void RustTimelineIngestTest::aWhitespaceOnlyDisplayNameIsNoName()
+{
+    QJsonObject item = itemJson(QStringLiteral("uid1"), QStringLiteral("$ev1"),
+                                QStringLiteral("hello"));
+    item.insert(QStringLiteral("sender_display_name"),
+                QStringLiteral(" \t  "));
+    QVERIFY(eventFromItemJson(item, kRoom).senderDisplayName.isEmpty());
+    item.insert(QStringLiteral("sender_display_name"),
+                QStringLiteral("  Alice "));
+    QCOMPARE(eventFromItemJson(item, kRoom).senderDisplayName,
+             QStringLiteral("Alice"));
+}
 
 void RustTimelineIngestTest::parsesEventItem()
 {

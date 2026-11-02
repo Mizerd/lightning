@@ -261,7 +261,7 @@ TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
     e.transactionId = item.value(QStringLiteral("transaction_id")).toString();
     e.sender = item.value(QStringLiteral("sender")).toString();
     e.senderDisplayName =
-        item.value(QStringLiteral("sender_display_name")).toString();
+        item.value(QStringLiteral("sender_display_name")).toString().trimmed();
     e.senderAvatarUrl =
         item.value(QStringLiteral("sender_avatar_url")).toString();
     e.body = item.value(QStringLiteral("body")).toString();
@@ -385,7 +385,7 @@ TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
     e.threadLatestSender =
         item.value(QStringLiteral("thread_latest_sender")).toString();
     e.threadLatestSenderDisplayName =
-        item.value(QStringLiteral("thread_latest_sender_display_name")).toString();
+        item.value(QStringLiteral("thread_latest_sender_display_name")).toString().trimmed();
     e.threadLatestSenderAvatarUrl =
         item.value(QStringLiteral("thread_latest_sender_avatar_url")).toString();
     const auto latestTs = static_cast<qint64>(
@@ -752,7 +752,7 @@ QHash<QString, MemberInfo> membersFromPayload(const QJsonArray &rows)
         MemberInfo info;
         info.userId = userId;
         info.displayName =
-            row.value(QStringLiteral("display_name")).toString();
+            row.value(QStringLiteral("display_name")).toString().trimmed();
         info.avatarMxcUrl =
             row.value(QStringLiteral("avatar_url")).toString();
         members.insert(userId, info);

@@ -70,6 +70,13 @@ Q_LOGGING_CATEGORY(lcTokenTrace, "lightning.auth.tokentrace")
 
 namespace {
 
+// A display name that is only whitespace is no name: a row showing it drew an
+// invisible sender, so it falls back as an empty one does (localpart / id).
+QString nonBlankOr(const QString &name, const QString &fallback)
+{
+    return name.trimmed().isEmpty() ? fallback : name.trimmed();
+}
+
 // Read once, by the same rule as the other traces; rust/src/sessiontokens.rs
 // reads the same variable, so both halves switch on together.
 bool tokenTraceEnabled()
@@ -5755,10 +5762,10 @@ void RustSdkMatrixClient::handleThreadListReset(const QJsonObject &event)
         entry.insert(QStringLiteral("rootSender"),
                      obj.value(QStringLiteral("root_sender")).toString());
         entry.insert(QStringLiteral("rootSenderName"),
-                     obj.value(QStringLiteral("root_sender_name")).toString(
-                         matrix::user_lookup::localpartOrUserId(
-                             obj.value(QStringLiteral("root_sender"))
-                                 .toString())));
+                     nonBlankOr(obj.value(QStringLiteral("root_sender_name")).toString(),
+                                matrix::user_lookup::localpartOrUserId(
+                                    obj.value(QStringLiteral("root_sender"))
+                                        .toString())));
         entry.insert(QStringLiteral("rootPreview"),
                      obj.value(QStringLiteral("root_preview")).toString());
         entry.insert(QStringLiteral("rootTimestamp"),
@@ -5770,10 +5777,10 @@ void RustSdkMatrixClient::handleThreadListReset(const QJsonObject &event)
         entry.insert(QStringLiteral("latestSender"),
                      obj.value(QStringLiteral("latest_sender")).toString());
         entry.insert(QStringLiteral("latestSenderName"),
-                     obj.value(QStringLiteral("latest_sender_name")).toString(
-                         matrix::user_lookup::localpartOrUserId(
-                             obj.value(QStringLiteral("latest_sender"))
-                                 .toString())));
+                     nonBlankOr(obj.value(QStringLiteral("latest_sender_name")).toString(),
+                                matrix::user_lookup::localpartOrUserId(
+                                    obj.value(QStringLiteral("latest_sender"))
+                                        .toString())));
         entry.insert(QStringLiteral("latestPreview"),
                      obj.value(QStringLiteral("latest_preview")).toString());
         entry.insert(QStringLiteral("latestTimestamp"),
@@ -7205,7 +7212,7 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
             const QString userId = object.value(QStringLiteral("user_id")).toString();
             if (userId.isEmpty() || userId == m_userId) continue;
             users.append(userId);
-            const QString displayName = object.value(QStringLiteral("display_name")).toString();
+            const QString displayName = object.value(QStringLiteral("display_name")).toString().trimmed();
             if (!displayName.isEmpty()) {
                 auto member = room->members.value(userId);
                 member.userId = userId;
@@ -12169,7 +12176,7 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                 row.value(QStringLiteral("focus_selection")).toString();
             participant.intent = row.value(QStringLiteral("intent")).toString();
             participant.displayName =
-                row.value(QStringLiteral("display_name")).toString();
+                row.value(QStringLiteral("display_name")).toString().trimmed();
             participant.avatarMxc =
                 row.value(QStringLiteral("avatar_mxc")).toString();
             participant.joinedAtMs = static_cast<qint64>(
@@ -12661,7 +12668,8 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             entry.insert(QStringLiteral("userId"),
                          row.value(QStringLiteral("user_id")).toString());
             entry.insert(QStringLiteral("displayName"),
-                         row.value(QStringLiteral("display_name")).toString());
+                         row.value(QStringLiteral("display_name"))
+                             .toString().trimmed());
             entry.insert(QStringLiteral("avatarUrl"),
                          row.value(QStringLiteral("avatar_url")).toString());
             results.append(entry);
@@ -13572,7 +13580,8 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             entry.insert(QStringLiteral("userId"),
                          row.value(QStringLiteral("user_id")).toString());
             entry.insert(QStringLiteral("displayName"),
-                         row.value(QStringLiteral("display_name")).toString());
+                         row.value(QStringLiteral("display_name"))
+                             .toString().trimmed());
             entry.insert(QStringLiteral("avatarUrl"),
                          row.value(QStringLiteral("avatar_url")).toString());
             entry.insert(QStringLiteral("membership"),
@@ -14519,7 +14528,7 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                              row.value(QStringLiteral("sender")).toString());
                 entry.insert(
                     QStringLiteral("senderDisplayName"),
-                    row.value(QStringLiteral("sender_display_name")).toString());
+                    row.value(QStringLiteral("sender_display_name")).toString().trimmed());
                 entry.insert(
                     QStringLiteral("senderAvatarUrl"),
                     row.value(QStringLiteral("sender_avatar_url")).toString());
@@ -14901,7 +14910,7 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                          row.value(QStringLiteral("sender")).toString());
             entry.insert(
                 QStringLiteral("senderDisplayName"),
-                row.value(QStringLiteral("sender_display_name")).toString());
+                row.value(QStringLiteral("sender_display_name")).toString().trimmed());
             entry.insert(
                 QStringLiteral("senderAvatarUrl"),
                 row.value(QStringLiteral("sender_avatar_url")).toString());
