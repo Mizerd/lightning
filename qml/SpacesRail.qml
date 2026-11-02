@@ -565,14 +565,34 @@ Rectangle {
     // True once the tiles alone fill the rail. Written by pinAddIfNeeded(),
     // never bound: it decides the footer's height, which feeds contentHeight,
     // which it reads, and a binding there would read its own result.
+    //
+    // The decision compares two numbers that do not depend on the answer: the
+    // tiles' own height (the content minus whatever the footer currently adds)
+    // and the room for them (the list plus whatever the pinned slot currently
+    // takes). It is made a turn after the change that asked for it, never
+    // inside contentHeightChanged: written from there it re-entered the same
+    // change and logged a binding loop, and read against a content height the
+    // footer had not yet re-measured it left a band of rail heights where the
+    // button was in neither place.
     property bool railAddPinned: false
+    property bool railAddPinQueued: false
+    function queuePinAdd() {
+        if (railAddPinQueued)
+            return
+        railAddPinQueued = true
+        Qt.callLater(pinAddIfNeeded)
+    }
     function pinAddIfNeeded() {
+        railAddPinQueued = false
         if (!list)
             return
-        const rows = list.contentHeight - (railAddPinned ? 0 : railAddCellHeight)
-        const room = list.height + (railAddPinned ? railAddCellHeight : 0)
-        railAddPinned = railAddVisible && rows + railAddCellHeight > room
+        const footerHeight = list.footerItem ? list.footerItem.height : 0
+        const tiles = list.contentHeight - footerHeight
+        const room = list.height + railAddPinnedSlot.height
+        railAddPinned = railAddVisible && tiles + railAddCellHeight > room
     }
+    onRailAddVisibleChanged: queuePinAdd()
+    Component.onCompleted: queuePinAdd()
     // "Create a Space" tile with its tooltip anchor, the same in the list's
     // footer and in the pinned slot.
     component RailAddSpaceCell: Item {
@@ -636,8 +656,8 @@ Rectangle {
             model: app.railEntries
             clip: true
             spacing: AppTheme.spacing4
-            onContentHeightChanged: root.pinAddIfNeeded()
-            onHeightChanged: root.pinAddIfNeeded()
+            onContentHeightChanged: root.queuePinAdd()
+            onHeightChanged: root.queuePinAdd()
             // No recycling: few rows, and a recycled delegate mid-drag loses
             // the tile.
             reuseItems: false
@@ -1823,10 +1843,12 @@ Rectangle {
 
         // The pinned copy: the same cell, outside the scrolling list.
         Item {
+            id: railAddPinnedSlot
             Layout.fillWidth: true
             Layout.preferredHeight: root.railAddVisible && root.railAddPinned
                                     ? root.railAddCellHeight : 0
             visible: Layout.preferredHeight > 0
+            onHeightChanged: root.queuePinAdd()
             RailAddSpaceCell { buttonName: "railAddSpaceButtonPinned" }
         }
 

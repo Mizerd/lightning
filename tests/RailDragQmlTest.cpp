@@ -2544,6 +2544,82 @@ private slots:
         QTRY_VERIFY(footerButton->isVisible());
     }
 
+    // The pin decision must hold at EVERY rail height, not only at two: a
+    // band of heights where the button was in neither place (vanished) or in
+    // both, and a "Binding loop detected" from deciding inside the signal that
+    // the decision itself changes. One pixel at a time across the threshold,
+    // exactly one reachable Create a Space button at each.
+    void exactlyOneCreateASpaceButtonAtEveryRailHeight()
+    {
+        auto *footerButton = m_rail->findChild<QQuickItem *>(
+            QStringLiteral("railAddSpaceButton"));
+        auto *pinnedButton = m_rail->findChild<QQuickItem *>(
+            QStringLiteral("railAddSpaceButtonPinned"));
+        QVERIFY(footerButton && pinnedButton);
+        QVERIFY(m_rail->setProperty("railAddVisible", true));
+        const auto restore = qScopeGuard([&] {
+            m_window->resize(160, 700);
+            m_rail->setSize(QSizeF(m_window->width(), m_window->height()));
+            QTest::qWait(60);
+        });
+        static QStringList loops;
+        loops.clear();
+        static QtMessageHandler previous = nullptr;
+        previous = qInstallMessageHandler(
+            [](QtMsgType type, const QMessageLogContext &ctx, const QString &msg) {
+                if (msg.contains(QLatin1String("Binding loop")))
+                    loops << msg;
+                if (previous)
+                    previous(type, ctx, msg);
+            });
+        const auto unhook = qScopeGuard([&] { qInstallMessageHandler(previous); });
+
+        // Reachable: shown, whole inside the rail's window, and for the one
+        // in the list, inside the part of the list the reader can see.
+        const auto reachable = [&](QQuickItem *button, bool inList) {
+            if (!button->isVisible() || button->width() <= 1)
+                return false;
+            const QRectF r = button->mapRectToScene(
+                QRectF(0, 0, button->width(), button->height()));
+            if (r.top() < 0 || r.bottom() > m_window->height())
+                return false;
+            if (!inList)
+                return true;
+            const QRectF viewport = m_list->mapRectToScene(
+                QRectF(0, 0, m_list->width(), m_list->height()));
+            return r.top() >= viewport.top() - 1
+                && r.bottom() <= viewport.bottom() + 1;
+        };
+
+        QStringList bad;
+        QList<bool> pinnedStates;
+        for (int h = 230; h <= 560; ++h) {
+            m_window->resize(160, h);
+            m_rail->setSize(QSizeF(m_window->width(), m_window->height()));
+            // Layout and the deferred decision settle over a few turns.
+            for (int i = 0; i < 4; ++i) {
+                QCoreApplication::processEvents();
+                QTest::qWait(8);
+            }
+            const bool inList = reachable(footerButton, true);
+            const bool pinned = reachable(pinnedButton, false);
+            if (inList == pinned)
+                bad << QStringLiteral("h=%1 inList=%2 pinned=%3")
+                           .arg(h).arg(inList).arg(pinned);
+            pinnedStates << pinned;
+        }
+        QVERIFY2(bad.isEmpty(), qPrintable(bad.mid(0, 12).join(QLatin1Char('\n'))));
+        QVERIFY2(loops.isEmpty(), qPrintable(loops.mid(0, 4).join(QLatin1Char('\n'))));
+        // The sweep crossed the threshold once: pinned while short, in the
+        // list once there is room, with no flip-flopping between.
+        QVERIFY2(pinnedStates.first() && !pinnedStates.last(),
+                 "the sweep did not cross the pinning threshold");
+        int flips = 0;
+        for (int i = 1; i < pinnedStates.size(); ++i)
+            flips += pinnedStates.at(i) != pinnedStates.at(i - 1);
+        QCOMPARE(flips, 1);
+    }
+
     void escapeCancelsADragAndFilesNothing()
     {
         const QString a = m_spaceIds.at(0);
