@@ -6284,7 +6284,7 @@ mod tests {
             .split("pub fn edit(")
             .nth(1)
             .expect("edit() not found — the scan is reading the wrong file");
-        let bound = "\n    /// Toggle a reaction";
+        let bound = "\n    pub fn toggle_reaction(";
         assert!(
             after.contains(bound),
             "edit() is no longer followed by toggle_reaction — re-bound this \
