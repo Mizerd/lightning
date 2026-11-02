@@ -1732,15 +1732,19 @@ private Q_SLOTS:
 
         auto *row = d.root->findChild<QQuickItem *>(
             QStringLiteral("messagePresentationRow"));
-        auto *strip = d.root->findChild<QQuickItem *>(
-            QStringLiteral("readReceiptStrip"));
-        auto *check = d.root->findChild<QQuickItem *>(
-            QStringLiteral("sentReceiptCheck"));
-        QVERIFY(row && strip && check);
+        const auto strip = [&d] {
+            return d.root->findChild<QQuickItem *>(
+                QStringLiteral("readReceiptStrip"));
+        };
+        const auto check = [&d] {
+            return d.root->findChild<QQuickItem *>(
+                QStringLiteral("sentReceiptCheck"));
+        };
+        QVERIFY(row);
         const qreal initialHeight = row->implicitHeight();
         const qreal initialDelegateHeight = d.root->implicitHeight();
         QVERIFY(initialHeight > 0);
-        QVERIFY(!strip->isVisible());
+        QVERIFY(!strip());
 
         auto verifyHeight = [&](const char *state) {
             QCoreApplication::processEvents();
@@ -1752,20 +1756,20 @@ private Q_SLOTS:
         f.insert(QStringLiteral("sentReceipt"), true);
         d.engine->rootContext()->setContextProperty("model", f);
         verifyHeight("sent check changed the row height");
-        QVERIFY(strip->isVisible() && check->isVisible());
+        QVERIFY(strip() && strip()->isVisible() && check()->isVisible());
 
         f.insert(QStringLiteral("readReceipts"), receipts(3));
         f.insert(QStringLiteral("readReceiptsTotal"), 3);
         d.engine->rootContext()->setContextProperty("model", f);
         verifyHeight("reader faces changed the row height");
-        QVERIFY(strip->isVisible() && !check->isVisible());
+        QVERIFY(strip() && strip()->isVisible() && !check()->isVisible());
 
         f.insert(QStringLiteral("sentReceipt"), false);
         f.insert(QStringLiteral("readReceipts"), QVariantList{});
         f.insert(QStringLiteral("readReceiptsTotal"), 0);
         d.engine->rootContext()->setContextProperty("model", f);
         verifyHeight("removing receipts changed the row height");
-        QVERIFY(!strip->isVisible());
+        QVERIFY(!strip());
     }
 
     void theActionBarDoesNotCoverAShortOwnBubble()

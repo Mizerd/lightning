@@ -5190,14 +5190,11 @@ false);
             empty.insert(QStringLiteral("readReceipts"), QVariantList{});
             QQuickItem *root = loadDelegate(engine, empty, 1400);
             QVERIFY(root != nullptr);
-            auto *strip = root->findChild<QQuickItem *>(
-                QStringLiteral("readReceiptStrip"));
-            QVERIFY(strip != nullptr);
-            QVERIFY(!strip->isVisible());
+            QVERIFY(!root->findChild<QQuickItem *>(
+                QStringLiteral("readReceiptStrip")));
             QVERIFY(visualChildrenByName(root,
                                          QStringLiteral("readReceiptChip"))
                         .isEmpty());
-            QCOMPARE(strip->property("summary").toString(), QString{});
             QVERIFY(root->implicitHeight() > 0.0);
         }
 

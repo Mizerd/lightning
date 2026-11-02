@@ -1476,10 +1476,8 @@ QtObject {
                         QStringLiteral("withheld"));
         Delegate w;
         QVERIFY(createDelegate(controller, withheld, w));
-        auto *staticSkeleton = w.root->findChild<QQuickItem *>(
-            QStringLiteral("decryptingSkeleton"));
-        QVERIFY(staticSkeleton != nullptr);
-        QVERIFY(!staticSkeleton->isVisible());
+        QVERIFY(!w.root->findChild<QQuickItem *>(
+            QStringLiteral("decryptingSkeleton")));
         auto *staticBody = w.root->findChild<QQuickItem *>(
             QStringLiteral("messageBody"));
         QVERIFY(staticBody != nullptr);
