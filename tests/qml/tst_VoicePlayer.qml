@@ -88,7 +88,7 @@ TestCase {
         property real voicePlaybackRate: 1.0
         property real mediaVolume: 1.0
         property int gifAutoplay: 0
-        property bool largeAlbumArt: true
+        property string albumArtStyle: "card"
         function knownMediaSizeBytes(k) { return 0 }
     }
     QtObject {
@@ -253,7 +253,7 @@ TestCase {
         settings.voicePlayerDocked = true
         settings.voiceMiniPlayerGeometry = Qt.rect(0, 0, 0, 0)
         settings.voicePlaybackRate = 1.0
-        settings.largeAlbumArt = true
+        settings.albumArtStyle = "card"
         appStub.currentScreen = 1
         appStub.opened = []
         AppTheme.mode = 2
@@ -651,7 +651,7 @@ TestCase {
         "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
 
     function test_anAudioFileKeepsItsHeightAndShowsItsTitle() {
-        settings.largeAlbumArt = false
+        settings.albumArtStyle = "compact"
         var row = createTemporaryObject(rowComponent, test,
                                         { isVoice: false,
                                           filename: "Short Test Song.mp3" })
@@ -675,7 +675,7 @@ TestCase {
     }
 
     function test_aLargeCoverGrowsTheRowOnceAndPlaybackNeverMovesIt() {
-        compare(settings.largeAlbumArt, true)
+        compare(settings.albumArtStyle, "card")
         var row = createTemporaryObject(rowComponent, test,
                                         { isVoice: false,
                                           filename: "Short Test Song.mp3" })
@@ -700,14 +700,38 @@ TestCase {
         voice.load({ eventId: "$row", isVoice: false, loaded: false })
         wait(0)
         compare(row.implicitHeight, withCover, "stopping playback moved the row")
-        settings.largeAlbumArt = false
+        settings.albumArtStyle = "compact"
         wait(50)
         compare(row.implicitHeight, compact)
     }
 
+    function test_theLargeStyleIsASquareAboveTheControls() {
+        settings.albumArtStyle = "large"
+        var row = createTemporaryObject(rowComponent, test,
+                                        { isVoice: false, width: 360,
+                                          filename: "Song.mp3" })
+        voice.info = { "mk-row": { artworkSource: tinyCover } }
+        voice.clipInfoRevision++
+        wait(50)
+        var box = find(row, "audioCoverArtBox")
+        var play = find(row, "audioPlayPauseButton")
+        compare(box.width, 240)
+        compare(box.height, 240)
+        var bp = box.mapToItem(row, 0, 0)
+        var pp = play.mapToItem(row, 0, 0)
+        verify(pp.y >= bp.y + box.height, "the controls are not below the art")
+        var h = row.implicitHeight
+        voice.load({ eventId: "$row", isVoice: false, loaded: true })
+        wait(0)
+        compare(row.implicitHeight, h, "starting playback moved the row")
+        row.width = 240
+        wait(50)
+        compare(box.width, 40, "a narrow row keeps the compact tile")
+    }
+
     function test_clickingTheCoverAsksForTheEnlargedArtAndOnlyThat() {
-        for (var large = 0; large < 2; ++large) {
-            settings.largeAlbumArt = large === 1
+        for (var large = 0; large < 3; ++large) {
+            settings.albumArtStyle = ["compact", "card", "large"][large]
             voice.calls = []
             var row = createTemporaryObject(rowComponent, test,
                                             { isVoice: false,
@@ -736,7 +760,7 @@ TestCase {
     }
 
     function test_theCoverlessTileIsInert() {
-        settings.largeAlbumArt = true
+        settings.albumArtStyle = "card"
         var row = createTemporaryObject(rowComponent, test,
                                         { isVoice: false,
                                           filename: "Song.mp3" })

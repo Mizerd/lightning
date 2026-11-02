@@ -3176,6 +3176,13 @@ live, and the server answers presence. Research and design: vault note
 
 ### Audio album art and the composer's default mode (0.10.3)
 
+- Settings > Sound & video > Media playback > "Album art" is a three-way choice
+  (`media/albumArtStyle`): Compact (40 px tile), Card (default, below) and
+  Large (a square up to 240 px above the controls, the 0.10.0 look). An unset
+  key reads the old boolean `media/largeAlbumArt`: false is Compact, true or
+  unset is Card. Large, like Card, needs a cover and a card at least 280 px
+  wide; otherwise the compact tile is used. Same tile object in all three.
+
 - An audio-file row with a cover is ONE composed card: a 96 px (scaled) square
   tile on the left, as tall as the control block, with the title, artist/
   duration line and scrubber at its top and the play, speed, volume and save

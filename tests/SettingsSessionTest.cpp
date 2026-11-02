@@ -114,7 +114,7 @@ private Q_SLOTS:
     void unknownStoredThemeFallsBackToSystem();
     void composerModeIsMarkdownForAFreshProfile();
     void aStoredRichModeIsMigratedToMarkdownOnce();
-    void largeAlbumArtDefaultsOnAndAnOptOutPersists();
+    void albumArtStyleMigratesTheOldBooleanAndPersists();
     void themeChangeEmitsSignal();
     void previewDefaultsAndEncryptedOff();
     void shareQualityDefaultsPersistAndSnap();
@@ -704,15 +704,21 @@ void SettingsSessionTest::aStoredRichModeIsMigratedToMarkdownOnce()
     QCOMPARE(later.composerMode(), QStringLiteral("rich"));
 }
 
-void SettingsSessionTest::largeAlbumArtDefaultsOnAndAnOptOutPersists()
+void SettingsSessionTest::albumArtStyleMigratesTheOldBooleanAndPersists()
 {
     {
         SettingsManager s;
-        QVERIFY(s.largeAlbumArt());
-        s.setLargeAlbumArt(false);
+        QCOMPARE(s.albumArtStyle(), QStringLiteral("card"));
+        QSettings().setValue(QStringLiteral("media/largeAlbumArt"), false);
+        QCOMPARE(s.albumArtStyle(), QStringLiteral("compact"));
+        QSettings().setValue(QStringLiteral("media/largeAlbumArt"), true);
+        QCOMPARE(s.albumArtStyle(), QStringLiteral("card"));
+        s.setAlbumArtStyle(QStringLiteral("bogus"));
+        QCOMPARE(s.albumArtStyle(), QStringLiteral("card"));
+        s.setAlbumArtStyle(QStringLiteral("large"));
     }
     SettingsManager reopened;
-    QVERIFY(!reopened.largeAlbumArt());
+    QCOMPARE(reopened.albumArtStyle(), QStringLiteral("large"));
 }
 
 void SettingsSessionTest::unknownStoredThemeFallsBackToSystem()

@@ -320,8 +320,8 @@ class SettingsManager : public QObject
                    NOTIFY voiceMiniPlayerCornerChanged)
     Q_PROPERTY(bool voicePlayerDocked READ voicePlayerDocked
                    WRITE setVoicePlayerDocked NOTIFY voicePlayerDockedChanged)
-    Q_PROPERTY(bool largeAlbumArt READ largeAlbumArt WRITE setLargeAlbumArt
-                   NOTIFY largeAlbumArtChanged)
+    Q_PROPERTY(QString albumArtStyle READ albumArtStyle WRITE setAlbumArtStyle
+                   NOTIFY albumArtStyleChanged)
     Q_PROPERTY(QRectF voiceMiniPlayerGeometry READ voiceMiniPlayerGeometry
                    WRITE setVoiceMiniPlayerGeometry
                    NOTIFY voiceMiniPlayerGeometryChanged)
@@ -799,8 +799,8 @@ public:
     int voiceMiniPlayerCorner() const;
     void setVoiceMiniPlayerCorner(int corner);
     bool voicePlayerDocked() const;
-    bool largeAlbumArt() const;
-    Q_INVOKABLE void setLargeAlbumArt(bool large);
+    QString albumArtStyle() const;
+    Q_INVOKABLE void setAlbumArtStyle(const QString &style);
     void setVoicePlayerDocked(bool docked);
     QRectF voiceMiniPlayerGeometry() const;
     void setVoiceMiniPlayerGeometry(const QRectF &geometry);
@@ -1040,7 +1040,7 @@ Q_SIGNALS:
     void mediaPlaybackRateChanged();
     void voiceMiniPlayerCornerChanged();
     void voicePlayerDockedChanged();
-    void largeAlbumArtChanged();
+    void albumArtStyleChanged();
     void voiceMiniPlayerGeometryChanged();
     void voicePlaybackRateChanged();
     void interfaceZoomChanged();

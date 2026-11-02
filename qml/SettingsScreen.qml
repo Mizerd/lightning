@@ -391,11 +391,11 @@ Item {
           section: "sound",
           breadcrumb: qsTr("Sound & video · Media"),
           anchor: "voicePlayerDockedCheck" },
-        { title: qsTr("Large album art"),
+        { title: qsTr("Album art"),
           keywords: QT_TR_NOOP("album art cover artwork audio file music big large square compact"),
           section: "sound",
           breadcrumb: qsTr("Sound & video · Media playback"),
-          anchor: "largeAlbumArtCheck" },
+          anchor: "albumArtStyleCombo" },
         { title: qsTr("Camera"),
           keywords: QT_TR_NOOP("camera webcam video device call"),
           section: "sound",
@@ -7060,13 +7060,35 @@ Item {
                                     onToggled: app.settings.voicePlayerDocked = checked
                                     Accessible.description: qsTr("When off, the player for voice messages and audio files floats over the window, and you can move and resize it.")
                                 }
-                                SettingsCheckBox {
-                                    objectName: "largeAlbumArtCheck"
-                                    palette.windowText: AppTheme.stormText
-                                    text: qsTr("Large album art")
-                                    checked: app.settings.largeAlbumArt
-                                    onToggled: app.settings.largeAlbumArt = checked
-                                    Accessible.description: qsTr("Shows the cover of an audio file as a large square beside its title and controls. When off, or when the file has no cover, a small tile sits beside the play button.")
+                                Label {
+                                    text: qsTr("Album art")
+                                    color: AppTheme.stormTextSecondary
+                                    font.pixelSize: AppTheme.settingsOptionSize
+                                }
+                                AppComboBox {
+                                    storm: true
+                                    id: albumArtStyleCombo
+                                    objectName: "albumArtStyleCombo"
+                                    Layout.fillWidth: true
+                                    textRole: "label"; valueRole: "value"
+                                    Accessible.name: qsTr("Album art")
+                                    Accessible.description: qsTr("How the cover of an audio file is shown: a small tile beside the play button, a larger tile beside the title and controls, or a big square above the controls. A file with no cover, or a narrow message, always gets the small tile.")
+                                    model: [
+                                        { label: qsTr("Compact"), value: "compact" },
+                                        { label: qsTr("Card"),    value: "card" },
+                                        { label: qsTr("Large"),   value: "large" },
+                                    ]
+                                    function syncFromSettings() {
+                                        syncToValue(app.settings.albumArtStyle)
+                                    }
+                                    Component.onCompleted: syncFromSettings()
+                                    Connections {
+                                        target: app.settings
+                                        function onAlbumArtStyleChanged() {
+                                            albumArtStyleCombo.syncFromSettings()
+                                        }
+                                    }
+                                    onActivated: app.settings.albumArtStyle = currentValue
                                 }
                             }
                         }

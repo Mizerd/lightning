@@ -87,6 +87,7 @@ constexpr auto kMediaPlaybackRate   = "media/playbackRate";
 constexpr auto kVoiceMiniPlayerCorner = "media/miniPlayerCorner";
 constexpr auto kVoicePlayerDocked   = "media/playerDocked";
 constexpr auto kLargeAlbumArt       = "media/largeAlbumArt";
+constexpr auto kAlbumArtStyle       = "media/albumArtStyle";
 constexpr auto kVoiceMiniPlayerGeometry = "media/miniPlayerGeometry";
 constexpr auto kVoicePlaybackRate   = "media/voicePlaybackRate";
 constexpr auto kGifAutoplay         = "gif/autoplay";
@@ -3831,17 +3832,26 @@ void SettingsManager::setVoicePlayerDocked(bool docked)
     Q_EMIT voicePlayerDockedChanged();
 }
 
-bool SettingsManager::largeAlbumArt() const
+QString SettingsManager::albumArtStyle() const
 {
-    return m_store->value(kLargeAlbumArt, true).toBool();
+    const QString stored = m_store->value(kAlbumArtStyle).toString();
+    if (stored == QLatin1String("compact") || stored == QLatin1String("card")
+        || stored == QLatin1String("large"))
+        return stored;
+    return m_store->value(kLargeAlbumArt, true).toBool()
+        ? QStringLiteral("card") : QStringLiteral("compact");
 }
 
-void SettingsManager::setLargeAlbumArt(bool large)
+void SettingsManager::setAlbumArtStyle(const QString &style)
 {
-    if (largeAlbumArt() == large)
+    if (style != QLatin1String("compact") && style != QLatin1String("card")
+        && style != QLatin1String("large"))
         return;
-    m_store->setValue(kLargeAlbumArt, large);
-    Q_EMIT largeAlbumArtChanged();
+    if (albumArtStyle() == style
+        && m_store->contains(kAlbumArtStyle))
+        return;
+    m_store->setValue(kAlbumArtStyle, style);
+    Q_EMIT albumArtStyleChanged();
 }
 
 QRectF SettingsManager::voiceMiniPlayerGeometry() const

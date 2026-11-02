@@ -94,7 +94,7 @@ AudioPlayerCard { objectName: "card" }
             ->contextProperty(QStringLiteral("app")).value<QObject *>();
         auto *settings = controller->findChild<SettingsManager *>();
         QVERIFY(settings);
-        settings->setLargeAlbumArt(large);
+        settings->setAlbumArtStyle(large ? QStringLiteral("card") : QStringLiteral("compact"));
         QTest::qWait(50);
     }
 

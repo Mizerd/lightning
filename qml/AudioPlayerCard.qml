@@ -236,11 +236,14 @@ Rectangle {
              : (bubble ? bubble.width : 360))
     readonly property bool largeCover:
         !root.isVoice && root.width >= 280
-        && app.settings && app.settings.largeAlbumArt === true
+        && app.settings && app.settings.albumArtStyle !== "compact"
         && (root.artworkSource.length > 0
             || (root.thumbAvailable && !root.wireCoverFailed))
+    readonly property bool hugeCover:
+        root.largeCover && app.settings.albumArtStyle === "large"
     readonly property real tileSize:
-        root.largeCover ? Math.round(AppTheme.scaled(96)) : 40
+        root.hugeCover ? Math.max(40, Math.min(root.width - 12, 240))
+                       : (root.largeCover ? Math.round(AppTheme.scaled(96)) : 40)
     implicitHeight: cardGrid.implicitHeight + 12
     color: root.inBubble ? "transparent" : AppTheme.embedSurface
     radius: AppTheme.radiusSm
@@ -251,7 +254,10 @@ Rectangle {
 
     GridLayout {
         id: cardGrid
-        readonly property bool big: root.largeCover
+        readonly property bool huge: root.hugeCover
+        readonly property bool big: root.largeCover && !root.hugeCover
+        readonly property int ctlRow: huge || big ? 1 : 0
+        readonly property int colShift: huge ? 1 : 0
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
@@ -264,10 +270,12 @@ Rectangle {
 
         Item {
             objectName: "audioArtSlot"
-            Layout.alignment: Qt.AlignTop
+            Layout.alignment: cardGrid.huge ? (Qt.AlignTop | Qt.AlignHCenter)
+                                            : Qt.AlignTop
             Layout.row: 0
             Layout.column: 0
             Layout.rowSpan: cardGrid.big ? 2 : 1
+            Layout.columnSpan: cardGrid.huge ? 6 : 1
             visible: !root.isVoice
             implicitWidth: root.tileSize
             implicitHeight: root.tileSize
@@ -285,7 +293,7 @@ Rectangle {
                     anchors.fill: parent
                     source: coverArtBox.visible ? root.artworkSource : ""
                     onStatusChanged: root.noteCoverStatus(this)
-                    sourceSize.width: root.largeCover ? 320 : 96
+                    sourceSize.width: root.hugeCover ? 480 : (root.largeCover ? 320 : 96)
                     fillMode: Image.PreserveAspectCrop
                     asynchronous: true
                     cache: true
@@ -318,8 +326,8 @@ Rectangle {
         }
         Item {
             Layout.alignment: cardGrid.big ? Qt.AlignVCenter : Qt.AlignTop
-            Layout.row: cardGrid.big ? 1 : 0
-            Layout.column: 1
+            Layout.row: cardGrid.ctlRow
+            Layout.column: 1 - cardGrid.colShift
             Layout.fillWidth: cardGrid.big
             implicitWidth: playButton.implicitWidth
             implicitHeight: root.isVoice ? playButton.implicitHeight
@@ -367,8 +375,8 @@ Rectangle {
         ColumnLayout {
             Layout.fillWidth: true
             Layout.alignment: Qt.AlignTop
-            Layout.row: 0
-            Layout.column: cardGrid.big ? 1 : 2
+            Layout.row: cardGrid.huge ? 1 : 0
+            Layout.column: cardGrid.big ? 1 : 2 - cardGrid.colShift
             Layout.columnSpan: cardGrid.big ? 4 : 1
             Layout.fillHeight: cardGrid.big
             spacing: 2
@@ -444,8 +452,8 @@ Rectangle {
             readonly property var rates: [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
             readonly property real rate: root.rate
             Layout.alignment: cardGrid.big ? Qt.AlignVCenter : Qt.AlignTop
-            Layout.row: cardGrid.big ? 1 : 0
-            Layout.column: cardGrid.big ? 2 : 3
+            Layout.row: cardGrid.ctlRow
+            Layout.column: cardGrid.big ? 2 : 3 - cardGrid.colShift
             implicitWidth: 34; implicitHeight: 24
             enabled: root.isVoice || root.ready
             focusPolicy: Qt.TabFocus
@@ -499,8 +507,8 @@ Rectangle {
         MediaVolumeControl {
             objectName: "audioMuteButton"
             Layout.alignment: cardGrid.big ? Qt.AlignVCenter : Qt.AlignTop
-            Layout.row: cardGrid.big ? 1 : 0
-            Layout.column: cardGrid.big ? 3 : 4
+            Layout.row: cardGrid.ctlRow
+            Layout.column: cardGrid.big ? 3 : 4 - cardGrid.colShift
             audio: root.isCurrent ? root.voice.audioOutput : null
             sliderObjectName: "audioVolumeSlider"
             iconSize: 15
@@ -510,8 +518,8 @@ Rectangle {
         IconButton {
             objectName: "audioSaveButton"
             Layout.alignment: cardGrid.big ? Qt.AlignVCenter : Qt.AlignTop
-            Layout.row: cardGrid.big ? 1 : 0
-            Layout.column: cardGrid.big ? 4 : 5
+            Layout.row: cardGrid.ctlRow
+            Layout.column: cardGrid.big ? 4 : 5 - cardGrid.colShift
             iconName: "download"
             iconSize: 15
             implicitWidth: 24; implicitHeight: 24
