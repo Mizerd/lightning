@@ -469,6 +469,7 @@ void RustSdkMatrixClient::clearLocalState()
     m_userId.clear();
     m_deviceId.clear();
     m_rooms.clear();
+    m_memberListRecency.clear();
     m_roomOrder.clear();
     m_lastReceiptSent.clear();
     m_syncMode = QStringLiteral("stopped");
@@ -1508,6 +1509,7 @@ void RustSdkMatrixClient::login(const QString &homeserver,
     m_restoredOffline = false;
     m_ownIdentityKeyMismatchLogged = false;
     m_rooms.clear();
+    m_memberListRecency.clear();
     m_roomOrder.clear();
     m_timelines.clear();
     m_forwardedEditIds.clear();
@@ -2424,6 +2426,7 @@ void RustSdkMatrixClient::adoptBrowserSession(
     m_restoredOffline = false;
     m_ownIdentityKeyMismatchLogged = false;
     m_rooms.clear();
+    m_memberListRecency.clear();
     m_roomOrder.clear();
     m_timelines.clear();
     m_forwardedEditIds.clear();
@@ -2729,6 +2732,7 @@ bool RustSdkMatrixClient::restoreSession()
     m_restoredOffline = false;
     m_ownIdentityKeyMismatchLogged = false;
     m_rooms.clear();
+    m_memberListRecency.clear();
     m_roomOrder.clear();
     m_timelines.clear();
     m_forwardedEditIds.clear();
@@ -2802,6 +2806,7 @@ bool RustSdkMatrixClient::restoreSessionFromFile(const QString &homeserver,
     m_restoredOffline = false;
     m_ownIdentityKeyMismatchLogged = false;
     m_rooms.clear();
+    m_memberListRecency.clear();
     m_roomOrder.clear();
     m_timelines.clear();
     m_forwardedEditIds.clear();

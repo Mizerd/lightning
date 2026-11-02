@@ -77,10 +77,18 @@ cleanup() { rm -f "$auth_conf"; rm -rf "$tmp_dir"; }
 trap cleanup EXIT
 printf 'header = "PRIVATE-TOKEN: %s"\n' "$GITLAB_COM_TOKEN" >"$auth_conf"
 
-# Anonymous, as a client fetches it, within the client's redirect limit.
+# Anonymous, as a client fetches it: the client follows redirects only to
+# https://gitlab.com, so a response that ends anywhere else is a failure here.
 fetch_anonymous() { # url output -> prints status
-    "$CURL_BIN" --silent --show-error --location --max-redirs 4 --max-time 120 \
-        --output "$2" --write-out '%{http_code}' "$1"
+    local out final
+    out="$("$CURL_BIN" --silent --show-error --location --proto-redir '=https' --max-redirs 4 \
+        --max-time 120 --output "$2" --write-out '%{http_code} %{url_effective}' "$1")" || return 1
+    final="${out#* }"
+    if [[ "$final" != https://gitlab.com/* ]]; then
+        printf 'foreign-redirect'
+        return 0
+    fi
+    printf '%s' "${out%% *}"
 }
 
 upload() { # version file name

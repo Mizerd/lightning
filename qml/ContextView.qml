@@ -28,10 +28,10 @@ Rectangle {
     property bool landingPending: false
     property bool barDismissed: false
     function loadTowards(delta) {
-        if (delta < 0
+        if (delta < 0 && !app.eventContext.olderFailed
                 && list.contentY - list.originY + list.topMargin < list.height)
             app.eventContext.loadOlder()
-        else if (delta > 0
+        else if (delta > 0 && !app.eventContext.newerFailed
                  && list.originY + list.contentHeight + list.bottomMargin
                     - list.contentY < 2 * list.height)
             app.eventContext.loadNewer()
@@ -59,6 +59,8 @@ Rectangle {
                 view.targetBuilt = false
                 view.landingPending = false
                 view.barDismissed = false
+                list.lastSeenRow = -1
+                list.lastContentY = 0
             }
         }
         function onTargetLocated(row) {

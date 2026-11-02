@@ -577,6 +577,7 @@ FocusScope {
                 }
                 onTriggered: {
                     if (!bar.player) return
+                    bar.reapplyBudget = 0
                     if (modelData.kind === "audio") {
                         bar.trackIntent.audio = modelData.index
                         bar.player.activeAudioTrack = modelData.index
