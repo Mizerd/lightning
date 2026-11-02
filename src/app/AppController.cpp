@@ -1431,20 +1431,12 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         m_inviteNotices.observe(current, m_client->initialSyncDone(),
                                 QDateTime::currentMSecsSinceEpoch());
         processInviteNotices();
-        // The open room is no longer one the user is in or invited to: left
-        // or kicked elsewhere, or an invite declined from the room list,
-        // which unlike Leave never reaches RoomInfoController::roomLeft. The
-        // pane stayed on it, its name degraded to the raw id and every send
-        // failed. A room LISTED as left goes now; one merely absent (the SDK
-        // list filters left rooms out) waits out the invite grace, since a
-        // re-sort or resync drops a room for one emission. A room never seen
-        // listed (a restore before the list has loaded) is left alone.
         // The room this account had open when the app last ran or when the
         // user left the account, reopened once the list shows the user still
         // in it. Any other navigation since (a room, a Space, Settings) has
         // already cleared the intent.
         if (!m_restoreRoomId.isEmpty()) {
-            if (!m_currentRoomId.isEmpty() || m_currentScreen != MainScreen) {
+            if (!m_currentRoomId.isEmpty() || m_currentScreen == SettingsScreen) {
                 m_restoreRoomId.clear();
             } else {
                 const auto wanted = std::find_if(
@@ -1456,10 +1448,20 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                     const QString target = std::exchange(m_restoreRoomId, {});
                     qCInfo(lcApp) << "reopening the last room for this account";
                     openRoom(target);
-                    return;
+                    // Falls through: the open room is now checked against the
+                    // list like any other, which also records that it is
+                    // listed (m_currentRoomListed).
                 }
             }
         }
+        // The open room is no longer one the user is in or invited to: left
+        // or kicked elsewhere, or an invite declined from the room list,
+        // which unlike Leave never reaches RoomInfoController::roomLeft. The
+        // pane stayed on it, its name degraded to the raw id and every send
+        // failed. A room LISTED as left goes now; one merely absent (the SDK
+        // list filters left rooms out) waits out the invite grace, since a
+        // re-sort or resync drops a room for one emission. A room never seen
+        // listed (a restore before the list has loaded) is left alone.
         if (m_currentRoomId.isEmpty())
             return;
         const auto listed = std::find_if(
@@ -7664,6 +7666,17 @@ void AppController::setConnectionStatus(const QString &s)
     Q_EMIT connectionStatusChanged();
 }
 
+void AppController::armRestoreRoom(const QString &roomId)
+{
+    if (roomId.isEmpty())
+        return;
+    m_restoreRoomId = roomId;
+    QTimer::singleShot(m_restoreWindowMs, this, [this, roomId] {
+        if (m_restoreRoomId == roomId)
+            m_restoreRoomId.clear();
+    });
+}
+
 void AppController::onLoginSucceeded()
 {
     // LIGHTNING_SWITCH_TRACE: the 30 s deadline for the two targets starts
@@ -7752,14 +7765,7 @@ void AppController::onLoginSucceeded()
     m_restoreRoomId.clear();
     if (!m_auth->lastSignInWasInteractive() && !m_screenshotDemo && m_settings
         && m_currentRoomId.isEmpty()) {
-        const QString last = m_settings->lastOpenedRoom(uid);
-        if (!last.isEmpty()) {
-            m_restoreRoomId = last;
-            QTimer::singleShot(30000, this, [this, last] {
-                if (m_restoreRoomId == last)
-                    m_restoreRoomId.clear();
-            });
-        }
+        armRestoreRoom(m_settings->lastOpenedRoom(uid));
     }
     setLocalRustResetRequired(false);
     clearLocalSessionFailure();

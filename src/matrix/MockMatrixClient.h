@@ -260,6 +260,17 @@ public:
     }
     /// 0 none, 1 unread in a thread, 2 mention in a thread: sets the bridge
     /// hint a room's remaining unread would carry when only threads hold it.
+    /// Moves a listed room to `membership` and announces the list, as a sync
+    /// that joined, left or invited would.
+    void setRoomMembershipForTest(const QString &roomId,
+                                  RoomInfo::Membership membership)
+    {
+        for (auto &r : m_rooms) {
+            if (r.id == roomId)
+                r.membership = membership;
+        }
+        Q_EMIT roomsChanged();
+    }
     void setRoomThreadUnreadForTest(const QString &roomId, int kind)
     {
         for (auto &r : m_rooms) {
