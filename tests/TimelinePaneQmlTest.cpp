@@ -6011,10 +6011,22 @@ false);
         QVERIFY2(waitForRowsToStopArriving(controller),
                  "the proxy never finished revealing, so the anchor would be "
                  "captured on whichever row happened to be there");
-        QVERIFY(positionAtTopEdge(timeline));
-        QCoreApplication::processEvents();
-        QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
-        const QString anchorId = timeline->property("viewAnchorId").toString();
+        QString anchorId;
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            ([&] {
+                if (!positionAtTopEdge(timeline))
+                    return false;
+                QCoreApplication::processEvents();
+                if (!QMetaObject::invokeMethod(timeline, "captureViewAnchor"))
+                    return false;
+                anchorId = timeline->property("viewAnchorId").toString();
+                const int row = controller.timeline()->rowForStableId(anchorId);
+                return !anchorId.isEmpty() && row >= 0
+                    && row != controller.timeline()->rowCount() - 1;
+            }()),
+            "the anchor at the top edge stayed on the newest row, whose y "
+            "is 0: the layout had not settled when it was captured",
+            kSignalTimeoutMs);
         QVERIFY2(!anchorId.isEmpty(), "the fixture must yield a live anchor");
 
         const int rowBefore = controller.timeline()->rowForStableId(anchorId);
@@ -6160,10 +6172,22 @@ false);
         QVERIFY2(waitForRowsToStopArriving(controller),
                  "the proxy never finished revealing, so the anchor would be "
                  "captured on whichever row happened to be there");
-        QVERIFY(positionAtTopEdge(timeline));
-        QCoreApplication::processEvents();
-        QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
-        const QString anchorId = timeline->property("viewAnchorId").toString();
+        QString anchorId;
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            ([&] {
+                if (!positionAtTopEdge(timeline))
+                    return false;
+                QCoreApplication::processEvents();
+                if (!QMetaObject::invokeMethod(timeline, "captureViewAnchor"))
+                    return false;
+                anchorId = timeline->property("viewAnchorId").toString();
+                const int row = controller.timeline()->rowForStableId(anchorId);
+                return !anchorId.isEmpty() && row >= 0
+                    && row != controller.timeline()->rowCount() - 1;
+            }()),
+            "the anchor at the top edge stayed on the newest row, whose y "
+            "is 0: the layout had not settled when it was captured",
+            kSignalTimeoutMs);
         QVERIFY2(!anchorId.isEmpty(), "the fixture must yield a live anchor");
 
         int rowBefore = controller.timeline()->rowForStableId(anchorId);
@@ -6608,6 +6632,9 @@ false);
             topmostY() - timeline->property("contentY").toDouble()
                 > bandWidth(),
             kSignalTimeoutMs);
+        QVERIFY2(waitForRowsToStopArriving(controller),
+                 "the proxy never finished revealing, so the probes below "
+                 "would be measured against a timeline still growing");
 
         const double contentY = timeline->property("contentY").toDouble();
         const double fromTop = topmostY() - contentY;
