@@ -71,8 +71,8 @@ private Q_SLOTS:
                                      << "Screenshot 2026.10.06.png";
         QTest::newRow("sender extension kept") << "scan.png" << "image/jpeg"
                                                << "scan.png";
-        QTest::newRow("unknown suffix kept") << "weird name.xyz" << "text/plain"
-                                             << "weird name.xyz";
+        QTest::newRow("unknown suffix kept") << "weird name.zzqx" << "text/plain"
+                                             << "weird name.zzqx";
         QTest::newRow("no name, image") << "" << "image/webp" << "image.webp";
         QTest::newRow("no name, video") << "" << "video/mp4" << "video.mp4";
         QTest::newRow("no name, unknown") << "" << "" << "file";
@@ -223,7 +223,7 @@ private Q_SLOTS:
                  (QStringList{QStringLiteral("PDF file (*.pdf)"),
                               QStringLiteral("All files (*)")}));
         QCOMPARE(saveDialogFilters(suggestedFileName(
-                     QStringLiteral("weird name.xyz"),
+                     QStringLiteral("weird name.zzqx"),
                      QStringLiteral("text/plain"))).size(), 1);
         QCOMPARE(saveDialogFilters(QStringLiteral("README")),
                  QStringList{QStringLiteral("All files (*)")});

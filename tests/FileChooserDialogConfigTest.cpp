@@ -23,7 +23,7 @@ private Q_SLOTS:
         QTest::addColumn<QString>("suffix");
         QTest::newRow("pdf") << "report.pdf" << "pdf";
         QTest::newRow("compound") << "backup.tar.gz" << "tar.gz";
-        QTest::newRow("unknown suffix: none forced") << "weird.xyz" << "";
+        QTest::newRow("unknown suffix: none forced") << "weird.zzqx" << "";
         QTest::newRow("no extension") << "file" << "";
         QTest::newRow("empty name") << "" << "";
     }
