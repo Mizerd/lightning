@@ -980,7 +980,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+8563"/>
+        <location filename="../src/app/AppController.cpp" line="+8591"/>
         <source>Room invitation</source>
         <translation>Invitation au salon</translation>
     </message>
@@ -1101,7 +1101,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Appel entrant</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-6555"/>
+        <location filename="../src/app/AppController.cpp" line="-6571"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>La déconnexion a été annulée car le compte a changé. Rien n&apos;a été réinitialisé.</translation>
     </message>
@@ -1153,13 +1153,13 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
     <message>
         <location line="+1"/>
         <location line="+55"/>
-        <location line="+4821"/>
-        <location line="+984"/>
+        <location line="+4837"/>
+        <location line="+986"/>
         <source>Not connected</source>
         <translation>Non connecté</translation>
     </message>
     <message>
-        <location line="-5857"/>
+        <location line="-5875"/>
         <source>Connecting…</source>
         <translation>Connexion…</translation>
     </message>
@@ -1220,29 +1220,29 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3394"/>
+        <location line="+3396"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning n&apos;a pas pu lire le fichier sélectionné.</translation>
     </message>
     <message>
-        <location line="-3400"/>
+        <location line="-3402"/>
         <source>A room-key import is already in progress.</source>
         <translation>Un import de clés de salon est déjà en cours.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4564"/>
+        <location line="+4580"/>
         <source>Not signed in.</source>
         <translation>Non connecté.</translation>
     </message>
     <message>
-        <location line="-4562"/>
+        <location line="-4578"/>
         <source>Room-key import failed.</source>
         <translation>L&apos;import des clés de salon a échoué.</translation>
     </message>
     <message>
-        <location line="+2623"/>
+        <location line="+2625"/>
         <source>Enter a size limit from 1 to 2000 MB.</source>
         <translation>Saisissez une limite de taille entre 1 et 2000 Mo.</translation>
     </message>
@@ -1257,13 +1257,13 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Utilisez des dates réelles au format YYYY-MM-DD, avec « Du » pas après « Au ».</translation>
     </message>
     <message>
-        <location line="-5763"/>
-        <location line="+3385"/>
+        <location line="-5777"/>
+        <location line="+3397"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-3384"/>
+        <location line="-3396"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>Ceci est une notification de test. Si vous pouvez la lire, les notifications du bureau fonctionnent.</translation>
     </message>
@@ -1273,7 +1273,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Nouvelles mentions</translation>
     </message>
     <message>
-        <location line="+709"/>
+        <location line="+721"/>
         <source>Call started</source>
         <translation>Appel lancé</translation>
     </message>
@@ -1293,7 +1293,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Cette notification concernait un autre compte, elle n&apos;a donc pas été envoyée. Revenez sur ce compte et réessayez.</translation>
     </message>
     <message>
-        <location line="+770"/>
+        <location line="+772"/>
         <source>Calls aren&apos;t available while this account uses a proxy.</source>
         <translation>Les appels ne sont pas disponibles tant que ce compte utilise un proxy.</translation>
     </message>
@@ -1499,15 +1499,15 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Effacer les données locales de cet appareil ne résoudrait pas ce problème et détruirait des clés de chiffrement dont vous avez encore besoin.</translation>
     </message>
     <message>
-        <location line="+645"/>
-        <location line="+975"/>
+        <location line="+659"/>
+        <location line="+977"/>
         <location line="+867"/>
         <location line="+15"/>
         <source>Removal did not finish: the account&apos;s data is still in use. Nothing was deleted.</source>
         <translation>La suppression n&apos;a pas abouti : les données du compte sont encore utilisées. Rien n&apos;a été supprimé.</translation>
     </message>
     <message>
-        <location line="-1822"/>
+        <location line="-1824"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Your other accounts are still on this device; unlock the keyring and restart Lightning to continue with them.</source>
         <translation>Lightning ne peut pas lire les connexions enregistrées sur cet appareil pour le moment : le trousseau système est verrouillé ou indisponible. Vos autres comptes restent sur cet appareil ; déverrouillez le trousseau et redémarrez Lightning pour continuer avec eux.</translation>
     </message>
@@ -1539,12 +1539,12 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
     </message>
     <message>
         <location line="+177"/>
-        <location line="+718"/>
+        <location line="+720"/>
         <source>That account is not signed in on this device.</source>
         <translation>Ce compte n&apos;est pas connecté sur cet appareil.</translation>
     </message>
     <message>
-        <location line="-686"/>
+        <location line="-688"/>
         <source>That account&apos;s sign-in has expired. Sign in to it again.</source>
         <translation>La connexion de ce compte a expiré. Reconnectez-vous.</translation>
     </message>
@@ -1554,7 +1554,7 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
         <translation>Votre trousseau système ne renvoie plus la connexion enregistrée de ce compte. Rien n&apos;a été supprimé : reconnectez-vous à ce compte pour continuer sur cet appareil.</translation>
     </message>
     <message>
-        <location line="+395"/>
+        <location line="+397"/>
         <location line="+852"/>
         <source>This account can&apos;t be removed while the system keyring can&apos;t be read: its saved sign-in is there and would be left behind. Unlock the keyring, or start it, and try again.</source>
         <translation>Ce compte ne peut pas être supprimé tant que le trousseau système est illisible : sa connexion enregistrée y est encore et serait laissée derrière. Déverrouillez le trousseau, ou démarrez-le, puis réessayez.</translation>
@@ -1597,8 +1597,8 @@ Elle ne touche ni à vos clés de chiffrement, ni à votre connexion, ni aux mes
     </message>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+572"/>
-        <location filename="../src/app/AppController.cpp" line="-2586"/>
-        <location line="+1225"/>
+        <location filename="../src/app/AppController.cpp" line="-2602"/>
+        <location line="+1239"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
         <translation>Lightning ne peut pas lire les connexions enregistrées sur cet appareil pour le moment : le trousseau système est verrouillé ou indisponible. Déverrouillez-le et réessayez.</translation>
     </message>
@@ -10370,7 +10370,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
 <context>
     <name>LeaveRoomConfirmDialog</name>
     <message>
-        <location filename="../qml/LeaveRoomConfirmDialog.qml" line="+98"/>
+        <location filename="../qml/LeaveRoomConfirmDialog.qml" line="+89"/>
         <source>You are the only member of &quot;%1&quot;. If you leave, the room will be empty and cannot be rejoined, because nobody can invite you back.</source>
         <translation>Vous êtes le seul membre de « %1 ». Si vous partez, le salon sera vide et ne pourra plus être rejoint, car personne ne pourra vous réinviter.</translation>
     </message>
@@ -17969,12 +17969,12 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Widgets</translation>
     </message>
     <message>
-        <location line="+2434"/>
+        <location line="+2435"/>
         <source>Open</source>
         <translation>Ouvrir</translation>
     </message>
     <message>
-        <location line="-1666"/>
+        <location line="-1667"/>
         <source>Export room…</source>
         <translation>Exporter le salon…</translation>
     </message>
@@ -18195,13 +18195,13 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     </message>
     <message>
         <location line="+22"/>
-        <location line="+864"/>
+        <location line="+865"/>
         <location line="+106"/>
         <source>Remove</source>
         <translation>Supprimer</translation>
     </message>
     <message>
-        <location line="-950"/>
+        <location line="-951"/>
         <source>#another-name</source>
         <translation>#autre-nom</translation>
     </message>
@@ -18221,7 +18221,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Quitter le salon</translation>
     </message>
     <message>
-        <location line="+17"/>
+        <location line="+18"/>
         <source>Close room…</source>
         <translation>Fermer le salon…</translation>
     </message>
@@ -18430,7 +18430,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Inviter des personnes dans ce salon</translation>
     </message>
     <message>
-        <location line="-899"/>
+        <location line="-900"/>
         <source>Members of selected spaces can join</source>
         <translation>Les membres des espaces sélectionnés peuvent rejoindre</translation>
     </message>
@@ -18510,7 +18510,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Mettre à niveau le salon…</translation>
     </message>
     <message>
-        <location line="+618"/>
+        <location line="+619"/>
         <source>Invite people</source>
         <translation>Inviter des personnes</translation>
     </message>
@@ -27717,12 +27717,12 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location line="-42"/>
         <location line="+46"/>
-        <location line="+1126"/>
+        <location line="+1129"/>
         <source>Invite</source>
         <translation>Inviter</translation>
     </message>
     <message>
-        <location line="-1171"/>
+        <location line="-1174"/>
         <location line="+46"/>
         <source>Kick</source>
         <translation>Coup de pied</translation>
@@ -28059,12 +28059,12 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     </message>
     <message>
         <location line="+12"/>
-        <location line="+1009"/>
+        <location line="+1012"/>
         <source>Published address</source>
         <translation>Adresse publiée</translation>
     </message>
     <message>
-        <location line="-1000"/>
+        <location line="-1003"/>
         <source>A published address lets people find and join this space by name. Leave it empty to remove it.</source>
         <translation>Une adresse publiée permet aux gens de trouver et de rejoindre cet espace par leur nom. Laissez-le vide pour le supprimer.</translation>
     </message>
@@ -28104,7 +28104,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation type="unfinished">Quitter l&apos;espace</translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="+15"/>
         <source>Leaving does not remove the rooms inside it.</source>
         <translation type="unfinished">Quitter l&apos;espace ne supprime pas les salons qu&apos;il contient.</translation>
     </message>
@@ -28463,15 +28463,15 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
 <context>
     <name>SpacesRail</name>
     <message>
-        <location filename="../qml/SpacesRail.qml" line="+966"/>
+        <location filename="../qml/SpacesRail.qml" line="+986"/>
         <location line="+4"/>
-        <location line="+1171"/>
+        <location line="+1173"/>
         <location line="+163"/>
         <source>Folder</source>
         <translation>Dossier</translation>
     </message>
     <message>
-        <location line="-1335"/>
+        <location line="-1337"/>
         <source>Folder: %1</source>
         <translation>Dossier : %1</translation>
     </message>
@@ -28537,7 +28537,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Créer un espace</translation>
     </message>
     <message>
-        <location line="+1258"/>
+        <location line="+1260"/>
         <source>Settings — this session is not verified</source>
         <translation>Paramètres — cette session n&apos;est pas vérifiée</translation>
     </message>
@@ -31847,7 +31847,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
 <context>
     <name>TimelinePane</name>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="+883"/>
+        <location filename="../qml/TimelinePane.qml" line="+884"/>
         <source>Seen by 1 person</source>
         <translation>Vu par 1 personne</translation>
     </message>
@@ -32500,12 +32500,12 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     </message>
     <message>
         <location line="+27"/>
-        <location line="+310"/>
+        <location line="+333"/>
         <source>Leave Space</source>
         <translation>Quitter l&apos;espace</translation>
     </message>
     <message>
-        <location line="-304"/>
+        <location line="-327"/>
         <source>Leaving does not remove the rooms inside it.</source>
         <translation>Quitter l&apos;espace ne supprime pas les salons qu&apos;il contient.</translation>
     </message>
@@ -32568,7 +32568,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     </message>
     <message>
         <location line="+325"/>
-        <location filename="../qml/TimelinePane.qml" line="+160"/>
+        <location filename="../qml/TimelinePane.qml" line="+183"/>
         <source>Room</source>
         <translation>Salon</translation>
     </message>
@@ -32622,7 +32622,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Sélectionner %1</translation>
     </message>
     <message numerus="yes">
-        <location filename="../qml/TimelinePane.qml" line="-189"/>
+        <location filename="../qml/TimelinePane.qml" line="-212"/>
         <source>Remove %n room(s) from this Space?</source>
         <translation>
             <numerusform>Retirer %n salon de cet espace ?</numerusform>
@@ -32638,12 +32638,12 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <location line="-1664"/>
         <location line="+194"/>
         <location line="+1484"/>
-        <location line="+58"/>
+        <location line="+81"/>
         <source>Cancel</source>
         <translation>Annuler</translation>
     </message>
     <message>
-        <location line="-7504"/>
+        <location line="-7527"/>
         <location line="+92"/>
         <source>View profile</source>
         <translation>Voir le profil</translation>
@@ -32670,17 +32670,22 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+69"/>
+        <location line="+92"/>
         <source>this Space</source>
         <translation>cet espace</translation>
     </message>
     <message>
-        <location line="-61"/>
+        <location line="-84"/>
         <source>The rooms inside stay untouched.</source>
         <translation>Les salons qu&apos;il contient ne sont pas touchés.</translation>
     </message>
     <message>
-        <location line="+60"/>
+        <location line="+17"/>
+        <source>You are the only administrator. If you leave, nobody will be able to change this room&apos;s settings or manage its members. Make someone else an administrator first.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+66"/>
         <source>Add a room to %1</source>
         <translation>Ajouter un salon à %1</translation>
     </message>
@@ -32725,7 +32730,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Déposez des fichiers pour les joindre</translation>
     </message>
     <message>
-        <location line="-6860"/>
+        <location line="-6883"/>
         <source>Part of %1</source>
         <translation>Fait partie de %1</translation>
     </message>
@@ -34284,7 +34289,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2704"/>
+        <location filename="../src/main.cpp" line="+2705"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>Client Matrix natif Qt/QML. Backend : --backend={mock,http,rust}. Par défaut : rust (http dans les versions sans le Rust SDK).</translation>
     </message>

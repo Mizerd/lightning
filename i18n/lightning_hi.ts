@@ -980,7 +980,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+8563"/>
+        <location filename="../src/app/AppController.cpp" line="+8591"/>
         <source>Room invitation</source>
         <translation>रूम का आमंत्रण</translation>
     </message>
@@ -1101,7 +1101,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>आने वाली कॉल</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-6555"/>
+        <location filename="../src/app/AppController.cpp" line="-6571"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>खाता बदलने के कारण साइन-आउट रद्द कर दिया गया। कुछ भी रीसेट नहीं हुआ।</translation>
     </message>
@@ -1153,13 +1153,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+1"/>
         <location line="+55"/>
-        <location line="+4821"/>
-        <location line="+984"/>
+        <location line="+4837"/>
+        <location line="+986"/>
         <source>Not connected</source>
         <translation>कनेक्ट नहीं है</translation>
     </message>
     <message>
-        <location line="-5857"/>
+        <location line="-5875"/>
         <source>Connecting…</source>
         <translation>कनेक्ट हो रहा है…</translation>
     </message>
@@ -1220,29 +1220,29 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3394"/>
+        <location line="+3396"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning चुनी गई फ़ाइल पढ़ नहीं सका।</translation>
     </message>
     <message>
-        <location line="-3400"/>
+        <location line="-3402"/>
         <source>A room-key import is already in progress.</source>
         <translation>रूम-कुंजी आयात पहले से चल रहा है।</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4564"/>
+        <location line="+4580"/>
         <source>Not signed in.</source>
         <translation>साइन इन नहीं है।</translation>
     </message>
     <message>
-        <location line="-4562"/>
+        <location line="-4578"/>
         <source>Room-key import failed.</source>
         <translation>रूम-कुंजी आयात विफल रहा।</translation>
     </message>
     <message>
-        <location line="+2623"/>
+        <location line="+2625"/>
         <source>Enter a size limit from 1 to 2000 MB.</source>
         <translation>1 से 2000 MB के बीच आकार सीमा दर्ज करें।</translation>
     </message>
@@ -1257,13 +1257,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>YYYY-MM-DD प्रारूप में वास्तविक तिथियाँ दें, जहाँ “से” तिथि “तक” तिथि के बाद की न हो।</translation>
     </message>
     <message>
-        <location line="-5763"/>
-        <location line="+3385"/>
+        <location line="-5777"/>
+        <location line="+3397"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-3384"/>
+        <location line="-3396"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>यह एक टेस्ट सूचना है। यदि आप इसे पढ़ पा रहे हैं, तो डेस्कटॉप सूचनाएँ काम कर रही हैं।</translation>
     </message>
@@ -1273,7 +1273,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>नए मेंशन</translation>
     </message>
     <message>
-        <location line="+709"/>
+        <location line="+721"/>
         <source>Call started</source>
         <translation>कॉल शुरू हुई</translation>
     </message>
@@ -1293,7 +1293,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>वह सूचना किसी दूसरे खाते के लिए थी, इसलिए कुछ नहीं भेजा गया। उस खाते पर वापस जाएँ और फिर कोशिश करें।</translation>
     </message>
     <message>
-        <location line="+770"/>
+        <location line="+772"/>
         <source>Calls aren&apos;t available while this account uses a proxy.</source>
         <translation>जब तक यह खाता प्रॉक्सी का उपयोग करता है, कॉल उपलब्ध नहीं हैं।</translation>
     </message>
@@ -1499,15 +1499,15 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>इस डिवाइस का स्थानीय डेटा मिटाने से यह ठीक नहीं होगा, और वे एन्क्रिप्शन कुंजियाँ नष्ट हो जाएँगी जिनकी आपको अब भी ज़रूरत है।</translation>
     </message>
     <message>
-        <location line="+645"/>
-        <location line="+975"/>
+        <location line="+659"/>
+        <location line="+977"/>
         <location line="+867"/>
         <location line="+15"/>
         <source>Removal did not finish: the account&apos;s data is still in use. Nothing was deleted.</source>
         <translation>हटाना पूरा नहीं हुआ: खाते का डेटा अभी उपयोग में है। कुछ भी नहीं हटाया गया।</translation>
     </message>
     <message>
-        <location line="-1822"/>
+        <location line="-1824"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Your other accounts are still on this device; unlock the keyring and restart Lightning to continue with them.</source>
         <translation>Lightning अभी इस डिवाइस के सहेजे हुए साइन-इन नहीं पढ़ सकता — सिस्टम कीरिंग लॉक है या उपलब्ध नहीं है। आपके अन्य खाते अब भी इस डिवाइस पर हैं; उन्हें जारी रखने के लिए कीरिंग अनलॉक करें और Lightning फिर से शुरू करें।</translation>
     </message>
@@ -1539,12 +1539,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+177"/>
-        <location line="+718"/>
+        <location line="+720"/>
         <source>That account is not signed in on this device.</source>
         <translation>वह खाता इस डिवाइस पर साइन इन नहीं है।</translation>
     </message>
     <message>
-        <location line="-686"/>
+        <location line="-688"/>
         <source>That account&apos;s sign-in has expired. Sign in to it again.</source>
         <translation>उस खाते का साइन-इन समाप्त हो चुका है। उसमें दोबारा साइन इन करें।</translation>
     </message>
@@ -1554,7 +1554,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>आपकी सिस्टम कीरिंग अब उस खाते का सहेजा हुआ साइन-इन नहीं लौटाती। कुछ भी हटाया नहीं गया: इस डिवाइस पर जारी रखने के लिए उसमें दोबारा साइन इन करें।</translation>
     </message>
     <message>
-        <location line="+395"/>
+        <location line="+397"/>
         <location line="+852"/>
         <source>This account can&apos;t be removed while the system keyring can&apos;t be read: its saved sign-in is there and would be left behind. Unlock the keyring, or start it, and try again.</source>
         <translation>जब तक सिस्टम कीरिंग पढ़ी नहीं जा सकती, यह खाता हटाया नहीं जा सकता: उसका सहेजा हुआ साइन-इन वहीं है और पीछे रह जाएगा। कीरिंग अनलॉक करें या शुरू करें, और फिर कोशिश करें।</translation>
@@ -1597,8 +1597,8 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+572"/>
-        <location filename="../src/app/AppController.cpp" line="-2586"/>
-        <location line="+1225"/>
+        <location filename="../src/app/AppController.cpp" line="-2602"/>
+        <location line="+1239"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
         <translation>Lightning अभी इस डिवाइस के सहेजे हुए साइन-इन नहीं पढ़ सकता — सिस्टम कीरिंग लॉक है या उपलब्ध नहीं है। उसे अनलॉक करें और फिर कोशिश करें।</translation>
     </message>
@@ -10370,7 +10370,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>LeaveRoomConfirmDialog</name>
     <message>
-        <location filename="../qml/LeaveRoomConfirmDialog.qml" line="+98"/>
+        <location filename="../qml/LeaveRoomConfirmDialog.qml" line="+89"/>
         <source>You are the only member of &quot;%1&quot;. If you leave, the room will be empty and cannot be rejoined, because nobody can invite you back.</source>
         <translation>आप &quot;%1&quot; के एकमात्र सदस्य हैं। यदि आप छोड़ते हैं, तो रूम खाली हो जाएगा और दोबारा जुड़ा नहीं जा सकेगा, क्योंकि आपको वापस आमंत्रित करने वाला कोई नहीं होगा।</translation>
     </message>
@@ -17969,12 +17969,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>विजेट</translation>
     </message>
     <message>
-        <location line="+2434"/>
+        <location line="+2435"/>
         <source>Open</source>
         <translation>खोलें</translation>
     </message>
     <message>
-        <location line="-1666"/>
+        <location line="-1667"/>
         <source>Export room…</source>
         <translation>रूम निर्यात करें…</translation>
     </message>
@@ -18195,13 +18195,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+22"/>
-        <location line="+864"/>
+        <location line="+865"/>
         <location line="+106"/>
         <source>Remove</source>
         <translation>हटाएँ</translation>
     </message>
     <message>
-        <location line="-950"/>
+        <location line="-951"/>
         <source>#another-name</source>
         <translation>#another-name</translation>
     </message>
@@ -18221,7 +18221,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>रूम छोड़ें</translation>
     </message>
     <message>
-        <location line="+17"/>
+        <location line="+18"/>
         <source>Close room…</source>
         <translation>रूम बंद करें…</translation>
     </message>
@@ -18430,7 +18430,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>इस रूम में लोगों को आमंत्रित करें</translation>
     </message>
     <message>
-        <location line="-899"/>
+        <location line="-900"/>
         <source>Members of selected spaces can join</source>
         <translation>चुने गए स्पेस के सदस्य शामिल हो सकते हैं</translation>
     </message>
@@ -18510,7 +18510,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>रूम अपग्रेड करें…</translation>
     </message>
     <message>
-        <location line="+618"/>
+        <location line="+619"/>
         <source>Invite people</source>
         <translation>लोगों को आमंत्रित करें</translation>
     </message>
@@ -27717,12 +27717,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="-42"/>
         <location line="+46"/>
-        <location line="+1126"/>
+        <location line="+1129"/>
         <source>Invite</source>
         <translation>आमंत्रित करें</translation>
     </message>
     <message>
-        <location line="-1171"/>
+        <location line="-1174"/>
         <location line="+46"/>
         <source>Kick</source>
         <translation>लात</translation>
@@ -28059,12 +28059,12 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+12"/>
-        <location line="+1009"/>
+        <location line="+1012"/>
         <source>Published address</source>
         <translation>प्रकाशित पता</translation>
     </message>
     <message>
-        <location line="-1000"/>
+        <location line="-1003"/>
         <source>A published address lets people find and join this space by name. Leave it empty to remove it.</source>
         <translation>एक प्रकाशित पता लोगों को नाम से इस स्थान को ढूंढने और इसमें शामिल होने की सुविधा देता है। इसे हटाने के लिए इसे खाली छोड़ दें.</translation>
     </message>
@@ -28104,7 +28104,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished">स्पेस छोड़ें</translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="+15"/>
         <source>Leaving does not remove the rooms inside it.</source>
         <translation type="unfinished">छोड़ने से उसके भीतर के कक्ष नहीं हटते।</translation>
     </message>
@@ -28463,15 +28463,15 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SpacesRail</name>
     <message>
-        <location filename="../qml/SpacesRail.qml" line="+966"/>
+        <location filename="../qml/SpacesRail.qml" line="+986"/>
         <location line="+4"/>
-        <location line="+1171"/>
+        <location line="+1173"/>
         <location line="+163"/>
         <source>Folder</source>
         <translation>फ़ोल्डर</translation>
     </message>
     <message>
-        <location line="-1335"/>
+        <location line="-1337"/>
         <source>Folder: %1</source>
         <translation>फ़ोल्डर: %1</translation>
     </message>
@@ -28537,7 +28537,7 @@ Note: importing keys does not verify this session.</source>
         <translation>नया स्पेस बनाएँ</translation>
     </message>
     <message>
-        <location line="+1258"/>
+        <location line="+1260"/>
         <source>Settings — this session is not verified</source>
         <translation>सेटिंग्स — यह सेशन सत्यापित नहीं है</translation>
     </message>
@@ -31847,7 +31847,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>TimelinePane</name>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="+883"/>
+        <location filename="../qml/TimelinePane.qml" line="+884"/>
         <source>Seen by 1 person</source>
         <translation>1 व्यक्ति ने देखा</translation>
     </message>
@@ -32500,12 +32500,12 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+27"/>
-        <location line="+310"/>
+        <location line="+333"/>
         <source>Leave Space</source>
         <translation>स्पेस छोड़ें</translation>
     </message>
     <message>
-        <location line="-304"/>
+        <location line="-327"/>
         <source>Leaving does not remove the rooms inside it.</source>
         <translation>छोड़ने से उसके भीतर के कक्ष नहीं हटते।</translation>
     </message>
@@ -32568,7 +32568,7 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+325"/>
-        <location filename="../qml/TimelinePane.qml" line="+160"/>
+        <location filename="../qml/TimelinePane.qml" line="+183"/>
         <source>Room</source>
         <translation>कक्ष</translation>
     </message>
@@ -32622,7 +32622,7 @@ Note: importing keys does not verify this session.</source>
         <translation>%1 चुनें</translation>
     </message>
     <message numerus="yes">
-        <location filename="../qml/TimelinePane.qml" line="-189"/>
+        <location filename="../qml/TimelinePane.qml" line="-212"/>
         <source>Remove %n room(s) from this Space?</source>
         <translation>
             <numerusform>इस स्पेस से %n कक्ष हटाएँ?</numerusform>
@@ -32638,12 +32638,12 @@ Note: importing keys does not verify this session.</source>
         <location line="-1664"/>
         <location line="+194"/>
         <location line="+1484"/>
-        <location line="+58"/>
+        <location line="+81"/>
         <source>Cancel</source>
         <translation>रद्द करें</translation>
     </message>
     <message>
-        <location line="-7504"/>
+        <location line="-7527"/>
         <location line="+92"/>
         <source>View profile</source>
         <translation>प्रोफ़ाइल देखें</translation>
@@ -32670,17 +32670,22 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+69"/>
+        <location line="+92"/>
         <source>this Space</source>
         <translation>यह स्पेस</translation>
     </message>
     <message>
-        <location line="-61"/>
+        <location line="-84"/>
         <source>The rooms inside stay untouched.</source>
         <translation>इसके भीतर के कक्ष अछूते रहते हैं।</translation>
     </message>
     <message>
-        <location line="+60"/>
+        <location line="+17"/>
+        <source>You are the only administrator. If you leave, nobody will be able to change this room&apos;s settings or manage its members. Make someone else an administrator first.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+66"/>
         <source>Add a room to %1</source>
         <translation>%1 में कक्ष जोड़ें</translation>
     </message>
@@ -32725,7 +32730,7 @@ Note: importing keys does not verify this session.</source>
         <translation>संलग्न करने के लिए फ़ाइलें छोड़ें</translation>
     </message>
     <message>
-        <location line="-6860"/>
+        <location line="-6883"/>
         <source>Part of %1</source>
         <translation>%1 का हिस्सा</translation>
     </message>
@@ -34284,7 +34289,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2704"/>
+        <location filename="../src/main.cpp" line="+2705"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>नेटिव Qt/QML Matrix क्लाइंट। बैकएंड: --backend={mock,http,rust}। डिफ़ॉल्ट: rust (Rust SDK रहित बिल्ड में http)।</translation>
     </message>

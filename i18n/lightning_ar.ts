@@ -1018,7 +1018,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+8563"/>
+        <location filename="../src/app/AppController.cpp" line="+8591"/>
         <source>Room invitation</source>
         <translation>دعوة إلى غرفة</translation>
     </message>
@@ -1143,7 +1143,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>مكالمة واردة</translation>
     </message>
     <message>
-        <location filename="../src/app/AppController.cpp" line="-6555"/>
+        <location filename="../src/app/AppController.cpp" line="-6571"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
         <translation>أُلغي تسجيل الخروج لأن الحساب تغيّر. لم يُعَد ضبط أي شيء.</translation>
     </message>
@@ -1195,13 +1195,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+1"/>
         <location line="+55"/>
-        <location line="+4821"/>
-        <location line="+984"/>
+        <location line="+4837"/>
+        <location line="+986"/>
         <source>Not connected</source>
         <translation>غير متصل</translation>
     </message>
     <message>
-        <location line="-5857"/>
+        <location line="-5875"/>
         <source>Connecting…</source>
         <translation>جارٍ الاتصال…</translation>
     </message>
@@ -1262,29 +1262,29 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3394"/>
+        <location line="+3396"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>تعذّر على Lightning قراءة الملف المحدد.</translation>
     </message>
     <message>
-        <location line="-3400"/>
+        <location line="-3402"/>
         <source>A room-key import is already in progress.</source>
         <translation>هناك استيراد لمفاتيح الغرف قيد التنفيذ بالفعل.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4564"/>
+        <location line="+4580"/>
         <source>Not signed in.</source>
         <translation>لم تسجّل الدخول.</translation>
     </message>
     <message>
-        <location line="-4562"/>
+        <location line="-4578"/>
         <source>Room-key import failed.</source>
         <translation>فشل استيراد مفاتيح الغرف.</translation>
     </message>
     <message>
-        <location line="+2623"/>
+        <location line="+2625"/>
         <source>Enter a size limit from 1 to 2000 MB.</source>
         <translation>أدخل حدًّا للحجم من 1 إلى 2000 ميغابايت.</translation>
     </message>
@@ -1299,13 +1299,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>استخدم تواريخ حقيقية بصيغة YYYY-MM-DD، على ألا يكون «من» بعد «إلى».</translation>
     </message>
     <message>
-        <location line="-5763"/>
-        <location line="+3385"/>
+        <location line="-5777"/>
+        <location line="+3397"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-3384"/>
+        <location line="-3396"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
         <translation>هذا إشعار تجريبي. إن استطعت قراءته فإشعارات سطح المكتب تعمل.</translation>
     </message>
@@ -1315,7 +1315,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>إشارات جديدة</translation>
     </message>
     <message>
-        <location line="+709"/>
+        <location line="+721"/>
         <source>Call started</source>
         <translation>بدأت المكالمة</translation>
     </message>
@@ -1335,7 +1335,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>كان ذلك الإشعار لحساب آخر، فلم يُرسَل شيء. عُد إلى ذلك الحساب وحاول مجددًا.</translation>
     </message>
     <message>
-        <location line="+770"/>
+        <location line="+772"/>
         <source>Calls aren&apos;t available while this account uses a proxy.</source>
         <translation>المكالمات غير متاحة ما دام هذا الحساب يستخدم وكيلًا.</translation>
     </message>
@@ -1541,15 +1541,15 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>مسح البيانات المحلية لهذا الجهاز لن يصلح هذا، وسيدمّر مفاتيح تعمية ما زلت بحاجة إليها.</translation>
     </message>
     <message>
-        <location line="+645"/>
-        <location line="+975"/>
+        <location line="+659"/>
+        <location line="+977"/>
         <location line="+867"/>
         <location line="+15"/>
         <source>Removal did not finish: the account&apos;s data is still in use. Nothing was deleted.</source>
         <translation>لم تكتمل الإزالة: بيانات الحساب ما زالت قيد الاستخدام. لم يُحذف شيء.</translation>
     </message>
     <message>
-        <location line="-1822"/>
+        <location line="-1824"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Your other accounts are still on this device; unlock the keyring and restart Lightning to continue with them.</source>
         <translation>لا يستطيع Lightning قراءة تسجيلات الدخول المحفوظة على هذا الجهاز الآن — حلقة مفاتيح النظام مقفلة أو غير متاحة. حساباتك الأخرى ما زالت على هذا الجهاز؛ افتح قفل حلقة المفاتيح وأعد تشغيل Lightning لمتابعة العمل بها.</translation>
     </message>
@@ -1581,12 +1581,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location line="+177"/>
-        <location line="+718"/>
+        <location line="+720"/>
         <source>That account is not signed in on this device.</source>
         <translation>هذا الحساب غير مسجّل الدخول على هذا الجهاز.</translation>
     </message>
     <message>
-        <location line="-686"/>
+        <location line="-688"/>
         <source>That account&apos;s sign-in has expired. Sign in to it again.</source>
         <translation>انتهت صلاحية تسجيل دخول ذلك الحساب. سجّل الدخول إليه مجددًا.</translation>
     </message>
@@ -1596,7 +1596,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <translation>لم تعد حلقة مفاتيح نظامك تُعيد تسجيل الدخول المحفوظ لذلك الحساب. لم يُحذف شيء: سجّل الدخول إليه مجددًا للمتابعة على هذا الجهاز.</translation>
     </message>
     <message>
-        <location line="+395"/>
+        <location line="+397"/>
         <location line="+852"/>
         <source>This account can&apos;t be removed while the system keyring can&apos;t be read: its saved sign-in is there and would be left behind. Unlock the keyring, or start it, and try again.</source>
         <translation>لا يمكن إزالة هذا الحساب ما دامت حلقة مفاتيح النظام غير قابلة للقراءة: تسجيل دخوله المحفوظ فيها وسيبقى خلفها. افتح قفل حلقة المفاتيح أو شغّلها وحاول مجددًا.</translation>
@@ -1639,8 +1639,8 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     </message>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+572"/>
-        <location filename="../src/app/AppController.cpp" line="-2586"/>
-        <location line="+1225"/>
+        <location filename="../src/app/AppController.cpp" line="-2602"/>
+        <location line="+1239"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
         <translation>لا يستطيع Lightning قراءة تسجيلات الدخول المحفوظة على هذا الجهاز الآن — حلقة مفاتيح النظام مقفلة أو غير متاحة. افتح قفلها وحاول مجددًا.</translation>
     </message>
@@ -10497,7 +10497,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>LeaveRoomConfirmDialog</name>
     <message>
-        <location filename="../qml/LeaveRoomConfirmDialog.qml" line="+98"/>
+        <location filename="../qml/LeaveRoomConfirmDialog.qml" line="+89"/>
         <source>You are the only member of &quot;%1&quot;. If you leave, the room will be empty and cannot be rejoined, because nobody can invite you back.</source>
         <translation>أنت العضو الوحيد في «%1». إذا غادرت، ستصبح الغرفة فارغة ولن يمكن الانضمام إليها مجددًا، لأنه لن يكون هناك من يدعوك للعودة.</translation>
     </message>
@@ -18196,12 +18196,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>الودجات</translation>
     </message>
     <message>
-        <location line="+2434"/>
+        <location line="+2435"/>
         <source>Open</source>
         <translation>فتح</translation>
     </message>
     <message>
-        <location line="-1666"/>
+        <location line="-1667"/>
         <source>Export room…</source>
         <translation>تصدير الغرفة…</translation>
     </message>
@@ -18430,13 +18430,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+22"/>
-        <location line="+864"/>
+        <location line="+865"/>
         <location line="+106"/>
         <source>Remove</source>
         <translation>إزالة</translation>
     </message>
     <message>
-        <location line="-950"/>
+        <location line="-951"/>
         <source>#another-name</source>
         <translation>#اسم-آخر</translation>
     </message>
@@ -18456,7 +18456,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>مغادرة الغرفة</translation>
     </message>
     <message>
-        <location line="+17"/>
+        <location line="+18"/>
         <source>Close room…</source>
         <translation>إغلاق الغرفة…</translation>
     </message>
@@ -18669,7 +18669,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>دعوة أشخاص إلى هذه الغرفة</translation>
     </message>
     <message>
-        <location line="-899"/>
+        <location line="-900"/>
         <source>Members of selected spaces can join</source>
         <translation>يمكن لأعضاء الفضاءات المحددة الانضمام</translation>
     </message>
@@ -18749,7 +18749,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>ترقية الغرفة…</translation>
     </message>
     <message>
-        <location line="+618"/>
+        <location line="+619"/>
         <source>Invite people</source>
         <translation>دعوة أشخاص</translation>
     </message>
@@ -28056,12 +28056,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="-42"/>
         <location line="+46"/>
-        <location line="+1126"/>
+        <location line="+1129"/>
         <source>Invite</source>
         <translation>دعوة</translation>
     </message>
     <message>
-        <location line="-1171"/>
+        <location line="-1174"/>
         <location line="+46"/>
         <source>Kick</source>
         <translation>ركلة</translation>
@@ -28398,12 +28398,12 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+12"/>
-        <location line="+1009"/>
+        <location line="+1012"/>
         <source>Published address</source>
         <translation>العنوان المنشور</translation>
     </message>
     <message>
-        <location line="-1000"/>
+        <location line="-1003"/>
         <source>A published address lets people find and join this space by name. Leave it empty to remove it.</source>
         <translation>يتيح العنوان المنشور للأشخاص العثور على هذه المساحة والانضمام إليها بالاسم. اتركه فارغًا لإزالته.</translation>
     </message>
@@ -28443,7 +28443,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished">مغادرة الفضاء</translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="+15"/>
         <source>Leaving does not remove the rooms inside it.</source>
         <translation type="unfinished">المغادرة لا تزيل الغرف التي بداخله.</translation>
     </message>
@@ -28806,15 +28806,15 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SpacesRail</name>
     <message>
-        <location filename="../qml/SpacesRail.qml" line="+966"/>
+        <location filename="../qml/SpacesRail.qml" line="+986"/>
         <location line="+4"/>
-        <location line="+1171"/>
+        <location line="+1173"/>
         <location line="+163"/>
         <source>Folder</source>
         <translation>مجلد</translation>
     </message>
     <message>
-        <location line="-1335"/>
+        <location line="-1337"/>
         <source>Folder: %1</source>
         <translation>مجلد: %1</translation>
     </message>
@@ -28884,7 +28884,7 @@ Note: importing keys does not verify this session.</source>
         <translation>إنشاء فضاء</translation>
     </message>
     <message>
-        <location line="+1258"/>
+        <location line="+1260"/>
         <source>Settings — this session is not verified</source>
         <translation>الإعدادات — هذه الجلسة غير موثّقة</translation>
     </message>
@@ -32390,7 +32390,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>TimelinePane</name>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="+883"/>
+        <location filename="../qml/TimelinePane.qml" line="+884"/>
         <source>Seen by 1 person</source>
         <translation>قرأها شخص واحد</translation>
     </message>
@@ -33059,12 +33059,12 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+27"/>
-        <location line="+310"/>
+        <location line="+333"/>
         <source>Leave Space</source>
         <translation>مغادرة الفضاء</translation>
     </message>
     <message>
-        <location line="-304"/>
+        <location line="-327"/>
         <source>Leaving does not remove the rooms inside it.</source>
         <translation>المغادرة لا تزيل الغرف التي بداخله.</translation>
     </message>
@@ -33131,7 +33131,7 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+325"/>
-        <location filename="../qml/TimelinePane.qml" line="+160"/>
+        <location filename="../qml/TimelinePane.qml" line="+183"/>
         <source>Room</source>
         <translation>غرفة</translation>
     </message>
@@ -33197,7 +33197,7 @@ Note: importing keys does not verify this session.</source>
         <translation>اختيار %1</translation>
     </message>
     <message numerus="yes">
-        <location filename="../qml/TimelinePane.qml" line="-189"/>
+        <location filename="../qml/TimelinePane.qml" line="-212"/>
         <source>Remove %n room(s) from this Space?</source>
         <translation>
             <numerusform>إزالة أي غرفة من هذا الفضاء؟</numerusform>
@@ -33217,12 +33217,12 @@ Note: importing keys does not verify this session.</source>
         <location line="-1664"/>
         <location line="+194"/>
         <location line="+1484"/>
-        <location line="+58"/>
+        <location line="+81"/>
         <source>Cancel</source>
         <translation>إلغاء</translation>
     </message>
     <message>
-        <location line="-7504"/>
+        <location line="-7527"/>
         <location line="+92"/>
         <source>View profile</source>
         <translation>عرض الملف الشخصي</translation>
@@ -33249,17 +33249,22 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+69"/>
+        <location line="+92"/>
         <source>this Space</source>
         <translation>هذا الفضاء</translation>
     </message>
     <message>
-        <location line="-61"/>
+        <location line="-84"/>
         <source>The rooms inside stay untouched.</source>
         <translation>تبقى الغرف التي بداخله دون مساس.</translation>
     </message>
     <message>
-        <location line="+60"/>
+        <location line="+17"/>
+        <source>You are the only administrator. If you leave, nobody will be able to change this room&apos;s settings or manage its members. Make someone else an administrator first.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+66"/>
         <source>Add a room to %1</source>
         <translation>إضافة غرفة إلى %1</translation>
     </message>
@@ -33304,7 +33309,7 @@ Note: importing keys does not verify this session.</source>
         <translation>أفلت الملفات لإرفاقها</translation>
     </message>
     <message>
-        <location line="-6860"/>
+        <location line="-6883"/>
         <source>Part of %1</source>
         <translation>جزء من %1</translation>
     </message>
@@ -34867,7 +34872,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2704"/>
+        <location filename="../src/main.cpp" line="+2705"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>عميل Matrix أصلي بـ Qt/QML. الخلفية: --backend={mock,http,rust}. الافتراضي: rust (http في النسخ الخالية من Rust SDK).</translation>
     </message>
