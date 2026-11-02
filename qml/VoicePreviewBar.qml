@@ -178,6 +178,7 @@ Rectangle {
             color: AppTheme.text
             font.pixelSize: root.compact ? 11 : 12
             font.weight: Font.DemiBold
+            font.features: ({ "tnum": 1 })
         }
         IconButton {
             objectName: "voicePreviewDiscardButton"
