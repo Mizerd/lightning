@@ -125,6 +125,29 @@ private Q_SLOTS:
         QCOMPARE(hs.value(QStringLiteral("features")).toList().size(), 2);
     }
 
+    // A background refresh that fails must leave the list the reader has: it
+    // used to be replaced by "failed" and an empty device list.
+    void aFailedRefreshKeepsTheOldAnswer()
+    {
+        MockMatrixClient client;
+        AboutController about;
+        about.setClient(&client);
+        about.setUserClientsRefreshMs(0);
+        const QString user = QStringLiteral("@friend:mock.local");
+        about.requestUserClients(user);
+        QTRY_COMPARE(about.userClients(user).value(QStringLiteral("state")).toString(),
+                     QStringLiteral("ready"));
+        about.requestUserClients(user);   // the refresh
+        QCOMPARE(client.userClientRequests.size(), 2);
+        // Fail whichever op it was, before the mock answers it.
+        for (quint64 op = 0; op < 64; ++op)
+            Q_EMIT client.userClientsListed(
+                op, QVariantMap{{QStringLiteral("ok"), false}});
+        QCOMPARE(about.userClients(user).value(QStringLiteral("state")).toString(),
+                 QStringLiteral("ready"));
+        QCOMPARE(about.userClients(user).value(QStringLiteral("devices")).toList().size(), 2);
+    }
+
     void userClientsAreAskedOnceAnsweredAndForgotten()
     {
         MockMatrixClient client;

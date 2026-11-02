@@ -199,6 +199,9 @@ private:
 
     QHash<QString, QVariantMap> m_userClients;
     QHash<quint64, QString> m_userClientOps;
+    /// Ops asked to refresh an answer already shown: a failure keeps that
+    /// answer rather than replacing it with "failed".
+    QSet<quint64> m_userClientRefreshOps;
     QHash<QString, qint64> m_userClientAskedMs;
     qint64 m_clientsRefreshMs = 30000;
     int m_clientsRevision = 0;

@@ -424,8 +424,10 @@ void AboutController::requestUserClients(const QString &userId)
     m_userClientAskedMs.insert(userId, now);
     if (refresh) {
         // Keep showing the old answer; the new one replaces it on arrival.
-        if (op != 0)
+        if (op != 0) {
             m_userClientOps.insert(op, userId);
+            m_userClientRefreshOps.insert(op);
+        }
         return;
     }
     QVariantMap row{{QStringLiteral("devices"), QVariantList{}}};
@@ -454,6 +456,12 @@ void AboutController::onUserClients(quint64 opId, const QVariantMap &result)
         return;
     const QString userId = op.value();
     m_userClientOps.erase(op);
+    const bool wasRefresh = m_userClientRefreshOps.remove(opId);
+    // A background refresh that fails leaves the answer the reader already
+    // has; replacing it with "failed" blanked a good list over a blip.
+    if (wasRefresh && !result.value(QStringLiteral("ok")).toBool()
+        && m_userClients.contains(userId))
+        return;
     m_userClients.insert(
         userId, QVariantMap{
             {QStringLiteral("state"), result.value(QStringLiteral("ok")).toBool()
@@ -469,6 +477,7 @@ void AboutController::clearUserClients()
         return;
     m_userClients.clear();
     m_userClientOps.clear();
+    m_userClientRefreshOps.clear();
     m_userClientAskedMs.clear();
     ++m_clientsRevision;
     Q_EMIT userClientsChanged();
