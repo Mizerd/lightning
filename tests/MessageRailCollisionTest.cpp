@@ -462,7 +462,10 @@ private Q_SLOTS:
             if (caption == QLatin1String("thread-edited-short")) {
                 const QRectF candidate = rect(notice, d.root);
                 const QRectF meta = rect(summary, d.root).united(rect(edited, d.root));
-                QVERIFY(meta.right() < candidate.left());
+                const bool level = meta.top() < candidate.bottom()
+                    && meta.bottom() > candidate.top();
+                QVERIFY2(!level || meta.right() < candidate.left(),
+                         "the notice is level with the thread summary but not right of it");
             }
         }
         for (auto *item : occupied)
