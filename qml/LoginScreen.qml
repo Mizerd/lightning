@@ -1285,15 +1285,15 @@ Item {
                             }
                         case "keyring_lost_session":
                             return {
-                                headline: qsTr("Your keyring no longer has this sign-in"),
+                                headline: qsTr("Your keyring isn't returning this sign-in"),
                                 body: qsTr(
                                     "Lightning saved the sign-in for %1 in your system "
-                                    + "keyring, and the keyring no longer returns it. "
-                                    + "This can happen after the keyring was reset, or "
-                                    + "when a Flatpak or snap starts using a different "
+                                    + "keyring, and the keyring isn't returning it. "
+                                    + "It may be locked, it may have been reset, or a "
+                                    + "Flatpak or snap may have started using a different "
                                     + "keyring. Nothing on this device has been deleted, "
-                                    + "and its encryption keys are intact. Try again if "
-                                    + "the keyring may come back, or sign in with your "
+                                    + "and its encryption keys are intact. Unlock your "
+                                    + "keyring and try again, or sign in with your "
                                     + "password to continue as this same device.")
                                     .arg(repair.userId),
                                 primaryLabel: "",
