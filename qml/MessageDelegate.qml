@@ -223,7 +223,7 @@ Item {
         : isVirtualRow ? virtualRow.implicitHeight
         : isCallEvent ? callEventRow.implicitHeight + AppTheme.spacingS * 2
         : isThreadKeyWait ? threadKeyWaitRow.implicitHeight + AppTheme.spacingS * 2
-        : isStateActivity ? stateActivity.implicitHeight
+        : isStateActivity ? (stateActivity.visible ? stateActivity.implicitHeight : 0)
         : layout.implicitHeight + messageTopSpacing
     property bool heightSeedActive: false
     property real heightSeed: 0
@@ -1242,20 +1242,22 @@ Item {
         }
     }
 
-    RoomActivityDelegate {
+    Loader {
         id: stateActivity
-        objectName: "stateActivityGroup"
-        visible: root.isStateActivity && model.stateGroupLeader === true
-                 && stateActivity.entryCount > 0
+        active: root.isStateActivity && model.stateGroupLeader === true
+        visible: item !== null && item.entryCount > 0
         width: parent.width
-        groupId: model.stateGroupId || ""
-        entries: root.stateActivityEntries
-        expanded: root.timelineView
-                  ? root.timelineView.stateGroupExpanded(groupId)
-                  : false
-        onToggleRequested: {
-            if (root.timelineView)
-                root.timelineView.toggleStateGroup(groupId)
+        sourceComponent: RoomActivityDelegate {
+            objectName: "stateActivityGroup"
+            groupId: model.stateGroupId || ""
+            entries: root.stateActivityEntries
+            expanded: root.timelineView
+                      ? root.timelineView.stateGroupExpanded(groupId)
+                      : false
+            onToggleRequested: {
+                if (root.timelineView)
+                    root.timelineView.toggleStateGroup(groupId)
+            }
         }
     }
 
