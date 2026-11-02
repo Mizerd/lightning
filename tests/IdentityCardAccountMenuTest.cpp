@@ -8,6 +8,7 @@
 #include <QtTest/QtTest>
 
 #include <QFile>
+#include <QFontDatabase>
 #include <QGuiApplication>
 #include <QStyleHints>
 #include <QQmlComponent>
@@ -211,6 +212,15 @@ private slots:
         QCoreApplication::setApplicationName(
             QStringLiteral("identity-card-account-menu-test"));
         QSettings().clear();
+
+        // The widths asserted here are those of the bundled faces, not of
+        // whatever the host substitutes for a family it lacks.
+        for (const char *font : { "JetBrainsMono[wght].ttf", "Inter[wght].ttf",
+                                  "Manrope[wght].ttf",
+                                  "MaterialSymbolsRounded-subset.ttf" })
+            QFontDatabase::addApplicationFont(
+                QStringLiteral(":/qt/qml/MatrixClient/data/fonts/")
+                + QLatin1String(font));
 
         // Controls derive hoverEnabled from this hint, which offscreen may
         // leave off; without hover a hover-revealed control cannot be tested.

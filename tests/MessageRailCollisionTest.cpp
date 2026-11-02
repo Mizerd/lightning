@@ -1,5 +1,6 @@
 #include <QtTest/QtTest>
 
+#include <QFontDatabase>
 #include <QQmlApplicationEngine>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -282,6 +283,12 @@ private Q_SLOTS:
             QStringLiteral("MatrixClientTests"));
         QCoreApplication::setApplicationName(
             QStringLiteral("message-rail-collision-test"));
+        for (const char *font : { "JetBrainsMono[wght].ttf", "Inter[wght].ttf",
+                                  "Manrope[wght].ttf",
+                                  "MaterialSymbolsRounded-subset.ttf" })
+            QFontDatabase::addApplicationFont(
+                QStringLiteral(":/qt/qml/MatrixClient/data/fonts/")
+                + QLatin1String(font));
     }
 
     void downloadNoticeFollowsItsFileCard_data()

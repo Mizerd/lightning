@@ -705,7 +705,9 @@ private slots:
         QTRY_VERIFY(reply->property("highlighted").toBool());
         const QImage img = m_window->grabWindow();
         QVERIFY(!img.isNull());
-        const QPointF inside = reply->mapToScene(QPointF(3, reply->height() / 2));
+        // Clear of the bolt glyph at the row's left edge and of the label: with
+        // no icon font loaded the glyph is literal text there, not the fill.
+        const QPointF inside = reply->mapToScene(QPointF(reply->width() / 2, 2));
         QVERIFY(channelDelta(sampleAvg(img, QRect(int(inside.x()),
                                                   int(inside.y()) - 1, 2, 3)),
                              token("tokStormSelection")) <= kTolerance);
