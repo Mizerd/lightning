@@ -941,8 +941,7 @@ Item {
             { label: qsTr("Encryption"),
               anchors: ["cryptoHealthSummary", "privacyStorageFactsCard"] },
             { label: qsTr("Recovery key"),
-              anchors: ["crossSigningSetupCard", "recoveryEntry",
-                        "privacyStorageFactsCard"] },
+              anchors: ["recoveryKeyCard", "recoveryEntry"] },
         ],
     })
     function outlineEntries(sectionKey) {
@@ -9648,10 +9647,13 @@ Item {
                         }
 
                         SettingsCard {
+                            objectName: "recoveryKeyCard"
                             visible: app.backendName === "rust"
                             ColumnLayout {
                                 width: parent.width
                                 spacing: AppTheme.spacing8
+
+                                MenuSectionLabel { text: qsTr("Recovery key") }
 
                                 Label {
                                     Layout.fillWidth: true
