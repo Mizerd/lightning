@@ -177,6 +177,26 @@ private slots:
         QVERIFY(!MarkdownFormat::state(text, 5, 5).value(QStringLiteral("code")).toBool());
     }
 
+    // Literal markers are not a span: "2 ** 3 ** 4" is arithmetic, so a bare
+    // caret between the stars reads bold off and the button adds a pair.
+    void literalMarkersWithSpacesAroundThemAreNoSpan()
+    {
+        const QString text = QStringLiteral("2 ** 3 ** 4");
+        for (int caret : {3, 6, 8}) {
+            QVERIFY2(!MarkdownFormat::state(text, caret, caret)
+                          .value(QStringLiteral("bold")).toBool(),
+                     qPrintable(QString::number(caret)));
+        }
+        const auto result =
+            MarkdownFormat::toggle(QStringLiteral("bold"), text, 6, 6);
+        QVERIFY(result.text.size() == text.size() + 4);
+        // A real span still reads on, and a code span keeps its spaces.
+        QVERIFY(MarkdownFormat::state(QStringLiteral("a **b** c"), 5, 5)
+                    .value(QStringLiteral("bold")).toBool());
+        QVERIFY(MarkdownFormat::state(QStringLiteral("`a b ` c"), 3, 3)
+                    .value(QStringLiteral("code")).toBool());
+    }
+
     void unknownFormatAndOutOfRangeSelectionAreSafe()
     {
         const auto r = toggle(QStringLiteral("sparkle"),

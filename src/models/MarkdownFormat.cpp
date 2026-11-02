@@ -70,6 +70,18 @@ bool caretSpan(const QString &format, const QString &text, const Selection &sel,
         const int second = text.indexOf(marker, first + marker.size());
         if (second < 0 || second >= lineEnd)
             return false;
+        // Emphasis markers pair only when the opener is followed, and the
+        // closer preceded, by something that is not whitespace (CommonMark's
+        // flanking rule): in "2 ** 3 ** 4" the stars are literal, not a span.
+        // A code span has no such rule.
+        const bool flanking = format == QLatin1String("code")
+            || (first + marker.size() < second
+                && !text.at(first + marker.size()).isSpace()
+                && !text.at(second - 1).isSpace());
+        if (!flanking) {
+            from = first + marker.size();
+            continue;
+        }
         if (sel.start > first && sel.start <= second + marker.size()) {
             *open = first;
             *close = second;
