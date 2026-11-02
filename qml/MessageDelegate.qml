@@ -972,8 +972,10 @@ Item {
             contentItems: root.bubbleMode ? [bubble] : bubbleContent.children
             collisionItems: {
                 var items = [metaRow, previewLoader]
-                for (var i = 0; i < reactionsFlow.children.length; ++i)
-                    items.push(reactionsFlow.children[i])
+                var chips = reactionsLoader.item
+                            ? reactionsLoader.item.children : []
+                for (var i = 0; i < chips.length; ++i)
+                    items.push(chips[i])
                 return items
             }
             toolbar: messageActionBarLoader
@@ -992,8 +994,17 @@ Item {
     readonly property bool ownBubbleReceiptFooter:
         root.bubbleMode && model.isOwn === true && !model.redacted
         && !root.isVirtualRow && !root.isStateActivity && !root.isCallEvent
-        && !root.isThreadKeyWait && reactionsFlow.shownReactions.length === 0
+        && !root.isThreadKeyWait && root.shownReactions.length === 0
     readonly property real ownBubbleReceiptBandHeight: 18
+
+    readonly property var liveReactions: model.reactions || []
+    property var shownReactions: []
+    function refreshReactions() {
+        var next = root.liveReactions
+        if (JSON.stringify(next) !== JSON.stringify(shownReactions))
+            shownReactions = next
+    }
+    onLiveReactionsChanged: refreshReactions()
 
     readonly property real bubbleReceiptInset:
         (root.bubbleMode && !root.ownBubbleReceiptFooter
@@ -1061,6 +1072,7 @@ Item {
         refreshHeightSeed()
         refreshPreview()
         refreshMediaHidden()
+        refreshReactions()
     }
     onActionKeyChanged: {
         refreshHeightSeed()
@@ -2698,305 +2710,301 @@ Item {
             }
         }
 
-        Flow {
-            id: reactionsFlow
-            objectName: "reactionsFlow"
-            readonly property var liveReactions: model.reactions || []
-            property var shownReactions: []
-            function refreshReactions() {
-                var next = liveReactions
-                if (JSON.stringify(next) !== JSON.stringify(shownReactions))
-                    shownReactions = next
-            }
-            onLiveReactionsChanged: refreshReactions()
-            Component.onCompleted: refreshReactions()
-            visible: !model.redacted && shownReactions.length > 0
+        Loader {
+            id: reactionsLoader
+            active: !model.redacted && root.shownReactions.length > 0
+            visible: active
             Layout.fillWidth: true
             readonly property bool followsOwnBubble:
                 root.bubbleMode && model.isOwn === true
             readonly property real pileReserve: readReceiptStrip.visible
                 && !root.ownBubbleReceiptFooter
                 ? receiptRow.width + AppTheme.spacingXS : 0
-            Layout.rightMargin: reactionsFlow.followsOwnBubble
-                ? Math.max(reactionsFlow.pileReserve,
+            Layout.rightMargin: reactionsLoader.followsOwnBubble
+                ? Math.max(reactionsLoader.pileReserve,
                            bubbleRow.width - (bubble.x + bubble.width))
-                : reactionsFlow.pileReserve
+                : reactionsLoader.pileReserve
             Layout.alignment: Qt.AlignLeft
             readonly property real ownBubbleChipRun: 220
-            Layout.leftMargin: reactionsFlow.followsOwnBubble
+            Layout.leftMargin: reactionsLoader.followsOwnBubble
                 ? Math.max(root.avatarGutterWidth,
                            Math.min(bubble.x,
                                     bubbleRow.width
-                                    - reactionsFlow.ownBubbleChipRun))
+                                    - reactionsLoader.ownBubbleChipRun))
                 : root.avatarGutterWidth
             readonly property real designTopGap: AppTheme.spacingXS
-            Layout.topMargin: reactionsFlow.designTopGap
-            spacing: AppTheme.spacingXS
-            Repeater {
-                model: reactionsFlow.shownReactions
+            Layout.topMargin: reactionsLoader.designTopGap
+            sourceComponent: Flow {
+                id: reactionsFlow
+                objectName: "reactionsFlow"
+                readonly property real designTopGap: reactionsLoader.designTopGap
+                spacing: AppTheme.spacingXS
+                Repeater {
+                    model: root.shownReactions
+                    Rectangle {
+                        id: reactionChip
+                        objectName: "reactionChip"
+                        readonly property color baseFill: modelData.byMe
+                            ? AppTheme.reactionSelectedBackground
+                            : AppTheme.reactionBackground
+                        readonly property color hoverFill:
+                            AppTheme.dark ? Qt.lighter(baseFill, 1.35)
+                                          : Qt.darker(baseFill, 1.07)
+                        color: reactionMouse.pressed
+                               ? (AppTheme.dark ? Qt.lighter(baseFill, 1.6)
+                                                : Qt.darker(baseFill, 1.14))
+                               : reactionHover.hovered ? hoverFill : baseFill
+                        Behavior on color { ColorAnimation { duration: 80 } }
+                        radius: AppTheme.radiusPill
+                        border.color: modelData.byMe
+                                      ? AppTheme.reactionSelectedBorder
+                                      : reactionHover.hovered
+                                        ? (AppTheme.dark ? AppTheme.borderStrong
+                                                         : AppTheme.textMuted)
+                                        : AppTheme.reactionBorder
+                        border.width: modelData.byMe ? 2 : 1
+                        activeFocusOnTab: !root.readOnlyView
+                        Keys.onReturnPressed: (event) => {
+                            root.timelineModel.toggleReaction(root.eventIdForActions(),
+                                                 modelData.key)
+                            event.accepted = true
+                        }
+                        Keys.onEnterPressed: (event) => {
+                            root.timelineModel.toggleReaction(root.eventIdForActions(),
+                                                 modelData.key)
+                            event.accepted = true
+                        }
+                        Keys.onSpacePressed: (event) => {
+                            root.timelineModel.toggleReaction(root.eventIdForActions(),
+                                                 modelData.key)
+                            event.accepted = true
+                        }
+                        Rectangle {
+                            anchors.fill: parent
+                            visible: reactionChip.activeFocus
+                            color: "transparent"
+                            radius: reactionChip.radius
+                            border.width: 2
+                            border.color: AppTheme.focusRing
+                        }
+                        implicitWidth: reactionRow.implicitWidth + 14
+                        implicitHeight:
+                            Math.max(AppTheme.scaled(AppTheme.reactionChipHeight),
+                                     reactionRow.implicitHeight + 4)
+                        HoverHandler { id: reactionHover }
+
+                        readonly property var reactorNames:
+                            modelData.reactorNames || []
+                        readonly property int reactorTotal:
+                            modelData.reactorTotal >= 0
+                            ? modelData.reactorTotal : (modelData.count || 0)
+                        function boundedName(value) {
+                            var name = value || ""
+                            return name.length > 24
+                                   ? name.substring(0, 24) + "…" : name
+                        }
+                        readonly property string reactorSummary: {
+                            var names = reactionChip.reactorNames
+                            if (names.length === 0
+                                    || (names[0] || "").length === 0)
+                                return ""
+                            var total = Math.max(reactionChip.reactorTotal,
+                                                 names.length)
+                            var first = reactionChip.boundedName(names[0])
+                            if (total <= 1)
+                                return first
+                            var second = names.length > 1
+                                         ? reactionChip.boundedName(names[1]) : ""
+                            if (second.length === 0) {
+                                return total === 2
+                                    ? qsTr("%1 and 1 other").arg(first)
+                                    : qsTr("%1 and %2 others")
+                                        .arg(first).arg(total - 1)
+                            }
+                            if (total === 2)
+                                return qsTr("%1 and %2").arg(first).arg(second)
+                            if (total === 3)
+                                return qsTr("%1, %2 and 1 other")
+                                    .arg(first).arg(second)
+                            return qsTr("%1, %2 and %3 others")
+                                .arg(first).arg(second).arg(total - 2)
+                        }
+                        ToolTip.text: reactionChip.reactorSummary
+                        ToolTip.visible: reactionHover.hovered
+                                         && reactionChip.reactorSummary.length > 0
+                        ToolTip.delay: 300
+                        readonly property bool customEmojiReaction:
+                            typeof modelData.key === "string"
+                            && modelData.key.startsWith("mxc://")
+                            && modelData.key.length > 6
+                        readonly property string customEmojiName: {
+                            if (!reactionChip.customEmojiReaction)
+                                return ""
+                            var rev = app.stickers.revision
+                            var code = app.stickers.shortcodeForUrl(modelData.key)
+                            return code.length > 0 ? code : qsTr("custom emoji")
+                        }
+                        RowLayout {
+                            id: reactionRow
+                            anchors.centerIn: parent
+                            spacing: 4
+                            Label {
+                                objectName: "reactionEmoji"
+                                visible: !reactionChip.customEmojiReaction
+                                Layout.alignment: Qt.AlignVCenter
+                                Layout.preferredHeight:
+                                    AppTheme.scaled(AppTheme.reactionEmojiBox)
+                                lineHeightMode: Text.FixedHeight
+                                lineHeight: AppTheme.scaled(AppTheme.reactionEmojiBox)
+                                text: reactionChip.customEmojiReaction
+                                      ? "" : modelData.key
+                                // A reaction key is any string the reactor chose.
+                                textFormat: Text.PlainText
+                                font.family: app.emojiFontFamily || ""
+                                font.pixelSize:
+                                    AppTheme.scaled(AppTheme.reactionEmojiSize)
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                            Image {
+                                id: customEmojiImage
+                                visible: reactionChip.customEmojiReaction
+                                Layout.alignment: Qt.AlignVCenter
+                                Layout.preferredHeight:
+                                    AppTheme.scaled(AppTheme.reactionEmojiBox)
+                                Layout.preferredWidth:
+                                    AppTheme.scaled(AppTheme.reactionEmojiBox)
+                                fillMode: Image.PreserveAspectFit
+                                asynchronous: true
+                                cache: root.mediaPixmapCacheAllowed
+                                property int resolveTick: 0
+                                source: {
+                                    var _tick = resolveTick
+                                    return (root.mediaPixmapRetained
+                                            && reactionChip.customEmojiReaction
+                                            && app.mediaBridge.supported)
+                                        ? app.mediaBridge.mxcImageSource(
+                                              modelData.key, 64)
+                                        : ""
+                                }
+                                Connections {
+                                    target: app.mediaBridge
+                                    enabled: reactionChip.customEmojiReaction
+                                    function onMediaCached(cacheKey) {
+                                        if (cacheKey.endsWith(":" + modelData.key))
+                                            customEmojiImage.resolveTick++
+                                    }
+                                }
+                            }
+                            Label {
+                                Layout.alignment: Qt.AlignVCenter
+                                Layout.preferredHeight: AppTheme.scaled(16)
+                                text: modelData.count
+                                color: modelData.byMe
+                                       ? AppTheme.reactionSelectedInk
+                                       : AppTheme.reactionInk
+                                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                                font.weight: AppTheme.weightBold
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                        }
+                        MouseArea {
+                            id: reactionMouse
+                            enabled: root.rowActionsEnabled && !root.readOnlyView
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: root.timelineModel.toggleReaction(
+                                           root.eventIdForActions(), modelData.key)
+                        }
+                        Accessible.role: Accessible.Button
+                        readonly property string accessibleKey:
+                            reactionChip.customEmojiReaction
+                                ? reactionChip.customEmojiName : modelData.key
+                        Accessible.name: modelData.byMe
+                            ? qsTr("Reaction %1, %2, selected").arg(reactionChip.accessibleKey).arg(modelData.count)
+                            : qsTr("Reaction %1, %2").arg(reactionChip.accessibleKey).arg(modelData.count)
+                        Accessible.description: reactionChip.reactorSummary
+                        Accessible.onPressAction: {
+                            if (!root.readOnlyView)
+                                root.timelineModel.toggleReaction(root.eventIdForActions(), modelData.key)
+                        }
+                    }
+                }
+
                 Rectangle {
-                    id: reactionChip
-                    objectName: "reactionChip"
-                    readonly property color baseFill: modelData.byMe
-                        ? AppTheme.reactionSelectedBackground
-                        : AppTheme.reactionBackground
-                    readonly property color hoverFill:
-                        AppTheme.dark ? Qt.lighter(baseFill, 1.35)
-                                      : Qt.darker(baseFill, 1.07)
-                    color: reactionMouse.pressed
-                           ? (AppTheme.dark ? Qt.lighter(baseFill, 1.6)
-                                            : Qt.darker(baseFill, 1.14))
-                           : reactionHover.hovered ? hoverFill : baseFill
-                    Behavior on color { ColorAnimation { duration: 80 } }
+                    id: reactionAddChip
+                    objectName: "reactionAddChip"
+                    visible: !model.redacted && !root.readOnlyView
+                             && (model.eventId || "").length > 0
+                             && model.eventId.indexOf("local:") !== 0
+                    implicitWidth: AppTheme.scaled(34)
+                    implicitHeight: Math.max(AppTheme.scaled(22),
+                                             addChipGlyph.implicitHeight + 6)
                     radius: AppTheme.radiusPill
-                    border.color: modelData.byMe
-                                  ? AppTheme.reactionSelectedBorder
-                                  : reactionHover.hovered
-                                    ? (AppTheme.dark ? AppTheme.borderStrong
-                                                     : AppTheme.textMuted)
-                                    : AppTheme.reactionBorder
-                    border.width: modelData.byMe ? 2 : 1
+                    color: addChipMouse.pressed
+                           ? (AppTheme.dark
+                              ? Qt.lighter(AppTheme.reactionBackground, 1.6)
+                              : Qt.darker(AppTheme.reactionBackground, 1.14))
+                           : addChipHover.hovered
+                             ? (AppTheme.dark
+                                ? Qt.lighter(AppTheme.reactionBackground, 1.35)
+                                : Qt.darker(AppTheme.reactionBackground, 1.07))
+                             : "transparent"
+                    Behavior on color { ColorAnimation { duration: 80 } }
+                    border.width: 1
+                    border.color: addChipHover.hovered
+                                  ? (AppTheme.dark ? AppTheme.borderStrong
+                                                   : AppTheme.textMuted)
+                                  : (AppTheme.dark ? AppTheme.border
+                                                   : AppTheme.borderStrong)
                     activeFocusOnTab: !root.readOnlyView
+                    function activate() {
+                        if (root.readOnlyView)
+                            return
+                        if (root.timelineView)
+                            root.timelineView.pinnedActionsKey = root.actionKey
+                        root.openReactionPickerFor(root.eventIdForActions(),
+                                                   reactionAddChip)
+                    }
                     Keys.onReturnPressed: (event) => {
-                        root.timelineModel.toggleReaction(root.eventIdForActions(),
-                                             modelData.key)
-                        event.accepted = true
+                        reactionAddChip.activate(); event.accepted = true
                     }
                     Keys.onEnterPressed: (event) => {
-                        root.timelineModel.toggleReaction(root.eventIdForActions(),
-                                             modelData.key)
-                        event.accepted = true
+                        reactionAddChip.activate(); event.accepted = true
                     }
                     Keys.onSpacePressed: (event) => {
-                        root.timelineModel.toggleReaction(root.eventIdForActions(),
-                                             modelData.key)
-                        event.accepted = true
+                        reactionAddChip.activate(); event.accepted = true
                     }
                     Rectangle {
                         anchors.fill: parent
-                        visible: reactionChip.activeFocus
+                        visible: reactionAddChip.activeFocus
                         color: "transparent"
-                        radius: reactionChip.radius
+                        radius: reactionAddChip.radius
                         border.width: 2
                         border.color: AppTheme.focusRing
                     }
-                    implicitWidth: reactionRow.implicitWidth + 14
-                    implicitHeight:
-                        Math.max(AppTheme.scaled(AppTheme.reactionChipHeight),
-                                 reactionRow.implicitHeight + 4)
-                    HoverHandler { id: reactionHover }
-
-                    readonly property var reactorNames:
-                        modelData.reactorNames || []
-                    readonly property int reactorTotal:
-                        modelData.reactorTotal >= 0
-                        ? modelData.reactorTotal : (modelData.count || 0)
-                    function boundedName(value) {
-                        var name = value || ""
-                        return name.length > 24
-                               ? name.substring(0, 24) + "…" : name
-                    }
-                    readonly property string reactorSummary: {
-                        var names = reactionChip.reactorNames
-                        if (names.length === 0
-                                || (names[0] || "").length === 0)
-                            return ""
-                        var total = Math.max(reactionChip.reactorTotal,
-                                             names.length)
-                        var first = reactionChip.boundedName(names[0])
-                        if (total <= 1)
-                            return first
-                        var second = names.length > 1
-                                     ? reactionChip.boundedName(names[1]) : ""
-                        if (second.length === 0) {
-                            return total === 2
-                                ? qsTr("%1 and 1 other").arg(first)
-                                : qsTr("%1 and %2 others")
-                                    .arg(first).arg(total - 1)
-                        }
-                        if (total === 2)
-                            return qsTr("%1 and %2").arg(first).arg(second)
-                        if (total === 3)
-                            return qsTr("%1, %2 and 1 other")
-                                .arg(first).arg(second)
-                        return qsTr("%1, %2 and %3 others")
-                            .arg(first).arg(second).arg(total - 2)
-                    }
-                    ToolTip.text: reactionChip.reactorSummary
-                    ToolTip.visible: reactionHover.hovered
-                                     && reactionChip.reactorSummary.length > 0
-                    ToolTip.delay: 300
-                    readonly property bool customEmojiReaction:
-                        typeof modelData.key === "string"
-                        && modelData.key.startsWith("mxc://")
-                        && modelData.key.length > 6
-                    readonly property string customEmojiName: {
-                        if (!reactionChip.customEmojiReaction)
-                            return ""
-                        var rev = app.stickers.revision
-                        var code = app.stickers.shortcodeForUrl(modelData.key)
-                        return code.length > 0 ? code : qsTr("custom emoji")
-                    }
-                    RowLayout {
-                        id: reactionRow
+                    Icon {
+                        id: addChipGlyph
                         anchors.centerIn: parent
-                        spacing: 4
-                        Label {
-                            objectName: "reactionEmoji"
-                            visible: !reactionChip.customEmojiReaction
-                            Layout.alignment: Qt.AlignVCenter
-                            Layout.preferredHeight:
-                                AppTheme.scaled(AppTheme.reactionEmojiBox)
-                            lineHeightMode: Text.FixedHeight
-                            lineHeight: AppTheme.scaled(AppTheme.reactionEmojiBox)
-                            text: reactionChip.customEmojiReaction
-                                  ? "" : modelData.key
-                            // A reaction key is any string the reactor chose.
-                            textFormat: Text.PlainText
-                            font.family: app.emojiFontFamily || ""
-                            font.pixelSize:
-                                AppTheme.scaled(AppTheme.reactionEmojiSize)
-                            verticalAlignment: Text.AlignVCenter
-                        }
-                        Image {
-                            id: customEmojiImage
-                            visible: reactionChip.customEmojiReaction
-                            Layout.alignment: Qt.AlignVCenter
-                            Layout.preferredHeight:
-                                AppTheme.scaled(AppTheme.reactionEmojiBox)
-                            Layout.preferredWidth:
-                                AppTheme.scaled(AppTheme.reactionEmojiBox)
-                            fillMode: Image.PreserveAspectFit
-                            asynchronous: true
-                            cache: root.mediaPixmapCacheAllowed
-                            property int resolveTick: 0
-                            source: {
-                                var _tick = resolveTick
-                                return (root.mediaPixmapRetained
-                                        && reactionChip.customEmojiReaction
-                                        && app.mediaBridge.supported)
-                                    ? app.mediaBridge.mxcImageSource(
-                                          modelData.key, 64)
-                                    : ""
-                            }
-                            Connections {
-                                target: app.mediaBridge
-                                enabled: reactionChip.customEmojiReaction
-                                function onMediaCached(cacheKey) {
-                                    if (cacheKey.endsWith(":" + modelData.key))
-                                        customEmojiImage.resolveTick++
-                                }
-                            }
-                        }
-                        Label {
-                            Layout.alignment: Qt.AlignVCenter
-                            Layout.preferredHeight: AppTheme.scaled(16)
-                            text: modelData.count
-                            color: modelData.byMe
-                                   ? AppTheme.reactionSelectedInk
-                                   : AppTheme.reactionInk
-                            font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
-                            font.weight: AppTheme.weightBold
-                            verticalAlignment: Text.AlignVCenter
-                        }
+                        name: "add_reaction"
+                        size: AppTheme.scaled(14)
+                        color: addChipHover.hovered ? AppTheme.textPrimary
+                                                    : AppTheme.textMuted
                     }
+                    HoverHandler { id: addChipHover }
                     MouseArea {
-                        id: reactionMouse
+                        id: addChipMouse
                         enabled: root.rowActionsEnabled && !root.readOnlyView
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: root.timelineModel.toggleReaction(
-                                       root.eventIdForActions(), modelData.key)
+                        onClicked: reactionAddChip.activate()
                     }
+                    ToolTip.text: qsTr("Add reaction")
+                    ToolTip.visible: addChipHover.hovered
+                    ToolTip.delay: 500
                     Accessible.role: Accessible.Button
-                    readonly property string accessibleKey:
-                        reactionChip.customEmojiReaction
-                            ? reactionChip.customEmojiName : modelData.key
-                    Accessible.name: modelData.byMe
-                        ? qsTr("Reaction %1, %2, selected").arg(reactionChip.accessibleKey).arg(modelData.count)
-                        : qsTr("Reaction %1, %2").arg(reactionChip.accessibleKey).arg(modelData.count)
-                    Accessible.description: reactionChip.reactorSummary
-                    Accessible.onPressAction: {
-                        if (!root.readOnlyView)
-                            root.timelineModel.toggleReaction(root.eventIdForActions(), modelData.key)
-                    }
+                    Accessible.name: qsTr("Add reaction")
+                    Accessible.onPressAction: reactionAddChip.activate()
                 }
-            }
-
-            Rectangle {
-                id: reactionAddChip
-                objectName: "reactionAddChip"
-                visible: !model.redacted && !root.readOnlyView
-                         && (model.eventId || "").length > 0
-                         && model.eventId.indexOf("local:") !== 0
-                implicitWidth: AppTheme.scaled(34)
-                implicitHeight: Math.max(AppTheme.scaled(22),
-                                         addChipGlyph.implicitHeight + 6)
-                radius: AppTheme.radiusPill
-                color: addChipMouse.pressed
-                       ? (AppTheme.dark
-                          ? Qt.lighter(AppTheme.reactionBackground, 1.6)
-                          : Qt.darker(AppTheme.reactionBackground, 1.14))
-                       : addChipHover.hovered
-                         ? (AppTheme.dark
-                            ? Qt.lighter(AppTheme.reactionBackground, 1.35)
-                            : Qt.darker(AppTheme.reactionBackground, 1.07))
-                         : "transparent"
-                Behavior on color { ColorAnimation { duration: 80 } }
-                border.width: 1
-                border.color: addChipHover.hovered
-                              ? (AppTheme.dark ? AppTheme.borderStrong
-                                               : AppTheme.textMuted)
-                              : (AppTheme.dark ? AppTheme.border
-                                               : AppTheme.borderStrong)
-                activeFocusOnTab: !root.readOnlyView
-                function activate() {
-                    if (root.readOnlyView)
-                        return
-                    if (root.timelineView)
-                        root.timelineView.pinnedActionsKey = root.actionKey
-                    root.openReactionPickerFor(root.eventIdForActions(),
-                                               reactionAddChip)
-                }
-                Keys.onReturnPressed: (event) => {
-                    reactionAddChip.activate(); event.accepted = true
-                }
-                Keys.onEnterPressed: (event) => {
-                    reactionAddChip.activate(); event.accepted = true
-                }
-                Keys.onSpacePressed: (event) => {
-                    reactionAddChip.activate(); event.accepted = true
-                }
-                Rectangle {
-                    anchors.fill: parent
-                    visible: reactionAddChip.activeFocus
-                    color: "transparent"
-                    radius: reactionAddChip.radius
-                    border.width: 2
-                    border.color: AppTheme.focusRing
-                }
-                Icon {
-                    id: addChipGlyph
-                    anchors.centerIn: parent
-                    name: "add_reaction"
-                    size: AppTheme.scaled(14)
-                    color: addChipHover.hovered ? AppTheme.textPrimary
-                                                : AppTheme.textMuted
-                }
-                HoverHandler { id: addChipHover }
-                MouseArea {
-                    id: addChipMouse
-                    enabled: root.rowActionsEnabled && !root.readOnlyView
-                    anchors.fill: parent
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: reactionAddChip.activate()
-                }
-                ToolTip.text: qsTr("Add reaction")
-                ToolTip.visible: addChipHover.hovered
-                ToolTip.delay: 500
-                Accessible.role: Accessible.Button
-                Accessible.name: qsTr("Add reaction")
-                Accessible.onPressAction: reactionAddChip.activate()
             }
         }
 
