@@ -16,6 +16,7 @@ build-nixos:
     paths: [.ci-cargo/]
   script:
     - export CARGO_HOME=$PWD/.ci-cargo
+    - nix develop -c cargo fetch --locked --manifest-path rust/Cargo.toml
     - nix develop -c cmake -S . -B build-remote -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_RUST_SDK_BACKEND=ON -DBUILD_TESTING=OFF
     - nix develop -c cmake --build build-remote --target lightning-matrix -j32
     - strip build-remote/lightning-matrix || nix develop -c strip build-remote/lightning-matrix
