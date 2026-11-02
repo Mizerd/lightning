@@ -965,7 +965,8 @@ Popup {
                     visible: root.badgeRole === "administrator" || root.badgeRole === "creator"
                     storm: true
                     tone: "accent"
-                    label: qsTr("Administrator")
+                    label: root.badgeRole === "creator" ? qsTr("Creator")
+                                                        : qsTr("Administrator")
                 }
                 StatusChip {
                     height: profileChipRow.uniformHeight
