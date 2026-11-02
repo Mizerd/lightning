@@ -162,6 +162,7 @@ constexpr auto kAccountLastRoom = "lastRoom";
 constexpr auto kAccountKeepRunning  = "keepRunning";
 constexpr auto kAccountLastLiveAt   = "lastLiveAt";
 constexpr auto kAccountNetworkRoute = "networkRoute";
+constexpr auto kAccountDismissedSpaceBanners = "dismissedSpaceBanners";
 constexpr auto kLabsConcurrentAccounts = "labs/concurrentAccounts";
 constexpr auto kLabsConcurrentAccountsWarmSlot = "labs/concurrentAccountsWarmSlot";
 constexpr auto kActivityReadHorizonDays = "ui/activityReadHorizonDays";
@@ -723,6 +724,7 @@ void SettingsManager::setActiveAccountUserId(const QString &userId)
     Q_EMIT clockFormatChanged();
     Q_EMIT microphoneGainChanged();
     Q_EMIT verificationWarningDismissedChanged();
+    Q_EMIT dismissedSpaceBannersChanged();
 }
 
 void SettingsManager::updateAccountProfile(const QString &userId,
@@ -3763,6 +3765,28 @@ void SettingsManager::setVerificationWarningDismissed(bool v)
         return;
     m_store->setValue(accountKey(slug, kVerifyWarningDismissed), v);
     Q_EMIT verificationWarningDismissedChanged();
+}
+
+QStringList SettingsManager::dismissedSpaceBanners() const
+{
+    const QString slug = slugForSavedAccount(activeAccountUserId());
+    if (slug.isEmpty())
+        return {};
+    return m_store->value(accountKey(slug, kAccountDismissedSpaceBanners))
+        .toStringList();
+}
+
+void SettingsManager::dismissSpaceBanner(const QString &spaceId)
+{
+    const QString slug = slugForSavedAccount(activeAccountUserId());
+    if (slug.isEmpty() || spaceId.isEmpty())
+        return;
+    QStringList ids = dismissedSpaceBanners();
+    if (ids.contains(spaceId))
+        return;
+    ids.append(spaceId);
+    m_store->setValue(accountKey(slug, kAccountDismissedSpaceBanners), ids);
+    Q_EMIT dismissedSpaceBannersChanged();
 }
 
 qreal SettingsManager::mediaVolume() const

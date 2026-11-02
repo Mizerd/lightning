@@ -164,6 +164,7 @@ private Q_SLOTS:
     void perAccountModeReadersUseTheDeviceScopeForAnEmptyOrUnknownUser();
     void anInterruptedSignOutNamesItsStoreUntilTheStoreIsGone();
     void aPendingSignOutNeverNamesAStoreItCannotProve();
+    void spaceBannerDismissalIsPerAccountPerSpaceAndPersists();
     void anUnreadableSettingsFileIsReported();
     void aSettingsFileThatListsNoAccountBesideAStoreIsReported();
     void aStoreLeftByAnUnfinishedSignInIsNotAMissingAccount();
@@ -1444,6 +1445,54 @@ void SettingsSessionTest::layoutPresetIsPerAccount()
     settings.setActiveAccountUserId(alice);
     QCOMPARE(settings.layoutPreset(), 1);
     QCOMPARE(settings.messageSpacing(), SettingsManager::kSpacingRoomy);
+}
+
+void SettingsSessionTest::spaceBannerDismissalIsPerAccountPerSpaceAndPersists()
+{
+    FakeSecretStore secrets;
+    const QString alice = QStringLiteral("@alice:matrix.example");
+    const QString bob = QStringLiteral("@bob:matrix.example");
+    const QString spaceA = QStringLiteral("!a:matrix.example");
+    const QString spaceB = QStringLiteral("!b:matrix.example");
+    {
+        SettingsManager settings;
+        settings.setSecretStore(&secrets);
+        settings.saveSession(QStringLiteral("https://matrix.example"), alice,
+                             QStringLiteral("ALICEDEVICE"),
+                             QStringLiteral("alice-token-fixture"));
+        settings.saveSession(QStringLiteral("https://matrix.example"), bob,
+                             QStringLiteral("BOBDEVICE"),
+                             QStringLiteral("bob-token-fixture"));
+        settings.setActiveAccountUserId(alice);
+        QVERIFY(settings.dismissedSpaceBanners().isEmpty());
+        QSignalSpy changed(&settings, &SettingsManager::dismissedSpaceBannersChanged);
+        settings.dismissSpaceBanner(spaceA);
+        settings.dismissSpaceBanner(spaceA);
+        QCOMPARE(changed.count(), 1);
+        QCOMPARE(settings.dismissedSpaceBanners(), QStringList{spaceA});
+
+        settings.setActiveAccountUserId(bob);
+        QVERIFY(settings.dismissedSpaceBanners().isEmpty());
+        settings.dismissSpaceBanner(spaceB);
+        settings.setActiveAccountUserId(alice);
+        QCOMPARE(settings.dismissedSpaceBanners(), QStringList{spaceA});
+    }
+    {
+        SettingsManager restarted;
+        restarted.setSecretStore(&secrets);
+        restarted.setActiveAccountUserId(alice);
+        QCOMPARE(restarted.dismissedSpaceBanners(), QStringList{spaceA});
+        QVERIFY(restarted.clearSessionForAccount(alice));
+        restarted.setActiveAccountUserId(QString());
+        QVERIFY(restarted.dismissedSpaceBanners().isEmpty());
+        restarted.saveSession(QStringLiteral("https://matrix.example"), alice,
+                              QStringLiteral("ALICEDEVICE2"),
+                              QStringLiteral("alice-token-fixture-2"));
+        restarted.setActiveAccountUserId(alice);
+        QVERIFY(restarted.dismissedSpaceBanners().isEmpty());
+        restarted.setActiveAccountUserId(bob);
+        QCOMPARE(restarted.dismissedSpaceBanners(), QStringList{spaceB});
+    }
 }
 
 void SettingsSessionTest::appearanceIsPerAccountWithGlobalFallback()

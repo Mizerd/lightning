@@ -10422,11 +10422,18 @@ false);
         } managed;
         AppController controller(AppController::MockBackend);
         QVERIFY(!loginAndRoomIdAt(controller, 0).isEmpty());
+        controller.settings()->setSecretStore(nullptr);
+        const QString bannerUser = QStringLiteral("@banner:example.org");
+        controller.settings()->saveSession(QStringLiteral("https://example.org"),
+                                           bannerUser, QStringLiteral("BANNERDEV"),
+                                           QStringLiteral("banner-token"));
+        controller.settings()->setActiveAccountUserId(bannerUser);
         auto *original = controller.findChild<MockMatrixClient *>();
         QVERIFY(original);
         const auto restore = qScopeGuard([&] {
             controller.roomInfo()->setClient(original);
             controller.discovery()->setClient(original);
+            controller.settings()->clearSessionForAccount(bannerUser);
         });
         controller.roomInfo()->setClient(&managed);
         controller.discovery()->setClient(&managed);
@@ -10448,7 +10455,15 @@ false);
         QVERIFY(!root->property("infoOpen").toBool());
         auto *label = root->findChild<QQuickItem *>(QStringLiteral("spaceParentBannerText"));
         QVERIFY(label);
-        QCOMPARE(label->property("text").toString(), QStringLiteral("Part of <b>Team</b>"));
+        QCOMPARE(label->property("text").toString(),
+                 QStringLiteral("This room is in <b>Team</b>. Joining adds the Space to your "
+                                "sidebar; you can leave at any time."));
+        auto *infoIcon = root->findChild<QQuickItem *>(QStringLiteral("spaceParentInfoIcon"));
+        QVERIFY(infoIcon);
+        const QString tip =
+            infoIcon->property("ToolTip.text").toString();
+        QVERIFY(tip.contains(QStringLiteral("does not join you to any of its other rooms")));
+        QVERIFY(tip.contains(QStringLiteral("Other members of the Space can see that you joined")));
         QCOMPARE(label->property("textFormat").toInt(), int(Qt::PlainText));
 
         managed.parentSpace.insert(QStringLiteral("joined"), true);
@@ -10461,10 +10476,20 @@ false);
         QVERIFY(dismiss);
         QVERIFY(QMetaObject::invokeMethod(dismiss, "clicked"));
         QTRY_VERIFY(!banner->isVisible());
+        QCOMPARE(controller.settings()->dismissedSpaceBanners(),
+                 QStringList{QStringLiteral("!parent:example.org")});
         controller.setCurrentRoomId(general);
-        QTRY_VERIFY(banner->isVisible());
+        QTRY_COMPARE(controller.roomInfo()->roomId(), general);
+        QTRY_VERIFY(!banner->isVisible());
         controller.setCurrentRoomId(dm);
         QTRY_VERIFY(!banner->isVisible());
+
+        controller.settings()->clearSessionForAccount(bannerUser);
+        controller.settings()->saveSession(QStringLiteral("https://example.org"),
+                                           bannerUser, QStringLiteral("BANNERDEV2"),
+                                           QStringLiteral("banner-token-2"));
+        controller.settings()->setActiveAccountUserId(bannerUser);
+        QVERIFY(controller.settings()->dismissedSpaceBanners().isEmpty());
         controller.setCurrentRoomId(general);
         QTRY_VERIFY(banner->isVisible());
 

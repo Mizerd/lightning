@@ -1798,7 +1798,6 @@ Rectangle {
         Rectangle {
             id: spaceParentBanner
             objectName: "spaceParentBanner"
-            property var dismissedRooms: ({})
             property string joiningSpaceId: ""
             property string joinError: ""
             readonly property bool joining: joiningSpaceId.length > 0
@@ -1832,10 +1831,11 @@ Rectangle {
                 parentSpace && parentSpace.spaceId ? parentSpace.spaceId : ""
             readonly property string spaceName:
                 parentSpace && parentSpace.name ? parentSpace.name : ""
+            readonly property bool dismissedForSpace:
+                spaceId.length > 0
+                && app.settings.dismissedSpaceBanners.indexOf(spaceId) >= 0
             function dismiss() {
-                var next = Object.assign({}, dismissedRooms)
-                next[app.currentRoomId] = true
-                dismissedRooms = next
+                app.settings.dismissSpaceBanner(spaceId)
             }
             Layout.fillWidth: true
             Layout.leftMargin: AppTheme.spacing16
@@ -1846,7 +1846,7 @@ Rectangle {
                      && app.roomInfo.roomId === app.currentRoomId
                      && spaceId.length > 0
                      && parentSpace.joined !== true
-                     && dismissedRooms[app.currentRoomId] !== true
+                     && !dismissedForSpace
             implicitHeight: visible ? spaceParentRow.implicitHeight
                                       + AppTheme.spacing8 * 2 : 0
             radius: AppTheme.radiusLg
@@ -1861,10 +1861,17 @@ Rectangle {
                 spacing: AppTheme.spacingS
 
                 Icon {
+                    objectName: "spaceParentInfoIcon"
                     Layout.alignment: Qt.AlignVCenter
                     name: "info"
                     size: 18
                     color: AppTheme.chipInfoInk
+                    HoverHandler { id: spaceParentInfoHover }
+                    ToolTip.text: qsTr("Joining only adds the Space to your sidebar and lets you see its rooms. It does not join you to any of its other rooms. Other members of the Space can see that you joined it. You can leave at any time, and you can also join later from this room's info panel.")
+                    ToolTip.visible: spaceParentInfoHover.hovered
+                    ToolTip.delay: 400
+                    Accessible.role: Accessible.StaticText
+                    Accessible.name: ToolTip.text
                 }
                 Text {
                     objectName: "spaceParentBannerText"
@@ -1873,8 +1880,8 @@ Rectangle {
                     text: spaceParentBanner.joinError.length > 0
                           ? qsTr("Could not join: %1").arg(spaceParentBanner.joinError)
                           : spaceParentBanner.spaceName.length > 0
-                          ? qsTr("Part of %1").arg(spaceParentBanner.spaceName)
-                          : qsTr("Part of a space you have not joined")
+                          ? qsTr("This room is in %1. Joining adds the Space to your sidebar; you can leave at any time.").arg(spaceParentBanner.spaceName)
+                          : qsTr("This room is in a Space you have not joined. Joining adds the Space to your sidebar; you can leave at any time.")
                     color: AppTheme.textPrimary
                     font.pixelSize: AppTheme.scaled(AppTheme.textBody)
                     font.weight: AppTheme.weightMedium
@@ -1905,7 +1912,7 @@ Rectangle {
                     kind: "secondary"
                     onClicked: spaceParentBanner.dismiss()
                     Accessible.role: Accessible.Button
-                    Accessible.name: qsTr("Dismiss this notice for this room")
+                    Accessible.name: qsTr("Dismiss this notice for this Space")
                 }
             }
         }

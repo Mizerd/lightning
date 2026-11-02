@@ -218,6 +218,8 @@ class SettingsManager : public QObject
                    READ verificationWarningDismissed
                    WRITE setVerificationWarningDismissed
                    NOTIFY verificationWarningDismissedChanged)
+    Q_PROPERTY(QStringList dismissedSpaceBanners READ dismissedSpaceBanners
+                   NOTIFY dismissedSpaceBannersChanged)
     Q_PROPERTY(int gifAutoplay READ gifAutoplay WRITE setGifAutoplay
                    NOTIFY gifAutoplayChanged)
     Q_PROPERTY(bool videoPrefetchEnabled READ videoPrefetchEnabled
@@ -654,6 +656,8 @@ public:
     static constexpr int sidePanelMaxWidth() { return kSidePanelMaxWidth; }
     bool verificationWarningDismissed() const;
     void setVerificationWarningDismissed(bool v);
+    QStringList dismissedSpaceBanners() const;
+    Q_INVOKABLE void dismissSpaceBanner(const QString &spaceId);
     void setSharePresence(bool v);
     int gifAutoplay() const;
     void setGifAutoplay(int mode);
@@ -995,6 +999,7 @@ Q_SIGNALS:
     void globalShortcutsEnabledChanged();
     void startInTrayChanged();
     void verificationWarningDismissedChanged();
+    void dismissedSpaceBannersChanged();
     void gifAutoplayChanged();
     void gifSafeSearchChanged();
     void storeRecentGifsChanged();

@@ -511,6 +511,16 @@ NOT TESTED**. Automated tests named in commits do not establish live behavior.
   read as the user's ROLE (Portuguese renders it "Membro"), and the row's
   action — Join, or the open arrow — already says it; the accessible name
   carries "not joined".
+- The "room is in a Space you have not joined" banner (`spaceParentBanner`,
+  `TimelinePane.qml`) says in one line what joining does (adds the Space to the
+  sidebar; leave any time) and carries the detail in the info icon's tooltip:
+  joining only adds the Space, joins no other room, and members can see it.
+  Dismiss is stored per account AND per Space id
+  (`SettingsManager::dismissSpaceBanner`, under the account's own settings
+  group), so it survives restarts, covers every room of that Space, and goes
+  with the account's other settings on sign-out. Joining stays available from
+  the room's info panel. The Space name is whatever the local store knows; no
+  network lookup is made for it, and it renders as plain text.
 - Quick switching across rooms, direct messages, Spaces, invites, threads
 - Activity ordering, unread state/navigation, first-unread and latest jumps,
   threaded receipts, and local marked-unread behavior
