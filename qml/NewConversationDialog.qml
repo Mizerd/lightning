@@ -876,11 +876,29 @@ Dialog {
                 roomNameField.forceActiveFocus()
             }
 
-            Label {
-                text: qsTr("Room name")
-                color: AppTheme.stormTextMuted
-                font.family: AppTheme.menuFont
-                font.pixelSize: AppTheme.textMeta
+            // The hint shares the title's line, so it needs no room of its own
+            // under the field and nothing jumps as the name is edited.
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: AppTheme.spacing8
+                Label {
+                    text: qsTr("Room name")
+                    color: AppTheme.stormTextMuted
+                    font.family: AppTheme.menuFont
+                    font.pixelSize: AppTheme.textMeta
+                }
+                Label {
+                    id: roomNameHint
+                    objectName: "roomNameHint"
+                    Layout.fillWidth: true
+                    visible: root.roomNameEdited
+                             && root.roomNameText.trim().length === 0
+                    text: qsTr("The room needs a name.")
+                    textFormat: Text.PlainText
+                    color: AppTheme.stormDanger
+                    font.pixelSize: AppTheme.textMeta
+                    elide: Text.ElideRight
+                }
             }
             AppTextField {
                 storm: true
@@ -894,28 +912,6 @@ Dialog {
                 onTextEdited: root.roomNameEdited = true
                 onAccepted: root.submitRoom()
                 KeyNavigation.tab: roomTopicField
-            }
-            // The slot keeps the hint's height whether or not the hint is
-            // showing, so the fields and the Create button below do not jump
-            // about 17px under the pointer as the name is edited.
-            Item {
-                objectName: "roomNameHintSlot"
-                Layout.fillWidth: true
-                implicitHeight: roomNameHint.implicitHeight
-                Label {
-                    id: roomNameHint
-                    objectName: "roomNameHint"
-                    visible: root.roomNameEdited
-                             && root.roomNameText.trim().length === 0
-                    width: parent.width
-                    text: qsTr("The room needs a name.")
-                    textFormat: Text.PlainText
-                    color: AppTheme.stormDanger
-                    font.pixelSize: AppTheme.textMeta
-                    lineHeight: AppTheme.lineHeightBody
-                    lineHeightMode: Text.ProportionalHeight
-                    wrapMode: Text.WordWrap
-                }
             }
 
             Label {

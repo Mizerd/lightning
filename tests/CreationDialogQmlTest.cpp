@@ -403,6 +403,13 @@ private slots:
         QVERIFY(nameField && create);
         QVERIFY(!create->property("enabled").toBool());
         QVERIFY(!item("roomNameHint")->isVisible());
+        const qreal createY = create->mapToScene(QPointF(0, 0)).y();
+        // Final retest N-5: no reserved slot under the field.
+        auto *topic = item("roomTopicField");
+        QVERIFY(topic);
+        const qreal gap = topic->mapToScene(QPointF(0, 0)).y()
+            - nameField->mapToScene(QPointF(0, nameField->height())).y();
+        QVERIFY2(gap < 40, qPrintable(QString::number(gap)));
 
         QTRY_VERIFY(nameField->hasActiveFocus());
         QTest::keyClick(m_window, Qt::Key_A);
@@ -414,6 +421,8 @@ private slots:
         QVERIFY(!create->property("enabled").toBool());
         // Blank after an edit: inline validation hint.
         QTRY_VERIFY(item("roomNameHint")->isVisible());
+        // ...which moves nothing.
+        QCOMPARE(create->mapToScene(QPointF(0, 0)).y(), createY);
 
         // The single error banner mirrors the controller's errorMessage.
         auto *banner = item("creationErrorBanner");
