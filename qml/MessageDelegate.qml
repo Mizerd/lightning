@@ -979,15 +979,16 @@ Item {
                 return items
             }
             toolbar: messageActionBarLoader
-            receipts: receiptRow
+            receipts: receiptStripLoader.row
         }
     }
 
     readonly property real receiptRailReserve:
-        (!root.bubbleMode && readReceiptStrip.visible)
+        (!root.bubbleMode && receiptStripLoader.visible)
         ? Math.max(0, (bubble.x + bubble.width)
                       - Math.max(root.avatarGutterWidth,
-                                 readReceiptStrip.width - receiptRow.width)
+                                 receiptStripLoader.width
+                                 - receiptStripLoader.rowWidth)
                       + AppTheme.spacingXS)
         : 0
 
@@ -1009,8 +1010,8 @@ Item {
     readonly property real bubbleReceiptInset:
         (root.bubbleMode && !root.ownBubbleReceiptFooter
          && model.isOwn !== true
-         && readReceiptStrip.visible && receiptRow.width > 0)
-        ? receiptRow.width + AppTheme.spacingXS
+         && receiptStripLoader.visible && receiptStripLoader.rowWidth > 0)
+        ? receiptStripLoader.rowWidth + AppTheme.spacingXS
         : 0
 
     readonly property real contentInnerCap: {
@@ -1025,12 +1026,12 @@ Item {
         : root.contentInnerCap
 
     readonly property bool receiptBandMeetsBar:
-        (layout.height - bubbleRow.y - receiptRow.height) < 33
+        (layout.height - bubbleRow.y - receiptStripLoader.rowHeight) < 33
     readonly property real actionBarReceiptReserve:
-        (!root.ownBubbleReceiptFooter && readReceiptStrip.visible
-         && receiptRow.width > 0
+        (!root.ownBubbleReceiptFooter && receiptStripLoader.visible
+         && receiptStripLoader.rowWidth > 0
          && root.receiptBandMeetsBar)
-        ? receiptRow.width + AppTheme.spacingXS
+        ? receiptStripLoader.rowWidth + AppTheme.spacingXS
         : 0
 
     function dayLabel(ts) {
@@ -1375,7 +1376,7 @@ Item {
                 onTapped: (eventPoint) => {
                     var pos = eventPoint.position
                     var skip = [bubble, avatarSlot.visible ? avatarSlot : null,
-                                receiptRow.visible ? receiptRow : null,
+                                receiptStripLoader.row,
                                 messageActionBarLoader.visible
                                     ? messageActionBarLoader : null]
                     for (var i = 0; i < skip.length; ++i) {
@@ -1504,7 +1505,7 @@ Item {
                         var bands = [
                             (model.edited === true && metaLabel.visible)
                                 ? metaLabel : null,
-                            receiptRow.visible ? receiptRow : null,
+                            receiptStripLoader.row,
                             replyLoader.visible ? replyLoader : null,
                             identityLoader.visible ? identityLoader : null
                         ]
@@ -2717,9 +2718,9 @@ Item {
             Layout.fillWidth: true
             readonly property bool followsOwnBubble:
                 root.bubbleMode && model.isOwn === true
-            readonly property real pileReserve: readReceiptStrip.visible
+            readonly property real pileReserve: receiptStripLoader.visible
                 && !root.ownBubbleReceiptFooter
-                ? receiptRow.width + AppTheme.spacingXS : 0
+                ? receiptStripLoader.rowWidth + AppTheme.spacingXS : 0
             Layout.rightMargin: reactionsLoader.followsOwnBubble
                 ? Math.max(reactionsLoader.pileReserve,
                            bubbleRow.width - (bubble.x + bubble.width))
@@ -3010,60 +3011,16 @@ Item {
 
     }
 
-    Item {
-        id: readReceiptStrip
-        objectName: "readReceiptStrip"
-        readonly property var receipts: model.readReceipts || []
-        readonly property int maxAvatars: 3
-        readonly property int totalOthers:
-            model.readReceiptsTotal >= 0 ? model.readReceiptsTotal
-                                         : receipts.length
-        readonly property int overflowCount:
-            Math.max(0, totalOthers - Math.min(shown.length, maxAvatars))
-        readonly property bool sentOnly:
-            model.sentReceipt === true && receipts.length === 0
-
-        property var shown: []
-        function refreshShown() {
-            var next = []
-            var n = Math.min(receipts.length, maxAvatars)
-            for (var i = 0; i < n; ++i) {
-                var r = receipts[i]
-                next.push({ userId: r.userId || "",
-                            displayName: r.displayName || "",
-                            avatarMxc: r.avatarMxc || "",
-                            tsMs: r.tsMs || 0 })
-            }
-            if (JSON.stringify(next) !== JSON.stringify(shown))
-                shown = next
-        }
-        onReceiptsChanged: refreshShown()
-        Component.onCompleted: refreshShown()
-
-        readonly property string summary: {
-            if (sentOnly)
-                return qsTr("Sent")
-            if (totalOthers <= 0 || receipts.length === 0)
-                return ""
-            var first = receipts[0].displayName || ""
-            if (totalOthers === 1)
-                return qsTr("Read by %1").arg(first)
-            var second = receipts.length > 1
-                         ? (receipts[1].displayName || "") : ""
-            if (second.length === 0)
-                return qsTr("Read by %1 and %2 others")
-                    .arg(first).arg(totalOthers - 1)
-            if (totalOthers === 2)
-                return qsTr("Read by %1 and %2")
-                    .arg(first).arg(second)
-            if (totalOthers === 3)
-                return qsTr("Read by %1, %2 and 1 other")
-                    .arg(first).arg(second)
-            return qsTr("Read by %1, %2 and %3 others")
-                .arg(first).arg(second).arg(totalOthers - 2)
-        }
-        visible: !model.redacted && (receipts.length > 0 || sentOnly)
-                 && root.naturalImplicitHeight > 0
+    Loader {
+        id: receiptStripLoader
+        readonly property Item row: item ? item.row : null
+        readonly property real rowWidth: row ? row.width : 0
+        readonly property real rowHeight: row ? row.height : 0
+        active: !model.redacted
+                && ((model.readReceipts || []).length > 0
+                    || model.sentReceipt === true)
+                && root.naturalImplicitHeight > 0
+        visible: active
         x: layout.x
         width: layout.width
         y: root.ownBubbleReceiptFooter
@@ -3074,134 +3031,269 @@ Item {
            ? root.height : layout.y + layout.height
         height: 0
         z: 3
+        sourceComponent: Item {
+            id: readReceiptStrip
+            objectName: "readReceiptStrip"
+            readonly property var receipts: model.readReceipts || []
+            readonly property int maxAvatars: 3
+            readonly property int totalOthers:
+                model.readReceiptsTotal >= 0 ? model.readReceiptsTotal
+                                             : receipts.length
+            readonly property int overflowCount:
+                Math.max(0, totalOthers - Math.min(shown.length, maxAvatars))
+            readonly property bool sentOnly:
+                model.sentReceipt === true && receipts.length === 0
 
-        Rectangle {
-            z: 100
-            x: receiptRow.x - 2
-            y: receiptRow.y - 2
-            width: receiptRow.width + 4
-            height: receiptRow.height + 4
-            radius: height / 2
-            color: "transparent"
-            border.width: 2
-            border.color: AppTheme.focusRing
-            visible: receiptRow.activeFocus
-        }
+            property var shown: []
+            function refreshShown() {
+                var next = []
+                var n = Math.min(receipts.length, maxAvatars)
+                for (var i = 0; i < n; ++i) {
+                    var r = receipts[i]
+                    next.push({ userId: r.userId || "",
+                                displayName: r.displayName || "",
+                                avatarMxc: r.avatarMxc || "",
+                                tsMs: r.tsMs || 0 })
+                }
+                if (JSON.stringify(next) !== JSON.stringify(shown))
+                    shown = next
+            }
+            onReceiptsChanged: refreshShown()
+            Component.onCompleted: refreshShown()
 
-        Row {
-            id: receiptRow
-            objectName: "readReceiptRow"
-            x: root.ownBubbleReceiptFooter
-               ? bubble.x + bubble.width - width
-               : Math.max(root.avatarGutterWidth,
-                          readReceiptStrip.width - width)
-            y: root.ownBubbleReceiptFooter ? 0 : -height
-            spacing: -6
+            readonly property string summary: {
+                if (sentOnly)
+                    return qsTr("Sent")
+                if (totalOthers <= 0 || receipts.length === 0)
+                    return ""
+                var first = receipts[0].displayName || ""
+                if (totalOthers === 1)
+                    return qsTr("Read by %1").arg(first)
+                var second = receipts.length > 1
+                             ? (receipts[1].displayName || "") : ""
+                if (second.length === 0)
+                    return qsTr("Read by %1 and %2 others")
+                        .arg(first).arg(totalOthers - 1)
+                if (totalOthers === 2)
+                    return qsTr("Read by %1 and %2")
+                        .arg(first).arg(second)
+                if (totalOthers === 3)
+                    return qsTr("Read by %1, %2 and 1 other")
+                        .arg(first).arg(second)
+                return qsTr("Read by %1, %2 and %3 others")
+                    .arg(first).arg(second).arg(totalOthers - 2)
+            }
+            readonly property Item row: receiptRow
 
-            property int hoverIndex: -1
-            readonly property int liftSlots:
-                restChips + (restOverflow > 0 ? 1 : 0)
-            function liftFor(i) {
-                if (hoverIndex < 0 || AppTheme.reducedMotion)
-                    return 0
-                return 4 * Math.pow(0.45, Math.abs(i - hoverIndex))
+            Rectangle {
+                z: 100
+                x: receiptRow.x - 2
+                y: receiptRow.y - 2
+                width: receiptRow.width + 4
+                height: receiptRow.height + 4
+                radius: height / 2
+                color: "transparent"
+                border.width: 2
+                border.color: AppTheme.focusRing
+                visible: receiptRow.activeFocus
             }
-            function zFor(i) {
-                return hoverIndex < 0
-                       ? i : liftSlots - Math.abs(i - hoverIndex)
-            }
-            function scaleFor(i) {
-                return hoverIndex === i && !AppTheme.reducedMotion ? 1.05 : 1
-            }
-            function slotAt(px) {
-                var best = -1
-                var bestD = 1e9
-                for (var i = 0; i < restChips; ++i) {
-                    var c = chipRepeater.itemAt(i)
-                    if (!c)
-                        continue
-                    var d = Math.abs(px - (c.x + c.width / 2))
-                    if (d < bestD) {
-                        bestD = d
-                        best = i
+
+            Row {
+                id: receiptRow
+                objectName: "readReceiptRow"
+                x: root.ownBubbleReceiptFooter
+                   ? bubble.x + bubble.width - width
+                   : Math.max(root.avatarGutterWidth,
+                              readReceiptStrip.width - width)
+                y: root.ownBubbleReceiptFooter ? 0 : -height
+                spacing: -6
+
+                property int hoverIndex: -1
+                readonly property int liftSlots:
+                    restChips + (restOverflow > 0 ? 1 : 0)
+                function liftFor(i) {
+                    if (hoverIndex < 0 || AppTheme.reducedMotion)
+                        return 0
+                    return 4 * Math.pow(0.45, Math.abs(i - hoverIndex))
+                }
+                function zFor(i) {
+                    return hoverIndex < 0
+                           ? i : liftSlots - Math.abs(i - hoverIndex)
+                }
+                function scaleFor(i) {
+                    return hoverIndex === i && !AppTheme.reducedMotion ? 1.05 : 1
+                }
+                function slotAt(px) {
+                    var best = -1
+                    var bestD = 1e9
+                    for (var i = 0; i < restChips; ++i) {
+                        var c = chipRepeater.itemAt(i)
+                        if (!c)
+                            continue
+                        var d = Math.abs(px - (c.x + c.width / 2))
+                        if (d < bestD) {
+                            bestD = d
+                            best = i
+                        }
+                    }
+                    if (restOverflow > 0
+                            && Math.abs(px - (overflowPill.x
+                                              + overflowPill.width / 2)) < bestD)
+                        best = restChips
+                    return best
+                }
+
+                readonly property int restChips:
+                    Math.min(readReceiptStrip.shown.length,
+                             readReceiptStrip.maxAvatars)
+                readonly property int restOverflow:
+                    Math.max(0, readReceiptStrip.totalOthers - restChips)
+                function readTimeText(tsMs) {
+                    if (!tsMs || tsMs <= 0)
+                        return ""
+                    var d = new Date(tsMs)
+                    var now = new Date()
+                    var startOfToday = new Date(now.getFullYear(), now.getMonth(),
+                                                now.getDate())
+                    if (d >= startOfToday)
+                        return Qt.formatTime(d, app.settings.clockTimeFormat)
+                    if (startOfToday - d < 6 * 86400000)
+                        return Qt.locale(AppLocale.name).toString(d, "ddd hh:mm")
+                    return Qt.locale(AppLocale.name).toString(d, "MMM d, hh:mm")
+                }
+                function overflowNames() {
+                    var rs = readReceiptStrip.receipts
+                    var out = []
+                    for (var i = restChips; i < rs.length && out.length < 8; ++i)
+                        out.push(rs[i].displayName || rs[i].userId || "")
+                    var rest = restOverflow - out.length
+                    if (rest > 0)
+                        out.push("+" + rest)
+                    return out.join("\n")
+                }
+                function openList(from) {
+                    if (!root.timelineView || !root.timelineView.openReceiptList)
+                        return
+                    var src = from || receiptRow
+                    var p = src.mapToItem(Overlay.overlay,
+                                          src.width / 2, src.height / 2)
+                    root.timelineView.openReceiptList(
+                        model.readReceipts || [],
+                        readReceiptStrip.totalOthers, Qt.point(p.x, p.y),
+                        model.eventId || "")
+                }
+                function openProfileFor(item, reader) {
+                    if (!root.timelineView || !root.timelineView.openSenderProfile)
+                        return
+                    var uid = reader.userId || ""
+                    if (uid.length === 0)
+                        return
+                    var tl = item.mapToItem(Overlay.overlay, 0, 0)
+                    root.timelineView.openSenderProfile({
+                        userId: uid,
+                        displayName: reader.displayName || "",
+                        avatarUrl: reader.avatarMxc || ""
+                    }, { x: tl.x, y: tl.y, width: item.width, height: item.height })
+                }
+                activeFocusOnTab: root.rowActionsEnabled
+                                  && !readReceiptStrip.sentOnly && visible
+                Keys.onReturnPressed: receiptRow.openList()
+                Keys.onEnterPressed: receiptRow.openList()
+                Keys.onSpacePressed: receiptRow.openList()
+                readonly property color hoverTint:
+                    rowHighlight.visible ? rowHighlight.color : "transparent"
+                readonly property real hoverTintOpacity:
+                    rowHighlight.visible ? rowHighlight.opacity : 0
+                Repeater {
+                    id: chipRepeater
+                    model: readReceiptStrip.shown
+                    Rectangle {
+                        id: chip
+                        objectName: "readReceiptChip"
+                        readonly property int chipIndex: index
+                        readonly property real lift: receiptRow.liftFor(index)
+                        property real liftNow: lift
+                        Behavior on liftNow {
+                            NumberAnimation {
+                                duration: AppTheme.reducedMotion ? 0 : 350
+                                easing.type: Easing.BezierSpline
+                                easing.bezierCurve: [0.22, 1, 0.36, 1, 1, 1]
+                            }
+                        }
+                        width: 18
+                        height: 18
+                        radius: 9
+                        color: AppTheme.background
+                        z: receiptRow.zFor(index)
+                        scale: receiptRow.scaleFor(index)
+                        Behavior on scale {
+                            NumberAnimation {
+                                duration: AppTheme.reducedMotion ? 0 : 350
+                                easing.type: Easing.BezierSpline
+                                easing.bezierCurve: [0.22, 1, 0.36, 1, 1, 1]
+                            }
+                        }
+                        transform: Translate { y: -chip.liftNow }
+                        Rectangle {
+                            anchors.fill: parent
+                            radius: chip.radius
+                            color: chip.parent ? chip.parent.hoverTint
+                                               : "transparent"
+                            opacity: chip.parent
+                                     ? chip.parent.hoverTintOpacity : 0
+                        }
+                        Avatar {
+                            anchors.centerIn: parent
+                            onScreen: root.rowOnScreen
+                            size: 16
+                            mxc: modelData.avatarMxc
+                            name: modelData.displayName
+                            colorKey: modelData.userId
+                        }
+                        ToolTip {
+                            visible: receiptRow.hoverIndex === chip.chipIndex
+                            delay: 400
+                            timeout: 0
+                            contentItem: Label {
+                                textFormat: Text.PlainText
+                                text: {
+                                    var t = receiptRow.readTimeText(modelData.tsMs)
+                                    var n = modelData.displayName
+                                            || modelData.userId
+                                    return t.length > 0 ? n + "\n" + t : n
+                                }
+                                color: AppTheme.textPrimary
+                                font.pixelSize: AppTheme.fontCaption
+                            }
+                        }
                     }
                 }
-                if (restOverflow > 0
-                        && Math.abs(px - (overflowPill.x
-                                          + overflowPill.width / 2)) < bestD)
-                    best = restChips
-                return best
-            }
-
-            readonly property int restChips:
-                Math.min(readReceiptStrip.shown.length,
-                         readReceiptStrip.maxAvatars)
-            readonly property int restOverflow:
-                Math.max(0, readReceiptStrip.totalOthers - restChips)
-            function readTimeText(tsMs) {
-                if (!tsMs || tsMs <= 0)
-                    return ""
-                var d = new Date(tsMs)
-                var now = new Date()
-                var startOfToday = new Date(now.getFullYear(), now.getMonth(),
-                                            now.getDate())
-                if (d >= startOfToday)
-                    return Qt.formatTime(d, app.settings.clockTimeFormat)
-                if (startOfToday - d < 6 * 86400000)
-                    return Qt.locale(AppLocale.name).toString(d, "ddd hh:mm")
-                return Qt.locale(AppLocale.name).toString(d, "MMM d, hh:mm")
-            }
-            function overflowNames() {
-                var rs = readReceiptStrip.receipts
-                var out = []
-                for (var i = restChips; i < rs.length && out.length < 8; ++i)
-                    out.push(rs[i].displayName || rs[i].userId || "")
-                var rest = restOverflow - out.length
-                if (rest > 0)
-                    out.push("+" + rest)
-                return out.join("\n")
-            }
-            function openList(from) {
-                if (!root.timelineView || !root.timelineView.openReceiptList)
-                    return
-                var src = from || receiptRow
-                var p = src.mapToItem(Overlay.overlay,
-                                      src.width / 2, src.height / 2)
-                root.timelineView.openReceiptList(
-                    model.readReceipts || [],
-                    readReceiptStrip.totalOthers, Qt.point(p.x, p.y),
-                    model.eventId || "")
-            }
-            function openProfileFor(item, reader) {
-                if (!root.timelineView || !root.timelineView.openSenderProfile)
-                    return
-                var uid = reader.userId || ""
-                if (uid.length === 0)
-                    return
-                var tl = item.mapToItem(Overlay.overlay, 0, 0)
-                root.timelineView.openSenderProfile({
-                    userId: uid,
-                    displayName: reader.displayName || "",
-                    avatarUrl: reader.avatarMxc || ""
-                }, { x: tl.x, y: tl.y, width: item.width, height: item.height })
-            }
-            activeFocusOnTab: root.rowActionsEnabled
-                              && !readReceiptStrip.sentOnly && visible
-            Keys.onReturnPressed: receiptRow.openList()
-            Keys.onEnterPressed: receiptRow.openList()
-            Keys.onSpacePressed: receiptRow.openList()
-            readonly property color hoverTint:
-                rowHighlight.visible ? rowHighlight.color : "transparent"
-            readonly property real hoverTintOpacity:
-                rowHighlight.visible ? rowHighlight.opacity : 0
-            Repeater {
-                id: chipRepeater
-                model: readReceiptStrip.shown
+                Item {
+                    objectName: "sentReceiptCheck"
+                    visible: readReceiptStrip.sentOnly
+                    width: 18
+                    height: 18
+                    Rectangle {
+                        anchors.centerIn: parent
+                        width: 16
+                        height: 16
+                        radius: 8
+                        color: "transparent"
+                        border.width: 1
+                        border.color: AppTheme.textMuted
+                        Icon {
+                            anchors.centerIn: parent
+                            name: "check"
+                            size: 11
+                            color: AppTheme.textMuted
+                        }
+                    }
+                }
                 Rectangle {
-                    id: chip
-                    objectName: "readReceiptChip"
-                    readonly property int chipIndex: index
-                    readonly property real lift: receiptRow.liftFor(index)
+                    id: overflowPill
+                    objectName: "readReceiptOverflow"
+                    readonly property int pillIndex: receiptRow.restChips
+                    readonly property real lift: receiptRow.liftFor(pillIndex)
                     property real liftNow: lift
                     Behavior on liftNow {
                         NumberAnimation {
@@ -3210,12 +3302,15 @@ Item {
                             easing.bezierCurve: [0.22, 1, 0.36, 1, 1, 1]
                         }
                     }
-                    width: 18
+                    visible: receiptRow.restOverflow > 0
+                    width: Math.max(18, overflowLabel.implicitWidth + 8)
                     height: 18
-                    radius: 9
-                    color: AppTheme.background
-                    z: receiptRow.zFor(index)
-                    scale: receiptRow.scaleFor(index)
+                    radius: AppTheme.radiusPill
+                    color: AppTheme.reactionBackground
+                    border.color: AppTheme.border
+                    border.width: 1
+                    z: receiptRow.zFor(pillIndex)
+                    scale: receiptRow.scaleFor(pillIndex)
                     Behavior on scale {
                         NumberAnimation {
                             duration: AppTheme.reducedMotion ? 0 : 350
@@ -3223,150 +3318,66 @@ Item {
                             easing.bezierCurve: [0.22, 1, 0.36, 1, 1, 1]
                         }
                     }
-                    transform: Translate { y: -chip.liftNow }
-                    Rectangle {
-                        anchors.fill: parent
-                        radius: chip.radius
-                        color: chip.parent ? chip.parent.hoverTint
-                                           : "transparent"
-                        opacity: chip.parent
-                                 ? chip.parent.hoverTintOpacity : 0
-                    }
-                    Avatar {
+                    transform: Translate { y: -overflowPill.liftNow }
+                    Label {
+                        id: overflowLabel
                         anchors.centerIn: parent
-                        onScreen: root.rowOnScreen
-                        size: 16
-                        mxc: modelData.avatarMxc
-                        name: modelData.displayName
-                        colorKey: modelData.userId
+                        text: "+" + receiptRow.restOverflow
+                        color: AppTheme.textSecondary
+                        font.pixelSize: AppTheme.fontMicro
+                        font.weight: AppTheme.weightBold
                     }
                     ToolTip {
-                        visible: receiptRow.hoverIndex === chip.chipIndex
+                        visible: receiptRow.hoverIndex === overflowPill.pillIndex
                         delay: 400
                         timeout: 0
                         contentItem: Label {
                             textFormat: Text.PlainText
-                            text: {
-                                var t = receiptRow.readTimeText(modelData.tsMs)
-                                var n = modelData.displayName
-                                        || modelData.userId
-                                return t.length > 0 ? n + "\n" + t : n
-                            }
+                            text: receiptRow.overflowNames()
                             color: AppTheme.textPrimary
                             font.pixelSize: AppTheme.fontCaption
                         }
                     }
                 }
-            }
-            Item {
-                objectName: "sentReceiptCheck"
-                visible: readReceiptStrip.sentOnly
-                width: 18
-                height: 18
-                Rectangle {
-                    anchors.centerIn: parent
-                    width: 16
-                    height: 16
-                    radius: 8
-                    color: "transparent"
-                    border.width: 1
-                    border.color: AppTheme.textMuted
-                    Icon {
-                        anchors.centerIn: parent
-                        name: "check"
-                        size: 11
-                        color: AppTheme.textMuted
-                    }
-                }
-            }
-            Rectangle {
-                id: overflowPill
-                objectName: "readReceiptOverflow"
-                readonly property int pillIndex: receiptRow.restChips
-                readonly property real lift: receiptRow.liftFor(pillIndex)
-                property real liftNow: lift
-                Behavior on liftNow {
-                    NumberAnimation {
-                        duration: AppTheme.reducedMotion ? 0 : 350
-                        easing.type: Easing.BezierSpline
-                        easing.bezierCurve: [0.22, 1, 0.36, 1, 1, 1]
-                    }
-                }
-                visible: receiptRow.restOverflow > 0
-                width: Math.max(18, overflowLabel.implicitWidth + 8)
-                height: 18
-                radius: AppTheme.radiusPill
-                color: AppTheme.reactionBackground
-                border.color: AppTheme.border
-                border.width: 1
-                z: receiptRow.zFor(pillIndex)
-                scale: receiptRow.scaleFor(pillIndex)
-                Behavior on scale {
-                    NumberAnimation {
-                        duration: AppTheme.reducedMotion ? 0 : 350
-                        easing.type: Easing.BezierSpline
-                        easing.bezierCurve: [0.22, 1, 0.36, 1, 1, 1]
-                    }
-                }
-                transform: Translate { y: -overflowPill.liftNow }
-                Label {
-                    id: overflowLabel
-                    anchors.centerIn: parent
-                    text: "+" + receiptRow.restOverflow
-                    color: AppTheme.textSecondary
-                    font.pixelSize: AppTheme.fontMicro
-                    font.weight: AppTheme.weightBold
-                }
-                ToolTip {
-                    visible: receiptRow.hoverIndex === overflowPill.pillIndex
-                    delay: 400
-                    timeout: 0
-                    contentItem: Label {
-                        textFormat: Text.PlainText
-                        text: receiptRow.overflowNames()
-                        color: AppTheme.textPrimary
-                        font.pixelSize: AppTheme.fontCaption
-                    }
-                }
-            }
 
-            HoverHandler {
-                id: receiptHover
-                cursorShape: readReceiptStrip.sentOnly ? Qt.ArrowCursor
-                                                       : Qt.PointingHandCursor
-                onPointChanged: receiptRow.updateHover()
-                onHoveredChanged: receiptRow.updateHover()
-            }
-            function updateHover() {
-                hoverIndex = (receiptHover.hovered
-                              && !readReceiptStrip.sentOnly)
-                             ? slotAt(receiptHover.point.position.x) : -1
-            }
-            TapHandler {
-                enabled: root.rowActionsEnabled && !readReceiptStrip.sentOnly
-                gesturePolicy: TapHandler.WithinBounds
-                onTapped: function(eventPoint) {
-                    var slot = receiptRow.slotAt(eventPoint.position.x)
-                    if (slot < 0)
-                        return
-                    if (slot === receiptRow.restChips) {
-                        receiptRow.forceActiveFocus(Qt.MouseFocusReason)
-                        receiptRow.openList(overflowPill)
-                        return
-                    }
-                    var chip = chipRepeater.itemAt(slot)
-                    var reader = readReceiptStrip.shown[slot]
-                    if (chip && reader)
-                        receiptRow.openProfileFor(chip, reader)
+                HoverHandler {
+                    id: receiptHover
+                    cursorShape: readReceiptStrip.sentOnly ? Qt.ArrowCursor
+                                                           : Qt.PointingHandCursor
+                    onPointChanged: receiptRow.updateHover()
+                    onHoveredChanged: receiptRow.updateHover()
                 }
+                function updateHover() {
+                    hoverIndex = (receiptHover.hovered
+                                  && !readReceiptStrip.sentOnly)
+                                 ? slotAt(receiptHover.point.position.x) : -1
+                }
+                TapHandler {
+                    enabled: root.rowActionsEnabled && !readReceiptStrip.sentOnly
+                    gesturePolicy: TapHandler.WithinBounds
+                    onTapped: function(eventPoint) {
+                        var slot = receiptRow.slotAt(eventPoint.position.x)
+                        if (slot < 0)
+                            return
+                        if (slot === receiptRow.restChips) {
+                            receiptRow.forceActiveFocus(Qt.MouseFocusReason)
+                            receiptRow.openList(overflowPill)
+                            return
+                        }
+                        var chip = chipRepeater.itemAt(slot)
+                        var reader = readReceiptStrip.shown[slot]
+                        if (chip && reader)
+                            receiptRow.openProfileFor(chip, reader)
+                    }
+                }
+                ToolTip.text: readReceiptStrip.summary
+                ToolTip.visible: receiptHover.hovered && readReceiptStrip.sentOnly
+                                 && readReceiptStrip.summary.length > 0
+                ToolTip.delay: 500
+                Accessible.role: Accessible.Button
+                Accessible.name: readReceiptStrip.summary
+                Accessible.onPressAction: receiptRow.openList()
             }
-            ToolTip.text: readReceiptStrip.summary
-            ToolTip.visible: receiptHover.hovered && readReceiptStrip.sentOnly
-                             && readReceiptStrip.summary.length > 0
-            ToolTip.delay: 500
-            Accessible.role: Accessible.Button
-            Accessible.name: readReceiptStrip.summary
-            Accessible.onPressAction: receiptRow.openList()
         }
     }
 
