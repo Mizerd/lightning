@@ -536,6 +536,40 @@ private slots:
         QTRY_VERIFY(!button->isVisible());
     }
 
+    // Final retest N-2: the mode chip moved 56 px on a switch, so a second click
+    // landed on Numbered list.
+    void theModeChipStaysUnderThePointerAcrossASwitch()
+    {
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        auto *settings = m_controller->findChild<SettingsManager *>();
+        ModeScope scope{ settings, settings->composerMode(),
+                         m_controller->composer() };
+        auto *bar = item("composerBar");
+        auto *chip = item("composerModeToggle");
+        QVERIFY(bar && chip);
+        bar->setProperty("toolbarExpanded", true);
+        QTest::qWait(40);
+        settings->setComposerMode(QStringLiteral("markdown"));
+        QTest::qWait(40);
+        const QRectF markdown = chip->mapRectToScene(
+            QRectF(0, 0, chip->width(), chip->height()));
+        settings->setComposerMode(QStringLiteral("rich"));
+        QTest::qWait(40);
+        const QRectF rich = chip->mapRectToScene(
+            QRectF(0, 0, chip->width(), chip->height()));
+        QCOMPARE(rich.left(), markdown.left());
+        QCOMPARE(rich.width(), markdown.width());
+        // Unseen in Markdown, and not clickable.
+        settings->setComposerMode(QStringLiteral("markdown"));
+        QTest::qWait(40);
+        auto *ordered = item("composerFormat_orderedlist");
+        QVERIFY(ordered);
+        QCOMPARE(ordered->opacity(), 0.0);
+        QVERIFY(!ordered->isEnabled());
+        bar->setProperty("toolbarExpanded", false);
+        m_controller->setCurrentRoomId(QString());
+    }
+
     // Retest at 640x480: the expanded box stayed expanded, and empty, after a
     // send.
     void sendingCollapsesTheBox()

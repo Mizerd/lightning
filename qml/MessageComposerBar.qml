@@ -2394,7 +2394,11 @@ Item {
                     // has no underline or numbered-list glyphs.
                     AppButton {
                         objectName: "composerFormat_underline"
-                        visible: root.richMode && !root.tightToolbarRow
+                        // Holds its place in Markdown too, so the mode chip after
+                        // it stays under the pointer across a switch.
+                        visible: !root.tightToolbarRow
+                        opacity: root.richMode ? 1 : 0
+                        Accessible.ignored: !root.richMode
                         kind: "ghost"
                         size: "sm"
                         // The 72px minimum is for worded buttons; here it would
@@ -2403,7 +2407,7 @@ Item {
                         // U + COMBINING LOW LINE: AppButton sets its own font,
                         // so font.underline would not reach the label.
                         text: "U̲"
-                        enabled: app.currentRoomId !== ""
+                        enabled: root.richMode && app.currentRoomId !== ""
                                  && root.inlineFormatAvailable
                         Accessible.name: qsTr("Underline")
                         ToolTip.text: qsTr("Underline")
@@ -2413,12 +2417,16 @@ Item {
                     }
                     AppButton {
                         objectName: "composerFormat_orderedlist"
-                        visible: root.richMode && !root.tightToolbarRow
+                        // Holds its place in Markdown too, so the mode chip after
+                        // it stays under the pointer across a switch.
+                        visible: !root.tightToolbarRow
+                        opacity: root.richMode ? 1 : 0
+                        Accessible.ignored: !root.richMode
                         kind: "ghost"
                         size: "sm"
                         minWidth: 0
                         text: "1."
-                        enabled: app.currentRoomId !== ""
+                        enabled: root.richMode && app.currentRoomId !== ""
                         Accessible.name: qsTr("Numbered list")
                         ToolTip.text: qsTr("Numbered list")
                         ToolTip.visible: hovered
@@ -2430,6 +2438,8 @@ Item {
                     // right side must stay empty surface.
                     AppButton {
                         objectName: "composerModeToggle"
+                        // One width for both labels: see the buttons before it.
+                        minWidth: 84
                         // Moves into the overflow menu below the width its
                         // label needs (see compactToolbarRow).
                         visible: !root.compactToolbarRow
