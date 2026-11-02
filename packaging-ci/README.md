@@ -122,6 +122,7 @@ Only manually created `web` and `api` pipelines are accepted.
 | sign | `sign-update-manifest` | Build and Ed25519-sign the client update manifest |
 | release | `finalize-release` | Attach links / create the release |
 | mirror | `mirror-release-to-github` | Copy the published binaries to the GitHub mirror and verify them anonymously |
+| update | `mirror-release-to-gitlab-com` | `allow_failure`. Copy the release files and the signed `update-latest` pair to the public gitlab.com project (clients' last-resort source) and verify by re-download; no-op without `GITLAB_COM_TOKEN` |
 | update | `publish-update-manifest` | Publish the signed manifest and move the `latest` pointer (final action) |
 
 The graph no longer ends after validation. When `PUBLISH_PACKAGES=true` the
@@ -484,6 +485,7 @@ exists with a matching version.
 | `UPDATE_SIGNING_PUBKEY_2026A` | **Protected, not masked** (it is not secret). Base64 raw 32-byte **public** key for key id `lightning-release-2026a`. Every build job compiles it into the package as `-DLIGHTNING_UPDATE_PUBKEY_2026A`; it is the update trust root of the shipped binary. The name is key-id specific — a new key id needs its own variable *and* a new trust-table row in the application source. |
 | `GITHUB_MIRROR_REPO` | **Optional. Protected**, not masked. `<owner>/<repo>` of the GitHub binary mirror, e.g. `Mizerd/lightning`. Unset ⇒ no mirroring and no `mirror_url` in the update manifest. This is the single on/off switch. |
 | `GITHUB_MIRROR_TOKEN` | **Optional. Protected + masked, environment scope `mirror`.** GitHub token that may create a release and upload assets on `GITHUB_MIRROR_REPO`, and nothing else. Required when `GITHUB_MIRROR_REPO` is set. Only `mirror-release-to-github` declares that environment. Never logged, never in argv, never in an artifact. |
+| `GITLAB_COM_TOKEN` | **Optional. Protected + masked, environment scope `mirror`.** gitlab.com token (project access token on `lightning-matrix/lightning`, role Developer, scope `api`) that may upload to that project's generic package registry. `mirror-release-to-gitlab-com` is a no-op without it and is `allow_failure`. Never logged, never in argv, never in an artifact. |
 
 `UPDATE_SIGNING_KEY_*` and `UPDATE_SIGNING_PUBKEY_<id>` are required for a
 publishing pipeline, and `scripts/check-update-signing-keys.sh` (run first, in

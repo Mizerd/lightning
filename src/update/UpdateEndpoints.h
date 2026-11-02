@@ -17,6 +17,11 @@
 //     mirror (tried first) or the canonical host (the fallback), and only
 //     supply bytes the signed manifest already named, sized and hashed.
 //
+// gitlab.com is a last-resort byte source, reached only after the other sources
+// fail to answer. Its host, project and paths are constants here: nothing in
+// a manifest or a response can name it, and it is excluded from
+// isAllowedArtifactUrl so no other transfer can be redirected onto it.
+//
 // Every manifest URL and redirect Location is re-validated here (https, port
 // 443, no userinfo, exact host match), so neither a hostile manifest nor a
 // compromised host can redirect downloads or change the installed version. No
@@ -46,6 +51,12 @@ QUrl mirrorLatestManifestUrl();
 QUrl mirrorLatestManifestSignatureUrl();
 
 bool isAllowedArtifactUrl(const QUrl &url);
+
+QString gitlabComHost();
+bool isAllowedGitlabComUrl(const QUrl &url);
+QUrl gitlabComManifestUrl();
+QUrl gitlabComManifestSignatureUrl();
+QUrl gitlabComArtifactUrl(const QString &version, const QString &filename);
 
 QUrl latestManifestUrl();
 QUrl latestManifestSignatureUrl();

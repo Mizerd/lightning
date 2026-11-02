@@ -1906,6 +1906,29 @@ check('make_latest:"false"' in _slot_script and 'prerelease:true' in _slot_scrip
       "the update slot never becomes GitHub's 'latest release' (prerelease + make_latest false) and requires GitLab's promotion record")
 check('"$UPDATE_LATEST_TAG" == update-latest' in _slot_script,
       "the slot script refuses any slot name but the one the client compiles in")
+_com = resolve_extends_dict(doc["mirror-release-to-gitlab-com"])
+check(_com.get("stage") == "update" and _com.get("allow_failure") is True
+      and _com.get("resource_group") == "lightning-project-6-publication"
+      and isinstance(_com.get("environment"), dict)
+      and _com["environment"].get("name") == "mirror",
+      "mirror-release-to-gitlab-com is allow_failure, serialized with publication, and holds only the mirror-scoped token")
+for _need in ("mirror-release-to-github", "publish-update-manifest", "sign-update-manifest",
+              "publish-packages", "resolve-source"):
+    check(_need in needs_names("mirror-release-to-gitlab-com"),
+          f"mirror-release-to-gitlab-com runs after {_need}")
+check(str(_com.get("image", "")).startswith("alpine@sha256:"),
+      "mirror-release-to-gitlab-com uses the digest-pinned alpine image")
+_com_script = _strip_shell_comments(_read("scripts", "mirror-release-to-gitlab-com.sh"))
+check('-z "${GITLAB_COM_TOKEN:-}"' in _com_script and "exit 0" in _com_script,
+      "mirror-release-to-gitlab-com is a no-op without GITLAB_COM_TOKEN")
+check("projects/88402223/packages/generic/lightning" in _com_script
+      and '"update-latest"' in _com_script,
+      "the gitlab.com host, project and slot are constants in the script")
+check("verify_by_redownload" in _com_script and "refusing to replace a published file" in _com_script
+      and "UPDATE_ALLOW_LATEST_ROLLBACK" in _com_script,
+      "the gitlab.com mirror re-downloads every upload, never replaces release files and keeps the rollback guard")
+check("GITLAB_COM_TOKEN" not in yaml.dump(doc.get("variables", {})),
+      "GITLAB_COM_TOKEN is never defined in the pipeline file")
 _client_endpoints_path = os.path.join(HERE, "..", "..", "lightning", "src", "update", "UpdateEndpoints.cpp")
 _client_endpoints = open(_client_endpoints_path).read() if os.path.exists(_client_endpoints_path) else ""
 if _client_endpoints:

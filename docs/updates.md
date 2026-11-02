@@ -19,7 +19,8 @@ release pipeline with a key that exists nowhere else, and from nothing else.
 Where that document is *fetched* from is a matter of availability, not trust:
 since the GitLab project may become private, the PRIMARY source is the fixed
 GitHub release slot below and GitLab is the single FALLBACK, read only when
-GitHub does not answer or answers with something that does not verify. The
+GitHub does not answer (and then the gitlab.com mirror, below, as a last resort).
+A document that does not verify is never retried from another source. The
 signature check is identical either way.
 
 **`github.com` — the public source of the metadata and of the files.**
@@ -40,7 +41,7 @@ publish an update* below.
 
 An update check is an ordinary anonymous HTTPS GET of two small public files
 from the fixed GitHub release slot first, and from the project's GitLab package
-registry only when GitHub does not answer or does not verify:
+registry only when GitHub does not answer:
 
 ```
 https://github.com/Mizerd/lightning/releases/download/update-latest/update-manifest-v1.json
@@ -205,11 +206,40 @@ pipeline writes the slot after every GitLab promotion
 so with GitLab private or down the whole path — manifest, signature, artifacts —
 is served by GitHub and verified by the same compiled-in Ed25519 key, and a
 check costs one request pair with no failed GitLab attempt in front of it. The
-fallback is read once per check if the primary is unreachable (DNS, TLS, 4xx,
-5xx, timeout, oversized) or answers with a document that does not verify (a
-stale slot, a lapsed domain, a hijacking proxy); that copy is held to the
-identical verification, and a second failure ends the check. A new check
-starts at the primary again, so an outage is never sticky.
+fallback is read once per check if the primary did not answer: a transport
+failure (DNS, TLS, connection, stall timeout) or HTTP 401, 403, 404, 408, 429
+or 5xx. Any other failure (another status, a redirect off the allowed hosts, an
+oversized body) ends the check, and so does a document that does not verify: a
+bad signature from any source is a hard stop and never a reason to ask
+another source. The last resort is the public gitlab.com mirror, below. A new
+check starts at the primary again, so an outage is never sticky.
+
+#### gitlab.com, the last resort
+
+After GitHub and then the canonical registry both fail to answer, one more
+source is tried, once: the public `gitlab.com/lightning-matrix/lightning`
+project's generic package registry (project 88402223). Its host, project and
+paths are compiled-in constants, never read from a manifest or a response:
+
+```
+https://gitlab.com/api/v4/projects/88402223/packages/generic/lightning/update-latest/update-manifest-v1.json
+https://gitlab.com/api/v4/projects/88402223/packages/generic/lightning/update-latest/update-manifest-v1.json.sig
+https://gitlab.com/api/v4/projects/88402223/packages/generic/lightning/<version>/<filename>
+```
+
+`<version>` and `<filename>` come from the signed manifest and must be plain
+`[A-Za-z0-9._-]` segments, so a manifest cannot steer the path. gitlab.com is
+just another byte source: the same Ed25519 check applies to the manifest, the
+same SHA-256 and size ceiling to the artifact, the same redirect limit, and it
+is neither a trusted manifest `url` nor a valid `mirror_url` host. Artifacts
+fall back to it only after the canonical source did not answer; a hash mismatch
+from any source is final. The older-than-installed rule is unchanged, so a
+stale copy there can pin a client to an older signed release but never
+downgrade it, the same accepted trade-off as the GitHub slot. The release
+pipeline fills it with `mirror-release-to-gitlab-com` (needs the masked CI
+variable `GITLAB_COM_TOKEN`, a no-op without it, `allow_failure`) and proves
+each upload by anonymous re-download. Fallbacks are logged under the
+`lightning.update` category.
 
 Nothing about trust changed with the order. GitHub decides nothing: the client
 reads no release metadata, calls no API and never follows a "latest" URL GitHub

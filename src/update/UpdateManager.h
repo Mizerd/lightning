@@ -161,11 +161,13 @@ public:
     QString lastLaunchProgramForTest() const { return m_lastLaunchProgram; }
     QString stagedArtifactPathForTest() const { return m_stagedPath; }
     QString stagedArtifactSha256ForTest() const { return m_stagedSha256; }
-    bool metadataInFallbackStageForTest() const { return m_metadataInFallbackStage; }
+    bool metadataInFallbackStageForTest() const { return m_metadataStage > 0; }
+    int metadataStageForTest() const { return m_metadataStage; }
     QUrl lastSignatureUrlForTest() const { return m_lastSignatureUrl; }
-    void simulateMetadataFetchFailureForTest(const QString &message)
+    void simulateMetadataFetchFailureForTest(const QString &message,
+                                             TransferError error = TransferError::Network)
     {
-        onMetadataFetchFailed(message);
+        onMetadataFetchFailed(error, message);
     }
     QString stagingRootForTest() const { return stagingRoot(); }
 
@@ -191,6 +193,7 @@ private:
     enum class ArtifactSource {
         Canonical,
         Mirror,
+        GitlabCom,
     };
 
     void setState(State state);
@@ -227,7 +230,7 @@ private:
     QString installTargetPath() const;
     QString relaunchProgramPath() const;
     bool retryMetadataFromFallback();
-    void onMetadataFetchFailed(const QString &message);
+    void onMetadataFetchFailed(TransferError error, const QString &message);
     QString stagingRoot() const;
     QString statusFilePath() const;
     void initializeStagingState();
@@ -277,7 +280,7 @@ private:
     UpdateDocumentFetcher *m_fetcher = nullptr;
     UpdateDownloader *m_downloader = nullptr;
     QByteArray m_signatureDocument;
-    bool m_metadataInFallbackStage = false;
+    int m_metadataStage = 0;
     QUrl m_lastSignatureUrl;
     std::unique_ptr<QFile> m_stagedFile;
     QString m_stagedPath;

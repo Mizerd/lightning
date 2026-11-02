@@ -29,6 +29,33 @@ namespace {
 constexpr char kManifestFile[] = "update-manifest-v1.json";
 constexpr char kSignatureFile[] = "update-manifest-v1.json.sig";
 
+constexpr char kGitlabComHost[] = "gitlab.com";
+constexpr char kGitlabComPackageBase[] =
+    "https://gitlab.com/api/v4/projects/88402223/packages/generic/lightning";
+constexpr char kGitlabComLatestVersion[] = "update-latest";
+
+bool isSafeSegment(const QString &segment)
+{
+    if (segment.isEmpty() || segment.startsWith(QLatin1Char('.')))
+        return false;
+    for (const QChar c : segment) {
+        const ushort u = c.unicode();
+        const bool ok = (u >= '0' && u <= '9') || (u >= 'a' && u <= 'z') || (u >= 'A' && u <= 'Z')
+            || u == '.' || u == '-' || u == '_';
+        if (!ok)
+            return false;
+    }
+    return true;
+}
+
+QUrl gitlabComUrl(const QString &version, const QString &file)
+{
+    if (!isSafeSegment(version) || !isSafeSegment(file))
+        return {};
+    return QUrl(QString::fromLatin1(kGitlabComPackageBase) + QLatin1Char('/') + version
+                + QLatin1Char('/') + file);
+}
+
 QString registryBase()
 {
     return QStringLiteral("https://%1/api/v4/projects/%2/packages/generic/lightning-update")
@@ -175,6 +202,33 @@ QUrl fallbackManifestSignatureUrl()
 bool isAllowedArtifactUrl(const QUrl &url)
 {
     return isAllowedUrlOn(url, allowedUpdateHosts());
+}
+
+QString gitlabComHost()
+{
+    return QString::fromLatin1(kGitlabComHost);
+}
+
+bool isAllowedGitlabComUrl(const QUrl &url)
+{
+    return isAllowedUrlOn(url, QStringList{ gitlabComHost() });
+}
+
+QUrl gitlabComManifestUrl()
+{
+    return gitlabComUrl(QString::fromLatin1(kGitlabComLatestVersion),
+                        QString::fromLatin1(kManifestFile));
+}
+
+QUrl gitlabComManifestSignatureUrl()
+{
+    return gitlabComUrl(QString::fromLatin1(kGitlabComLatestVersion),
+                        QString::fromLatin1(kSignatureFile));
+}
+
+QUrl gitlabComArtifactUrl(const QString &version, const QString &filename)
+{
+    return gitlabComUrl(version, filename);
 }
 
 QUrl latestManifestUrl()

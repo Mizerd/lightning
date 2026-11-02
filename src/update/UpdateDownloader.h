@@ -28,9 +28,14 @@ enum class TransferError {
     HashMismatch,
     FileError,
     Stalled,
+    HttpRejected,
 };
 
 QString transferErrorText(TransferError error);
+
+// Only "the source did not answer" (transport failure, timeout, 404, 5xx) lets
+// a check or download move to the next source. Everything else is final.
+bool isSourceUnavailable(TransferError error);
 
 bool hashesEqual(const QString &expectedHex, const QString &actualHex);
 
@@ -108,8 +113,11 @@ protected:
     void onRestart() override;
 
 private:
+    enum class Role { Canonical, Mirror, GitlabCom };
+    static Role roleFor(const QUrl &start);
+
     QByteArray m_buffer;
-    bool m_fallbackRole = false;
+    Role m_role = Role::Canonical;
 };
 
 class UpdateDownloader final : public UpdateTransferBase
@@ -141,6 +149,7 @@ private:
     QString m_expectedHash;
     QCryptographicHash m_hash{ QCryptographicHash::Sha256 };
     bool m_writeFailed = false;
+    bool m_gitlabComRole = false;
 };
 
 }

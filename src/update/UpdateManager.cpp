@@ -15,10 +15,13 @@
 #include <QJsonParseError>
 #include <QJsonValue>
 #include <QLockFile>
+#include <QLoggingCategory>
 #include <QNetworkAccessManager>
 #include <QProcess>
 #include <QStandardPaths>
 #include <QTemporaryFile>
+
+#include <optional>
 
 #ifdef Q_OS_WIN
 #ifndef NOMINMAX
@@ -54,6 +57,26 @@ constexpr char kLockFileName[] = "update.lock";
 
 constexpr char kSourceMirror[] = "mirror";
 constexpr char kSourceCanonical[] = "canonical";
+constexpr char kSourceGitlabCom[] = "gitlab-com";
+
+Q_LOGGING_CATEGORY(lcUpdate, "lightning.update")
+
+struct MetadataSource
+{
+    QUrl manifest;
+    QUrl signature;
+};
+
+QList<MetadataSource> metadataSources()
+{
+    QList<MetadataSource> sources;
+    sources.append(MetadataSource{ primaryManifestUrl(), primaryManifestSignatureUrl() });
+    if (!fallbackManifestUrl().isEmpty() && !fallbackManifestSignatureUrl().isEmpty())
+        sources.append(MetadataSource{ fallbackManifestUrl(), fallbackManifestSignatureUrl() });
+    if (!gitlabComManifestUrl().isEmpty() && !gitlabComManifestSignatureUrl().isEmpty())
+        sources.append(MetadataSource{ gitlabComManifestUrl(), gitlabComManifestSignatureUrl() });
+    return sources;
+}
 
 QString sanitizedStatusToken(const QJsonValue &value)
 {
@@ -316,14 +339,13 @@ void UpdateManager::startCheck(bool automatic)
 
     setState(Checking);
     m_signatureDocument.clear();
-    m_metadataInFallbackStage = false;
+    m_metadataStage = 0;
     fetchSignature();
 }
 
 void UpdateManager::fetchSignature()
 {
-    m_lastSignatureUrl = m_metadataInFallbackStage ? fallbackManifestSignatureUrl()
-                                                   : primaryManifestSignatureUrl();
+    m_lastSignatureUrl = metadataSources().at(m_metadataStage).signature;
     if (m_networkDisabledForTest)
         return;
     if (!m_fetcher) {
@@ -332,11 +354,10 @@ void UpdateManager::fetchSignature()
     disconnect(m_fetcher, nullptr, this, nullptr);
     connect(m_fetcher, &UpdateDocumentFetcher::finished, this,
             [this](bool ok, TransferError error, const QString &message) {
-                Q_UNUSED(error)
                 if (m_state != Checking)
                     return;
                 if (!ok) {
-                    onMetadataFetchFailed(message);
+                    onMetadataFetchFailed(error, message);
                     return;
                 }
                 m_signatureDocument = m_fetcher->document();
@@ -346,22 +367,24 @@ void UpdateManager::fetchSignature()
                      kMaxSignatureEnvelopeBytes, userAgent());
 }
 
-void UpdateManager::onMetadataFetchFailed(const QString &message)
+void UpdateManager::onMetadataFetchFailed(TransferError error, const QString &message)
 {
     if (m_state != Checking)
         return;
-    if (retryMetadataFromFallback())
+    if (isSourceUnavailable(error) && retryMetadataFromFallback())
         return;
     failWith(message);
 }
 
 bool UpdateManager::retryMetadataFromFallback()
 {
-    if (m_metadataInFallbackStage)
+    const QList<MetadataSource> sources = metadataSources();
+    if (m_metadataStage + 1 >= sources.size())
         return false;
-    if (fallbackManifestUrl().isEmpty() || fallbackManifestSignatureUrl().isEmpty())
-        return false;
-    m_metadataInFallbackStage = true;
+    qCInfo(lcUpdate) << "update metadata unavailable from"
+                     << sources.at(m_metadataStage).manifest.host() << "- trying"
+                     << sources.at(m_metadataStage + 1).manifest.host();
+    ++m_metadataStage;
     m_signatureDocument.clear();
     fetchSignature();
     return true;
@@ -372,11 +395,10 @@ void UpdateManager::fetchManifest()
     disconnect(m_fetcher, nullptr, this, nullptr);
     connect(m_fetcher, &UpdateDocumentFetcher::finished, this,
             [this](bool ok, TransferError error, const QString &message) {
-                Q_UNUSED(error)
                 if (m_state != Checking)
                     return;
                 if (!ok) {
-                    onMetadataFetchFailed(message);
+                    onMetadataFetchFailed(error, message);
                     return;
                 }
                 const QByteArray manifestBytes = m_fetcher->document();
@@ -384,7 +406,7 @@ void UpdateManager::fetchManifest()
                 m_signatureDocument.clear();
                 applyCheckDocuments(manifestBytes, signatureBytes);
             });
-    m_fetcher->start(m_metadataInFallbackStage ? fallbackManifestUrl() : primaryManifestUrl(),
+    m_fetcher->start(metadataSources().at(m_metadataStage).manifest,
                      UpdateManifest::kMaxManifestBytes, userAgent());
 }
 
@@ -411,8 +433,9 @@ void UpdateManager::applyCheckDocuments(const QByteArray &manifestBytes,
     const UpdateManifest::Result result =
         UpdateManifest::parseVerified(manifestBytes, sigBytes, *m_trust);
     if (!result.ok) {
-        if (retryMetadataFromFallback())
-            return;
+        qCWarning(lcUpdate) << "update manifest from"
+                            << metadataSources().at(m_metadataStage).manifest.host()
+                            << "failed verification; no other source is tried";
         Q_EMIT updateInfoChanged();
         failWith(result.message);
         return;
@@ -832,8 +855,18 @@ void UpdateManager::beginDownloadAttempt(ArtifactSource source)
     m_totalBytes = m_artifact->size;
     Q_EMIT downloadProgressChanged();
 
-    const QUrl url =
-        source == ArtifactSource::Mirror ? m_artifact->mirrorUrl : m_artifact->url;
+    QUrl url;
+    switch (source) {
+    case ArtifactSource::Mirror:
+        url = m_artifact->mirrorUrl;
+        break;
+    case ArtifactSource::Canonical:
+        url = m_artifact->url;
+        break;
+    case ArtifactSource::GitlabCom:
+        url = gitlabComArtifactUrl(m_manifest.versionString(), m_artifact->filename);
+        break;
+    }
 
     setState(Downloading);
     if (m_artifactByteSource) {
@@ -862,17 +895,31 @@ void UpdateManager::handleDownloadFinished(bool ok, TransferError error, const Q
             return;
         }
 
+        std::optional<ArtifactSource> next;
         if (m_attemptSource == ArtifactSource::Mirror) {
             m_mirrorFallbackUsed = true;
-            m_fallbackPending = true;
+            next = ArtifactSource::Canonical;
             setStatusDetail(QStringLiteral(
                 "The mirror copy could not be used; retrying from the canonical source."));
+        } else if (m_attemptSource == ArtifactSource::Canonical && isSourceUnavailable(error)
+                   && !gitlabComArtifactUrl(m_manifest.versionString(),
+                                            m_artifact ? m_artifact->filename : QString())
+                           .isEmpty()) {
+            next = ArtifactSource::GitlabCom;
+            setStatusDetail(QStringLiteral(
+                "The canonical source could not be reached; retrying from gitlab.com."));
+        }
+        if (next) {
+            qCInfo(lcUpdate) << "artifact download failed from source"
+                             << int(m_attemptSource) << "- trying source" << int(*next);
+            const ArtifactSource target = *next;
+            m_fallbackPending = true;
             QMetaObject::invokeMethod(
                 this,
-                [this]() {
+                [this, target]() {
                     if (!m_fallbackPending || m_state != Downloading)
                         return;
-                    beginDownloadAttempt(ArtifactSource::Canonical);
+                    beginDownloadAttempt(target);
                 },
                 Qt::QueuedConnection);
             return;
@@ -903,13 +950,25 @@ void UpdateManager::handleDownloadFinished(bool ok, TransferError error, const Q
         failWith(promoteError);
         return;
     }
-    setArtifactSource(m_attemptSource == ArtifactSource::Mirror
-                          ? QString::fromLatin1(kSourceMirror)
-                          : QString::fromLatin1(kSourceCanonical));
-    setStatusDetail(m_mirrorFallbackUsed
-                        ? QStringLiteral("The mirror copy could not be used, so this update "
-                                         "was downloaded from the canonical source.")
-                        : QString());
+    switch (m_attemptSource) {
+    case ArtifactSource::Mirror:
+        setArtifactSource(QString::fromLatin1(kSourceMirror));
+        break;
+    case ArtifactSource::Canonical:
+        setArtifactSource(QString::fromLatin1(kSourceCanonical));
+        break;
+    case ArtifactSource::GitlabCom:
+        setArtifactSource(QString::fromLatin1(kSourceGitlabCom));
+        break;
+    }
+    if (m_attemptSource == ArtifactSource::GitlabCom)
+        setStatusDetail(QStringLiteral("The other sources could not be used, so this update "
+                                       "was downloaded from gitlab.com."));
+    else
+        setStatusDetail(m_mirrorFallbackUsed
+                            ? QStringLiteral("The mirror copy could not be used, so this update "
+                                             "was downloaded from the canonical source.")
+                            : QString());
     setState(ReadyToInstall);
 }
 

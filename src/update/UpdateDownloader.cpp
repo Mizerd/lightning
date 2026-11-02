@@ -44,8 +44,15 @@ QString transferErrorText(TransferError error)
         return QStringLiteral("The downloaded file could not be written");
     case TransferError::Stalled:
         return QStringLiteral("The download stopped responding");
+    case TransferError::HttpRejected:
+        return QStringLiteral("The server refused the request");
     }
     return QStringLiteral("Unknown download error");
+}
+
+bool isSourceUnavailable(TransferError error)
+{
+    return error == TransferError::Network || error == TransferError::Stalled;
 }
 
 bool hashesEqual(const QString &expectedHex, const QString &actualHex)
@@ -291,11 +298,14 @@ void UpdateTransferBase::handleFinished()
         fail(TransferError::Cancelled);
         return;
     }
-    if (networkError != QNetworkReply::NoError) {
-        fail(TransferError::Network);
+    if (status != 0 && (status < 200 || status >= 300)) {
+        // 401/403 are a private or rate-limited host, not a verdict on the bytes.
+        const bool unavailable = status == 401 || status == 403 || status == 404
+            || status == 408 || status == 429 || status >= 500;
+        fail(unavailable ? TransferError::Network : TransferError::HttpRejected);
         return;
     }
-    if (status != 0 && (status < 200 || status >= 300)) {
+    if (networkError != QNetworkReply::NoError) {
         fail(TransferError::Network);
         return;
     }
@@ -334,29 +344,41 @@ UpdateDocumentFetcher::UpdateDocumentFetcher(QNetworkAccessManager *network, QOb
 {
 }
 
-static bool fallbackRoleFor(const QUrl &start)
+UpdateDocumentFetcher::Role UpdateDocumentFetcher::roleFor(const QUrl &start)
 {
-    return !isAllowedManifestUrl(start) && isAllowedFallbackManifestUrl(start);
+    if (isAllowedGitlabComUrl(start))
+        return Role::GitlabCom;
+    if (!isAllowedManifestUrl(start) && isAllowedFallbackManifestUrl(start))
+        return Role::Mirror;
+    return Role::Canonical;
 }
 
 void UpdateDocumentFetcher::start(const QUrl &url, qint64 maxBytes, const QByteArray &userAgent)
 {
     m_buffer.clear();
-    m_fallbackRole = fallbackRoleFor(url);
+    m_role = roleFor(url);
     beginTransfer(url, userAgent, maxBytes);
 }
 
 bool UpdateDocumentFetcher::permitsForTest(const QUrl &start, const QUrl &hop)
 {
-    m_fallbackRole = fallbackRoleFor(start);
+    m_role = roleFor(start);
     return isPermittedUrl(hop);
 }
 
 bool UpdateDocumentFetcher::isPermittedUrl(const QUrl &url) const
 {
-    // Canonical-only, except the fallback pair, which hops only among mirror
-    // hosts. Nothing is trusted until the signature verifies.
-    return m_fallbackRole ? isAllowedFallbackManifestUrl(url) : isAllowedManifestUrl(url);
+    // The starting host fixes the set a redirect may hop within. Nothing is
+    // trusted until the signature verifies.
+    switch (m_role) {
+    case Role::GitlabCom:
+        return isAllowedGitlabComUrl(url);
+    case Role::Mirror:
+        return isAllowedFallbackManifestUrl(url);
+    case Role::Canonical:
+        break;
+    }
+    return isAllowedManifestUrl(url);
 }
 
 void UpdateDocumentFetcher::onChunk(const QByteArray &chunk)
@@ -388,6 +410,7 @@ void UpdateDownloader::start(const QUrl &url, qint64 expectedSize,
     m_expectedHash = expectedSha256Hex.toLower();
     m_hash.reset();
     m_writeFailed = false;
+    m_gitlabComRole = isAllowedGitlabComUrl(url);
 
     resetTerminalStateForReuse();
 
@@ -417,6 +440,7 @@ void UpdateDownloader::deliverForTest(const QUrl &url, qint64 expectedSize,
                                       const std::optional<QByteArray> &bytes)
 {
     prepareForTest(target, expectedSize, expectedSha256Hex);
+    m_gitlabComRole = isAllowedGitlabComUrl(url);
     resetTerminalStateForReuse();
     if (!target || !target->isOpen() || !target->isWritable()) {
         fail(TransferError::FileError);
@@ -431,7 +455,7 @@ void UpdateDownloader::deliverForTest(const QUrl &url, qint64 expectedSize,
 
 bool UpdateDownloader::isPermittedUrl(const QUrl &url) const
 {
-    return isAllowedArtifactUrl(url);
+    return m_gitlabComRole ? isAllowedGitlabComUrl(url) : isAllowedArtifactUrl(url);
 }
 
 void UpdateDownloader::onChunk(const QByteArray &chunk)

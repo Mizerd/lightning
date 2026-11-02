@@ -412,11 +412,19 @@ private slots:
 
     void anExpiredManifestStillOffersTheUpdateAndSaysSo();
     void theFallbackFetcherHopsOnlyWithinTheMirror();
-    void aCanonicalAnswerThatDoesNotVerifyFallsBackToTheMirror();
+    void aCanonicalAnswerThatDoesNotVerifyIsAHardStop();
 
     void theManifestPairIsReadFromGitHubFirstAndGitLabSecond();
-    void aPrimaryTransportFailureFallsBackToGitLabOnce();
-    void aPrimaryAnswerThatDoesNotVerifyFallsBackToGitLab();
+    void aPrimaryTransportFailureFallsBackToGitLabThenGitlabComOnce();
+    void aPrimaryAnswerThatDoesNotVerifyIsAHardStop();
+    void onlyAnUnavailableSourceMovesTheCheckToTheNextSource();
+    void aBadSignatureFromGitlabComIsRefused();
+    void aValidManifestFromGitlabComIsOffered();
+    void gitlabComAddressesAreCompileTimeConstants();
+    void theGitlabComFetcherAndDownloaderStayOnGitlabCom();
+    void anArtifactFallsBackToGitlabComAfterTheOtherSources();
+    void bytesFromGitlabComAreHashCheckedLikeAnyOther();
+    void aHashMismatchFromTheCanonicalSourceDoesNotTryGitlabCom();
     void aMirrorSignedManifestNamingAForeignHostIsStillRefused();
     void aGitLabOutageCostsNothingWhenTheMirrorServesTheArtifact();
     void theReleasePageLinkIsTheGitHubTagForTheOfferedVersion();
@@ -526,11 +534,6 @@ void UpdateManagerStateTest::failsOnATamperedManifest()
     manager->checkForUpdates();
     QCOMPARE(manager->state(), UpdateManager::Checking);
     manager->ingestCheckDocuments(bytes, envelope);
-    if (!lightning::update::mirrorLatestManifestUrl().isEmpty()) {
-        QCOMPARE(manager->state(), UpdateManager::Checking);
-        QVERIFY(manager->metadataInFallbackStageForTest());
-        manager->ingestCheckDocuments(bytes, envelope);
-    }
     QCOMPARE(manager->state(), UpdateManager::Failed);
     QVERIFY(!manager->updateAvailable());
     QVERIFY(manager->latestVersion().isEmpty());
@@ -550,11 +553,6 @@ void UpdateManagerStateTest::failsOnAnUnknownKey()
     const QByteArray rogue = QJsonDocument(envelope).toJson(QJsonDocument::Compact);
     manager->checkForUpdates();
     manager->ingestCheckDocuments(bytes, rogue);
-    if (!lightning::update::mirrorLatestManifestUrl().isEmpty()) {
-        QCOMPARE(manager->state(), UpdateManager::Checking);
-        QVERIFY(manager->metadataInFallbackStageForTest());
-        manager->ingestCheckDocuments(bytes, rogue);
-    }
     QCOMPARE(manager->state(), UpdateManager::Failed);
     QVERIFY(!manager->updateAvailable());
 }
@@ -1425,9 +1423,10 @@ void UpdateManagerStateTest::bothSourcesFailingIsOneCleanTerminalFailure()
     QTRY_COMPARE(manager->state(), UpdateManager::Failed);
 
     QCOMPARE(source.requestedHosts(),
-             (QStringList{ mirrorHost(), lightning::update::canonicalUpdateHost() }));
+             (QStringList{ mirrorHost(), lightning::update::canonicalUpdateHost(),
+                           QStringLiteral("gitlab.com") }));
     QCoreApplication::processEvents();
-    QCOMPARE(source.requests.size(), 2);
+    QCOMPARE(source.requests.size(), 3);
     QCOMPARE(manager->state(), UpdateManager::Failed);
 
     QCOMPARE(stagedFiles(root.path()), QStringList{});
@@ -1628,7 +1627,7 @@ void UpdateManagerStateTest::anExpiredManifestStillOffersTheUpdateAndSaysSo()
              qPrintable(garbled->statusDetail()));
 }
 
-void UpdateManagerStateTest::aCanonicalAnswerThatDoesNotVerifyFallsBackToTheMirror()
+void UpdateManagerStateTest::aCanonicalAnswerThatDoesNotVerifyIsAHardStop()
 {
     const auto manager = makeManager(InstallType::LinuxDeb, QStringLiteral("0.7.0"));
     manager->checkForUpdates();
@@ -1639,14 +1638,8 @@ void UpdateManagerStateTest::aCanonicalAnswerThatDoesNotVerifyFallsBackToTheMirr
     QByteArray tampered = bytes;
     tampered.replace("0.8.0", "0.8.1");
     manager->ingestCheckDocuments(tampered, sign(bytes));
-    if (lightning::update::mirrorLatestManifestUrl().isEmpty()) {
-        QCOMPARE(manager->state(), UpdateManager::Failed);
-        return;
-    }
-    QCOMPARE(manager->state(), UpdateManager::Checking);
-    QVERIFY(manager->metadataInFallbackStageForTest());
-    manager->ingestCheckDocuments(tampered, sign(bytes));
     QCOMPARE(manager->state(), UpdateManager::Failed);
+    QVERIFY(!manager->updateAvailable());
 }
 
 void UpdateManagerStateTest::theManifestPairIsReadFromGitHubFirstAndGitLabSecond()
@@ -1673,7 +1666,7 @@ void UpdateManagerStateTest::theManifestPairIsReadFromGitHubFirstAndGitLabSecond
     QVERIFY(manager->lastSignatureUrlForTest().host() != u::canonicalUpdateHost());
 }
 
-void UpdateManagerStateTest::aPrimaryTransportFailureFallsBackToGitLabOnce()
+void UpdateManagerStateTest::aPrimaryTransportFailureFallsBackToGitLabThenGitlabComOnce()
 {
     namespace u = lightning::update;
     if (u::mirrorLatestManifestUrl().isEmpty())
@@ -1690,15 +1683,22 @@ void UpdateManagerStateTest::aPrimaryTransportFailureFallsBackToGitLabOnce()
     QCOMPARE(manager->lastSignatureUrlForTest().host(), u::canonicalUpdateHost());
 
     manager->simulateMetadataFetchFailureForTest(QStringLiteral("fallback unreachable"));
+    QCOMPARE(manager->state(), UpdateManager::Checking);
+    QCOMPARE(manager->metadataStageForTest(), 2);
+    QCOMPARE(manager->lastSignatureUrlForTest(), u::gitlabComManifestSignatureUrl());
+    QCOMPARE(manager->lastSignatureUrlForTest().host(), QStringLiteral("gitlab.com"));
+
+    manager->simulateMetadataFetchFailureForTest(QStringLiteral("gitlab.com unreachable"));
     QCOMPARE(manager->state(), UpdateManager::Failed);
-    QCOMPARE(manager->lastSignatureUrlForTest(), u::latestManifestSignatureUrl());
+    QCOMPARE(manager->metadataStageForTest(), 2);
+    QCOMPARE(manager->lastSignatureUrlForTest(), u::gitlabComManifestSignatureUrl());
 
     manager->checkForUpdates();
     QVERIFY(!manager->metadataInFallbackStageForTest());
     QCOMPARE(manager->lastSignatureUrlForTest(), u::primaryManifestSignatureUrl());
 }
 
-void UpdateManagerStateTest::aPrimaryAnswerThatDoesNotVerifyFallsBackToGitLab()
+void UpdateManagerStateTest::aPrimaryAnswerThatDoesNotVerifyIsAHardStop()
 {
     if (lightning::update::mirrorLatestManifestUrl().isEmpty())
         QSKIP("this build compiles in no mirror manifest slot");
@@ -1710,15 +1710,226 @@ void UpdateManagerStateTest::aPrimaryAnswerThatDoesNotVerifyFallsBackToGitLab()
     QByteArray tampered = bytes;
     tampered.replace("0.8.0", "0.9.9");
     manager->ingestCheckDocuments(tampered, sign(bytes));
-    QCOMPARE(manager->state(), UpdateManager::Checking);
-    QVERIFY(manager->metadataInFallbackStageForTest());
+    QCOMPARE(manager->state(), UpdateManager::Failed);
+    QCOMPARE(manager->metadataStageForTest(), 0);
     QVERIFY(!manager->updateAvailable());
-    QCOMPARE(manager->lastSignatureUrlForTest().host(),
-             lightning::update::canonicalUpdateHost());
+    QVERIFY(manager->latestVersion().isEmpty());
+}
 
+void UpdateManagerStateTest::onlyAnUnavailableSourceMovesTheCheckToTheNextSource()
+{
+    if (lightning::update::mirrorLatestManifestUrl().isEmpty())
+        QSKIP("this build compiles in no mirror manifest slot");
+
+    using lightning::update::TransferError;
+    for (const TransferError error :
+         { TransferError::HttpRejected, TransferError::SizeExceeded, TransferError::ForeignHost,
+           TransferError::TooManyRedirects, TransferError::InsecureUrl }) {
+        const auto manager = makeManager(InstallType::LinuxDeb, QStringLiteral("0.7.0"));
+        manager->checkForUpdates();
+        manager->simulateMetadataFetchFailureForTest(QStringLiteral("refused"), error);
+        QCOMPARE(manager->state(), UpdateManager::Failed);
+        QCOMPARE(manager->metadataStageForTest(), 0);
+    }
+
+    for (const TransferError error : { TransferError::Network, TransferError::Stalled }) {
+        const auto manager = makeManager(InstallType::LinuxDeb, QStringLiteral("0.7.0"));
+        manager->checkForUpdates();
+        manager->simulateMetadataFetchFailureForTest(QStringLiteral("down"), error);
+        QCOMPARE(manager->state(), UpdateManager::Checking);
+        QCOMPARE(manager->metadataStageForTest(), 1);
+    }
+}
+
+void UpdateManagerStateTest::aBadSignatureFromGitlabComIsRefused()
+{
+    if (lightning::update::mirrorLatestManifestUrl().isEmpty())
+        QSKIP("this build compiles in no mirror manifest slot");
+
+    const auto manager = makeManager(InstallType::LinuxDeb, QStringLiteral("0.7.0"));
+    manager->checkForUpdates();
+    manager->simulateMetadataFetchFailureForTest(QStringLiteral("github down"));
+    manager->simulateMetadataFetchFailureForTest(QStringLiteral("gitlab down"));
+    QCOMPARE(manager->metadataStageForTest(), 2);
+
+    const QByteArray bytes =
+        QJsonDocument(manifestObject(QStringLiteral("0.8.0"))).toJson(QJsonDocument::Compact);
+    QByteArray tampered = bytes;
+    tampered.replace("0.8.0", "0.9.9");
+    manager->ingestCheckDocuments(tampered, sign(bytes));
+    QCOMPARE(manager->state(), UpdateManager::Failed);
+    QVERIFY(!manager->updateAvailable());
+    QVERIFY(manager->latestVersion().isEmpty());
+    QVERIFY(!manager->errorMessage().isEmpty());
+}
+
+void UpdateManagerStateTest::aValidManifestFromGitlabComIsOffered()
+{
+    if (lightning::update::mirrorLatestManifestUrl().isEmpty())
+        QSKIP("this build compiles in no mirror manifest slot");
+
+    const auto manager = makeManager(InstallType::LinuxDeb, QStringLiteral("0.7.0"));
+    manager->checkForUpdates();
+    manager->simulateMetadataFetchFailureForTest(QStringLiteral("github 503"));
+    manager->simulateMetadataFetchFailureForTest(QStringLiteral("gitlab 503"));
+    QCOMPARE(manager->metadataStageForTest(), 2);
+
+    const QByteArray bytes =
+        QJsonDocument(manifestObject(QStringLiteral("0.8.0"))).toJson(QJsonDocument::Compact);
     manager->ingestCheckDocuments(bytes, sign(bytes));
     QVERIFY(manager->updateAvailable());
     QCOMPARE(manager->latestVersion(), QStringLiteral("0.8.0"));
+
+    const auto older = makeManager(InstallType::LinuxDeb, QStringLiteral("0.9.0"));
+    older->checkForUpdates();
+    older->simulateMetadataFetchFailureForTest(QStringLiteral("github 503"));
+    older->simulateMetadataFetchFailureForTest(QStringLiteral("gitlab 503"));
+    older->ingestCheckDocuments(bytes, sign(bytes));
+    QVERIFY(!older->updateAvailable());
+    QCOMPARE(older->state(), UpdateManager::UpToDate);
+}
+
+void UpdateManagerStateTest::gitlabComAddressesAreCompileTimeConstants()
+{
+    namespace u = lightning::update;
+    const QString base = QStringLiteral(
+        "https://gitlab.com/api/v4/projects/88402223/packages/generic/lightning");
+    QCOMPARE(u::gitlabComManifestUrl().toString(),
+             base + QStringLiteral("/update-latest/update-manifest-v1.json"));
+    QCOMPARE(u::gitlabComManifestSignatureUrl().toString(),
+             base + QStringLiteral("/update-latest/update-manifest-v1.json.sig"));
+    QCOMPARE(u::gitlabComArtifactUrl(QStringLiteral("0.8.0"), QStringLiteral("a_b-1.deb"))
+                 .toString(),
+             base + QStringLiteral("/0.8.0/a_b-1.deb"));
+
+    for (const QString &bad : { QString(), QStringLiteral("."), QStringLiteral("../x"),
+                                QStringLiteral("a/b"), QStringLiteral("a?b"),
+                                QStringLiteral("a#b"), QStringLiteral("a%2e"),
+                                QStringLiteral(".hidden"), QStringLiteral("a b") }) {
+        QVERIFY2(u::gitlabComArtifactUrl(bad, QStringLiteral("x.deb")).isEmpty(), qPrintable(bad));
+        QVERIFY2(u::gitlabComArtifactUrl(QStringLiteral("0.8.0"), bad).isEmpty(), qPrintable(bad));
+    }
+
+    QVERIFY(u::isAllowedGitlabComUrl(u::gitlabComManifestUrl()));
+    QVERIFY(!u::isAllowedGitlabComUrl(QUrl(QStringLiteral("http://gitlab.com/x"))));
+    QVERIFY(!u::isAllowedGitlabComUrl(QUrl(QStringLiteral("https://u@gitlab.com/x"))));
+    QVERIFY(!u::isAllowedGitlabComUrl(QUrl(QStringLiteral("https://gitlab.com:8443/x"))));
+    QVERIFY(!u::isAllowedGitlabComUrl(QUrl(QStringLiteral("https://gitlab.com.evil.example/x"))));
+    QVERIFY(!u::isAllowedGitlabComUrl(u::latestManifestUrl()));
+
+    QVERIFY(!u::isAllowedArtifactUrl(u::gitlabComManifestUrl()));
+    QVERIFY(!u::isAllowedManifestUrl(u::gitlabComManifestUrl()));
+    QVERIFY(!u::isAllowedFallbackManifestUrl(u::gitlabComManifestUrl()));
+    QVERIFY(!u::allowedUpdateHosts().contains(QStringLiteral("gitlab.com")));
+}
+
+void UpdateManagerStateTest::theGitlabComFetcherAndDownloaderStayOnGitlabCom()
+{
+    namespace u = lightning::update;
+    using lightning::update::TransferError;
+    u::UpdateDocumentFetcher fetcher(nullptr);
+    const QUrl start = u::gitlabComManifestUrl();
+    const QUrl other(QStringLiteral("https://evil.example/update-manifest-v1.json"));
+
+    QVERIFY(fetcher.permitsForTest(start, start));
+    QVERIFY(!fetcher.permitsForTest(start, other));
+    QVERIFY(!fetcher.permitsForTest(start, u::latestManifestUrl()));
+    QVERIFY(!fetcher.permitsForTest(start, QUrl(QStringLiteral("https://objects.githubusercontent.com/x"))));
+    QVERIFY(!fetcher.permitsForTest(u::latestManifestUrl(), start));
+    if (!u::mirrorLatestManifestUrl().isEmpty())
+        QVERIFY(!fetcher.permitsForTest(u::mirrorLatestManifestUrl(), start));
+
+    QTemporaryDir root;
+    QVERIFY(root.isValid());
+    QFile target(root.filePath(QStringLiteral("t.part")));
+    QVERIFY(target.open(QIODevice::WriteOnly));
+    u::UpdateDownloader downloader(nullptr);
+    TransferError seen = TransferError::None;
+    QObject::connect(&downloader, &u::UpdateTransferBase::finished,
+                     [&](bool, TransferError error, const QString &) { seen = error; });
+    downloader.deliverForTest(QUrl(QStringLiteral("https://gitlab.com.evil.example/x.deb")),
+                              payloadBytes().size(), payloadSha256(), &target, payloadBytes());
+    QCOMPARE(seen, TransferError::ForeignHost);
+    downloader.deliverForTest(u::gitlabComArtifactUrl(QStringLiteral("0.8.0"),
+                                                      QStringLiteral("x.deb")),
+                              payloadBytes().size(), payloadSha256(), &target, payloadBytes());
+    QCOMPARE(seen, TransferError::None);
+}
+
+void UpdateManagerStateTest::anArtifactFallsBackToGitlabComAfterTheOtherSources()
+{
+    QTemporaryDir root;
+    QVERIFY(root.isValid());
+    const QString version = QStringLiteral("0.8.0");
+    const QString filename = QStringLiteral("lightning_%1_amd64.deb").arg(version);
+    const QUrl gitlabCom = lightning::update::gitlabComArtifactUrl(version, filename);
+
+    ByteSourceRecorder source;
+    source.serve(gitlabCom.toString(), payloadBytes());
+
+    const auto manager = makeDownloadManager(root.path(), &source);
+    ingest(manager.get(), mirrorHost().isEmpty() ? downloadableManifest(version)
+                                                 : mirroredManifest(version));
+    manager->downloadUpdate();
+    QTRY_COMPARE(manager->state(), UpdateManager::ReadyToInstall);
+
+    QStringList expected;
+    if (!mirrorHost().isEmpty())
+        expected.append(mirrorHost());
+    expected.append(lightning::update::canonicalUpdateHost());
+    expected.append(QStringLiteral("gitlab.com"));
+    QCOMPARE(source.requestedHosts(), expected);
+    QCOMPARE(source.requests.last(), gitlabCom);
+    QCOMPARE(manager->artifactSource(), QStringLiteral("gitlab-com"));
+    QVERIFY(manager->statusDetail().contains(QStringLiteral("gitlab.com")));
+    QCOMPARE(stagedFiles(root.path()), QStringList{ filename });
+}
+
+void UpdateManagerStateTest::bytesFromGitlabComAreHashCheckedLikeAnyOther()
+{
+    QTemporaryDir root;
+    QVERIFY(root.isValid());
+    const QString version = QStringLiteral("0.8.0");
+    const QString filename = QStringLiteral("lightning_%1_amd64.deb").arg(version);
+
+    ByteSourceRecorder source;
+    source.serve(lightning::update::gitlabComArtifactUrl(version, filename).toString(),
+                 tamperedBytes());
+
+    const auto manager = makeDownloadManager(root.path(), &source);
+    ingest(manager.get(), downloadableManifest(version));
+    manager->downloadUpdate();
+    QTRY_COMPARE(manager->state(), UpdateManager::Failed);
+    QCoreApplication::processEvents();
+
+    QCOMPARE(source.requestedHosts().last(), QStringLiteral("gitlab.com"));
+    QCOMPARE(source.requests.size(), 2);
+    QCOMPARE(stagedFiles(root.path()), QStringList{});
+    QVERIFY(updateLockIsFree(root.path()));
+    QVERIFY(manager->artifactSource().isEmpty());
+}
+
+void UpdateManagerStateTest::aHashMismatchFromTheCanonicalSourceDoesNotTryGitlabCom()
+{
+    QTemporaryDir root;
+    QVERIFY(root.isValid());
+    const QString version = QStringLiteral("0.8.0");
+    const QString filename = QStringLiteral("lightning_%1_amd64.deb").arg(version);
+
+    ByteSourceRecorder source;
+    source.serve(artifactUrl(version, filename), tamperedBytes());
+    source.serve(lightning::update::gitlabComArtifactUrl(version, filename).toString(),
+                 payloadBytes());
+
+    const auto manager = makeDownloadManager(root.path(), &source);
+    ingest(manager.get(), downloadableManifest(version));
+    manager->downloadUpdate();
+    QTRY_COMPARE(manager->state(), UpdateManager::Failed);
+    QCoreApplication::processEvents();
+
+    QCOMPARE(source.requestedHosts(), QStringList{ lightning::update::canonicalUpdateHost() });
+    QCOMPARE(stagedFiles(root.path()), QStringList{});
+    QVERIFY(updateLockIsFree(root.path()));
 }
 
 static void refusedOnBothSources(UpdateManager *m, const QByteArray &bytes,
