@@ -869,8 +869,16 @@ private slots:
 
     void theCreatorPillSaysCreatorNotAdministrator()
     {
+        QVERIFY(QMetaObject::invokeMethod(
+            m_root, "openFor",
+            Q_ARG(QVariant, QStringLiteral("@carol:mock.local")),
+            Q_ARG(QVariant, QStringLiteral("Carol")),
+            Q_ARG(QVariant, QStringLiteral("joined")),
+            Q_ARG(QVariant, QString()),
+            Q_ARG(QVariant, false)));
         auto *popover = find(QStringLiteral("popover"));
         QVERIFY(popover);
+        QTRY_VERIFY(popover->property("opened").toBool());
         const auto chipShown = [popover](const QString &label) {
             for (QObject *candidate : popover->findChildren<QObject *>()) {
                 if (candidate->property("label").toString() == label
@@ -890,6 +898,7 @@ private slots:
         QVERIFY(chipShown(QStringLiteral("Administrator")));
         QVERIFY(!chipShown(QStringLiteral("Creator")));
         popover->setProperty("liveRole", QString());
+        popover->setProperty("visible", false);
     }
 
     void theLiveRoleMappingMatchesTheRosterTiers()

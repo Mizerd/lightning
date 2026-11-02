@@ -139,7 +139,10 @@ private Q_SLOTS:
     void crossSigningSetupButtonJumpsToTheCard()
     {
         const QString src = qml(QStringLiteral("SettingsScreen.qml"));
-        QVERIFY(src.contains(QStringLiteral("anchors: [\"crossSigningSetupCard\", \"recoveryEntry\",")));
+        QVERIFY(src.contains(QStringLiteral("anchors: [\"recoveryKeyCard\", \"recoveryEntry\"]")));
+        QVERIFY(src.contains(QStringLiteral("objectName: \"recoveryKeyCard\"")));
+        QVERIFY(src.contains(QStringLiteral("objectName: \"recoveryEntry\"")));
+        QVERIFY(src.contains(QStringLiteral("root.section = \"privacy\"")));
         QVERIFY(src.contains(QStringLiteral("anchor: \"crossSigningSetupCard\" })")));
         QVERIFY(qml(QStringLiteral("CrossSigningSetupCard.qml"))
                     .contains(QStringLiteral("objectName: \"crossSigningSetupCard\"")));
