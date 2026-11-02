@@ -2491,6 +2491,59 @@ private slots:
 
     // Escape abandons a drag. Before, nothing read it: the ghost stayed,
     // release still filed the Space and the shell's own Escape went Home.
+    // Eleven Spaces at 1280x800 pushed Create a Space below the rail, reachable
+    // only by wheel-scrolling behind a fade. Once the tiles fill the rail the
+    // button is pinned above the bottom cluster; with room it follows the
+    // last tile as before.
+    void createASpaceStaysReachableWhenTheTilesOutgrowTheRail()
+    {
+        auto *footerButton = m_rail->findChild<QQuickItem *>(
+            QStringLiteral("railAddSpaceButton"));
+        auto *pinnedButton = m_rail->findChild<QQuickItem *>(
+            QStringLiteral("railAddSpaceButtonPinned"));
+        QVERIFY(footerButton);
+        QVERIFY(pinnedButton);
+        // The mock backend never manages rooms, so the button is not offered
+        // by default; offer it.
+        QVERIFY(m_rail->setProperty("railAddVisible", true));
+        const auto restore = qScopeGuard([&] {
+            m_window->resize(160, 700);
+            m_rail->setSize(QSizeF(m_window->width(), m_window->height()));
+            QTest::qWait(60);
+        });
+        QVERIFY2(footerButton->isVisible(),
+                 "the fixture offers no Create a Space button at all");
+        QVERIFY(!pinnedButton->isVisible());
+
+        m_window->resize(160, 260);
+        m_rail->setSize(QSizeF(m_window->width(), m_window->height()));
+        QTRY_VERIFY2(m_list->property("contentHeight").toReal()
+                         > m_list->property("height").toReal()
+                         || pinnedButton->isVisible(),
+                     "the small rail never overflowed");
+        QTRY_VERIFY2(pinnedButton->isVisible(), "Create a Space was not pinned");
+        QVERIFY(!footerButton->isVisible());
+        const QRectF r = pinnedButton->mapRectToScene(
+            QRectF(0, 0, pinnedButton->width(), pinnedButton->height()));
+        QVERIFY2(r.top() >= 0 && r.bottom() <= m_window->height()
+                     && r.left() >= 0 && r.right() <= m_window->width(),
+                 "the pinned button is outside the rail");
+        // It sits below the list, not over its tiles.
+        QTRY_VERIFY2(
+            pinnedButton->mapRectToScene(QRectF(0, 0, pinnedButton->width(),
+                                                pinnedButton->height()))
+                    .top()
+                >= m_list->mapRectToScene(QRectF(0, 0, m_list->width(),
+                                                 m_list->height()))
+                       .bottom() - 1,
+            "the pinned button overlaps the tile list");
+
+        m_window->resize(160, 700);
+        m_rail->setSize(QSizeF(m_window->width(), m_window->height()));
+        QTRY_VERIFY(!pinnedButton->isVisible());
+        QTRY_VERIFY(footerButton->isVisible());
+    }
+
     void escapeCancelsADragAndFilesNothing()
     {
         const QString a = m_spaceIds.at(0);

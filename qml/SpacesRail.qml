@@ -557,6 +557,66 @@ Rectangle {
         }
     }
 
+    // Whether Create a Space is offered, and the height of its cell. Not
+    // readonly so a test can offer it: the mock backend never manages rooms.
+    property bool railAddVisible:
+        app.loggedIn && app.conversations && app.conversations.supported
+    readonly property int railAddCellHeight: railTileSize + 2 * rowPad
+    // True once the tiles alone fill the rail. Written by pinAddIfNeeded(),
+    // never bound: it decides the footer's height, which feeds contentHeight,
+    // which it reads, and a binding there would read its own result.
+    property bool railAddPinned: false
+    function pinAddIfNeeded() {
+        if (!list)
+            return
+        const rows = list.contentHeight - (railAddPinned ? 0 : railAddCellHeight)
+        const room = list.height + (railAddPinned ? railAddCellHeight : 0)
+        railAddPinned = railAddVisible && rows + railAddCellHeight > room
+    }
+    // "Create a Space" tile with its tooltip anchor, the same in the list's
+    // footer and in the pinned slot.
+    component RailAddSpaceCell: Item {
+        property string buttonName: ""
+        width: root.width
+        height: root.railAddCellHeight
+        IconButton {
+            id: addButton
+            objectName: parent.buttonName
+            y: root.rowPad
+            x: root.tileColumnX
+            implicitWidth: root.railTileSize
+            implicitHeight: root.railTileSize
+            radius: root.railTileRadius
+            iconName: "add"
+            iconSize: root.railChipIconSize
+            visible: root.railAddVisible
+            Accessible.name: qsTr("Create a Space")
+            onClicked: root.createSpaceRequested()
+            // Filled at 40% so it reads as the lightest tile rather than a
+            // gap.
+            Rectangle {
+                anchors.fill: parent
+                z: -1
+                radius: root.railTileRadius
+                color: Qt.rgba(AppTheme.cardElevated.r,
+                               AppTheme.cardElevated.g,
+                               AppTheme.cardElevated.b, 0.4)
+                border.width: 1
+                border.color: AppTheme.borderStrong
+            }
+        }
+        // Off the rail, like the Space tile's anchor.
+        Item {
+            x: root.width
+            y: addButton.y + addButton.height
+            width: Math.max(root.railTipFloor, root.railTipWidth)
+            height: 1
+            ToolTip.visible: addButton.hovered
+            ToolTip.text: qsTr("Create a Space")
+            ToolTip.delay: 500
+        }
+    }
+
     ColumnLayout {
         anchors.fill: parent
         // Symmetric with the bottom inset.
@@ -576,6 +636,8 @@ Rectangle {
             model: app.railEntries
             clip: true
             spacing: AppTheme.spacing4
+            onContentHeightChanged: root.pinAddIfNeeded()
+            onHeightChanged: root.pinAddIfNeeded()
             // No recycling: few rows, and a recycled delegate mid-drag loses
             // the tile.
             reuseItems: false
@@ -1743,53 +1805,29 @@ Rectangle {
                 }
             }
 
-            // Add Space, part of the list content: it follows the last tile,
-            // scrolls with the list and never overlaps the pinned bottom
-            // cluster.
+            // Add Space, part of the list content while everything fits: it
+            // follows the last tile and scrolls with the list. Once the tiles
+            // outgrow the rail it is pinned above the bottom cluster instead
+            // (railAddPinned), because a button that only wheel-scrolling
+            // reveals, behind a fade that reads as "more tiles", was reported
+            // as missing with eleven Spaces at 1280x800. Element pins it too.
             footer: Item {
                 width: list.width
                 // The tile's own height, so contentHeight is correct.
-                height: railAddSpaceButton.visible
-                        ? root.railTileSize + 2 * root.rowPad : 0
-                IconButton {
-                    id: railAddSpaceButton
-                    objectName: "railAddSpaceButton"
-                    y: root.rowPad
-                    x: root.tileColumnX
-                    implicitWidth: root.railTileSize
-                    implicitHeight: root.railTileSize
-                    radius: root.railTileRadius
-                    iconName: "add"
-                    iconSize: root.railChipIconSize
-                    visible: app.loggedIn && app.conversations
-                             && app.conversations.supported
-                    Accessible.name: qsTr("Create a Space")
-                    onClicked: root.createSpaceRequested()
-                    // Filled at 40% so it reads as the lightest tile rather
-                    // than a gap.
-                    Rectangle {
-                        anchors.fill: parent
-                        z: -1
-                        radius: root.railTileRadius
-                        color: Qt.rgba(AppTheme.cardElevated.r,
-                                       AppTheme.cardElevated.g,
-                                       AppTheme.cardElevated.b, 0.4)
-                        border.width: 1
-                        border.color: AppTheme.borderStrong
-                    }
-                }
-                // Off the rail, like the Space tile's anchor. A sibling of the
-                // button, so x is in the footer's full-width coordinates.
-                Item {
-                    x: root.width
-                    y: railAddSpaceButton.y + railAddSpaceButton.height
-                    width: Math.max(root.railTipFloor, root.railTipWidth)
-                    height: 1
-                    ToolTip.visible: railAddSpaceButton.hovered
-                    ToolTip.text: qsTr("Create a Space")
-                    ToolTip.delay: 500
-                }
+                height: root.railAddVisible && !root.railAddPinned
+                        ? root.railAddCellHeight : 0
+                visible: height > 0
+                RailAddSpaceCell { buttonName: "railAddSpaceButton" }
             }
+        }
+
+        // The pinned copy: the same cell, outside the scrolling list.
+        Item {
+            Layout.fillWidth: true
+            Layout.preferredHeight: root.railAddVisible && root.railAddPinned
+                                    ? root.railAddCellHeight : 0
+            visible: Layout.preferredHeight > 0
+            RailAddSpaceCell { buttonName: "railAddSpaceButtonPinned" }
         }
 
         // Bottom cluster: settings and account. The same divider as the handoff
