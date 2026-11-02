@@ -71,7 +71,7 @@ Item {
     }
     readonly property int renderedEntryCount: activityRepeater.count
     readonly property real expandedContentHeight: expandedColumn.height
-    implicitHeight: visible ? activityColumn.implicitHeight : 0
+    implicitHeight: entryCount > 0 ? activityColumn.implicitHeight : 0
 
     Column {
         id: activityColumn

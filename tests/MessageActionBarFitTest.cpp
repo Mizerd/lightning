@@ -74,7 +74,7 @@ private Q_SLOTS:
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
         QVERIFY(delegate.contains(QStringLiteral("property bool latched: false")));
         QVERIFY(delegate.contains(QStringLiteral(
-            "onLoaded: Qt.callLater(function() { latched = true })")));
+            "onLoaded: Qt.callLater(function() { latched = root.rowOnScreen })")));
     }
 };
 
