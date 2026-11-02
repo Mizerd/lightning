@@ -439,9 +439,12 @@ private Q_SLOTS:
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
         QVERIFY(!delegate.isEmpty());
-        const int flow = delegate.indexOf(QStringLiteral("id: reactionsFlow"));
-        QVERIFY(flow > 0);
-        const QString block = delegate.mid(flow, 1800);
+        const int loader = delegate.indexOf(QStringLiteral("id: reactionsLoader"));
+        QVERIFY(loader > 0);
+        const int flow = delegate.indexOf(QStringLiteral("id: reactionsFlow"), loader);
+        QVERIFY2(flow > loader && flow - loader < 1800,
+                 "the reactions Flow is built by the reactions loader");
+        const QString block = delegate.mid(loader, flow - loader);
         QVERIFY2(block.contains(QStringLiteral("Layout.fillWidth: true")),
                  "the reactions Flow needs a real width or it cannot wrap");
     }
