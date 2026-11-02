@@ -1285,6 +1285,12 @@ public:
     // a record: nothing would ever clean it up.
     QString indexAllOfferAnswer(const QString &userId) const;
     void setIndexAllOfferAnswer(const QString &userId, const QString &answer);
+    // The room last opened under this account, reopened after a restart or a
+    // switch back to it (as Element and Discord do). A public room id, kept in
+    // the account's own record so it goes with the account; nothing is stored
+    // for an account without a record. An empty id forgets it.
+    QString lastOpenedRoom(const QString &userId) const;
+    void setLastOpenedRoom(const QString &userId, const QString &roomId);
     // Access token for a specific saved account (SecretStore lookup).
     QString accessTokenFor(const QString &userId) const;
     // OAuth session material. Credentials kept in the SecretStore; never

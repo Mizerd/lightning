@@ -183,6 +183,8 @@ constexpr auto kAccountSyncToken    = "syncToken";
 constexpr auto kAccountStoreSlug    = "storeSlug";
 // The one-time "index all messages now?" answer. See indexAllOfferAnswer.
 constexpr auto kAccountIndexAllOffer = "indexAllOffer";
+// The room last opened under the account. See lastOpenedRoom.
+constexpr auto kAccountLastRoom = "lastRoom";
 // Labs (concurrent live accounts). See setKeepRunningFor / setLastLiveAtFor.
 constexpr auto kAccountKeepRunning  = "keepRunning";
 constexpr auto kAccountLastLiveAt   = "lastLiveAt";
@@ -713,6 +715,31 @@ void SettingsManager::setIndexAllOfferAnswer(const QString &userId,
     if (slug.isEmpty())
         return;
     m_store->setValue(accountKey(slug, kAccountIndexAllOffer), answer);
+    m_store->sync();
+}
+
+QString SettingsManager::lastOpenedRoom(const QString &userId) const
+{
+    const QString slug = slugForSavedAccount(userId);
+    if (slug.isEmpty())
+        return {};
+    return m_store->value(accountKey(slug, kAccountLastRoom)).toString();
+}
+
+void SettingsManager::setLastOpenedRoom(const QString &userId,
+                                        const QString &roomId)
+{
+    const QString slug = slugForSavedAccount(userId);
+    if (slug.isEmpty())
+        return;
+    const QString key = accountKey(slug, kAccountLastRoom);
+    // A room switch is frequent and the value is usually unchanged.
+    if (m_store->value(key).toString() == roomId)
+        return;
+    if (roomId.isEmpty())
+        m_store->remove(key);
+    else
+        m_store->setValue(key, roomId);
     m_store->sync();
 }
 

@@ -385,6 +385,37 @@ private Q_SLOTS:
         QVERIFY(s.keepRunningUserIds().isEmpty());
     }
 
+    // The room each account last had open, reopened after a restart. It lives
+    // in the account's record: another account never reads it, and it goes
+    // with the record on sign-out. Nothing is stored for an unknown account.
+    void theLastOpenedRoomIsPerAccountAndGoesWithTheRecord()
+    {
+        CountingSecretStore store;
+        SettingsManager s;
+        s.setSecretStore(&store);
+        save(s, uidN(1));
+        save(s, uidN(2));
+        QVERIFY(s.lastOpenedRoom(uidN(1)).isEmpty());
+        s.setLastOpenedRoom(uidN(1), QStringLiteral("!one:x"));
+        s.setLastOpenedRoom(uidN(2), QStringLiteral("!two:x"));
+        QCOMPARE(s.lastOpenedRoom(uidN(1)), QStringLiteral("!one:x"));
+        QCOMPARE(s.lastOpenedRoom(uidN(2)), QStringLiteral("!two:x"));
+        s.setLastOpenedRoom(QStringLiteral("@nobody:one.example"),
+                            QStringLiteral("!ghost:x"));
+        QVERIFY(s.lastOpenedRoom(QStringLiteral("@nobody:one.example")).isEmpty());
+        for (const QString &k : QSettings().allKeys())
+            QVERIFY2(!k.contains(QLatin1String("!ghost")), qPrintable(k));
+        QVERIFY(s.clearSessionForAccount(uidN(1)));
+        QVERIFY(s.lastOpenedRoom(uidN(1)).isEmpty());
+        for (const QString &k : QSettings().allKeys())
+            QVERIFY2(!QSettings().value(k).toString().contains(QLatin1String("!one:x")),
+                     qPrintable(k));
+        // The other account is untouched, and an empty id forgets.
+        QCOMPARE(s.lastOpenedRoom(uidN(2)), QStringLiteral("!two:x"));
+        s.setLastOpenedRoom(uidN(2), QString());
+        QVERIFY(s.lastOpenedRoom(uidN(2)).isEmpty());
+    }
+
     // ---- lastLiveAt -------------------------------------------------------------------
 
     void lastLiveAtReadsZeroUnlessSane()

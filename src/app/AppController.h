@@ -1683,6 +1683,9 @@ private:
     // recorded as a new visit.
     lightning::RoomHistory m_roomHistory;
     bool m_roomHistoryNavigating = false;
+    // The room to reopen once the room list has loaded after a restore or a
+    // switch; cleared by any other navigation and by a time limit.
+    QString m_restoreRoomId;
     bool stepRoomHistory(bool forward);
     // The screen/session half of the gate (no popup check), shared by the
     // keyboard path, the mouse filter's press and the step itself.

@@ -1439,6 +1439,27 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         // list filters left rooms out) waits out the invite grace, since a
         // re-sort or resync drops a room for one emission. A room never seen
         // listed (a restore before the list has loaded) is left alone.
+        // The room this account had open when the app last ran or when the
+        // user left the account, reopened once the list shows the user still
+        // in it. Any other navigation since (a room, a Space, Settings) has
+        // already cleared the intent.
+        if (!m_restoreRoomId.isEmpty()) {
+            if (!m_currentRoomId.isEmpty() || m_currentScreen != MainScreen) {
+                m_restoreRoomId.clear();
+            } else {
+                const auto wanted = std::find_if(
+                    rooms.cbegin(), rooms.cend(), [this](const RoomInfo &room) {
+                        return room.id == m_restoreRoomId
+                               && room.membership == RoomInfo::Joined;
+                    });
+                if (wanted != rooms.cend()) {
+                    const QString target = std::exchange(m_restoreRoomId, {});
+                    qCInfo(lcApp) << "reopening the last room for this account";
+                    openRoom(target);
+                    return;
+                }
+            }
+        }
         if (m_currentRoomId.isEmpty())
             return;
         const auto listed = std::find_if(
@@ -5339,6 +5360,13 @@ void AppController::setCurrentRoomId(const QString &roomId)
         return;
     m_currentRoomId = roomId;
     ++m_currentRoomOpenSerial;
+    // Remembered per account for the next start. Not while a switch is in
+    // flight, and never an empty id: leaving to Home keeps the last room.
+    if (!roomId.isEmpty()) {
+        m_restoreRoomId.clear();
+        if (m_settings && m_client && !m_accountSwitching && !m_screenshotDemo)
+            m_settings->setLastOpenedRoom(m_client->currentUserId(), roomId);
+    }
     // In-memory Back/Forward list; a history move itself is not a new visit.
     if (!m_roomHistoryNavigating)
         m_roomHistory.visit(roomId);
@@ -6152,6 +6180,7 @@ void AppController::openRoom(const QString &roomId)
 
 void AppController::openSpaceHome(const QString &spaceId)
 {
+    m_restoreRoomId.clear();
     // Teardown first, activation last: the Space Home loader instantiates
     // synchronously once there is no open room and a real active space, and
     // clearing roomInfo after that would wipe the permission gates it reads.
@@ -7717,6 +7746,21 @@ void AppController::onLoginSucceeded()
     }
     m_accounts->setActiveUser(uid);
     m_accounts->clearSessionRevoked(uid);
+    // A restore at start-up or a switch back to this account (never a fresh
+    // sign-in) reopens the room it last had open, for a while only: a list
+    // that loads minutes later must not move the user.
+    m_restoreRoomId.clear();
+    if (!m_auth->lastSignInWasInteractive() && !m_screenshotDemo && m_settings
+        && m_currentRoomId.isEmpty()) {
+        const QString last = m_settings->lastOpenedRoom(uid);
+        if (!last.isEmpty()) {
+            m_restoreRoomId = last;
+            QTimer::singleShot(30000, this, [this, last] {
+                if (m_restoreRoomId == last)
+                    m_restoreRoomId.clear();
+            });
+        }
+    }
     setLocalRustResetRequired(false);
     clearLocalSessionFailure();
     m_switchFallbackUserId.clear();
