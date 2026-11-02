@@ -126,7 +126,7 @@ Item {
         id: body
         anchors.fill: parent
         anchors.leftMargin: AppTheme.spacing12
-        anchors.rightMargin: AppTheme.spacing10
+        anchors.rightMargin: AppTheme.spacing6
         spacing: AppTheme.spacing8
 
         Item {
@@ -234,7 +234,7 @@ Item {
             activeFocusOnTab: !root.active
             Accessible.ignored: !revealed
             Layout.alignment: Qt.AlignVCenter
-            implicitWidth: 30
+            implicitWidth: 28
             implicitHeight: 30
             Accessible.name: qsTr("Remove account %1").arg(root.userId)
             ToolTip.text: qsTr("Remove from this device")
