@@ -1135,6 +1135,7 @@ private:
     friend class BrowserSignInEdgeTest;
     friend class SessionCredentialTest;
     QHash<QString, RoomInfo> m_rooms;
+    QStringList m_memberListRecency;
     QHash<QString, quint64> m_typingSerial;
     int m_typingExpiryMs = 120 * 1000;
     // The SDK room list's index space, one-for-one, because room-list diffs

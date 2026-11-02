@@ -12090,6 +12090,23 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                     if (!it->avatarMxcUrl.isEmpty())
                         slot.avatarMxcUrl = it->avatarMxcUrl;
                 }
+                QHash<QString, qsizetype> counts;
+                for (auto r = m_rooms.constBegin(); r != m_rooms.constEnd(); ++r) {
+                    if (r->members.size() >= matrix::rust_timeline::kLargeMemberList)
+                        counts.insert(r.key(), r->members.size());
+                }
+                const QSet<QString> open{ m_timelineTracker.requestedRoom(),
+                                          m_timelineTracker.activeRoom(),
+                                          m_threadTracker.requestedRoom(),
+                                          m_threadTracker.activeRoom() };
+                for (const QString &gone : matrix::rust_timeline::memberListVictims(
+                         m_memberListRecency, membersRoomId, counts, open)) {
+                    const auto goneIt = m_rooms.find(gone);
+                    if (goneIt == m_rooms.end())
+                        continue;
+                    goneIt->members.clear();
+                    Q_EMIT roomMembersEvicted(gone);
+                }
                 if (!event.value(QStringLiteral("partial")).toBool()
                     && !event.value(QStringLiteral("truncated")).toBool()
                     && !roomIt->typingUserIds.isEmpty()) {

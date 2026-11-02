@@ -1082,6 +1082,10 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 if (!snapshot.value(QStringLiteral("ok")).toBool())
                     m_memberHydratedRooms.remove(roomId);
             });
+    connect(m_client.get(), &MatrixClient::roomMembersEvicted, this,
+            [this](const QString &roomId) {
+                m_memberHydratedRooms.remove(roomId);
+            });
     connect(m_client.get(), &MatrixClient::roomBridgesReceived, this,
             [this](quint64, const QString &roomId, bool ok,
                    const QVariantList &bridges) {

@@ -1401,6 +1401,7 @@ Q_SIGNALS:
     void paginationStateChanged(const QString &roomId);
     void typingChanged(const QString &roomId);
     void membersChanged(const QString &roomId);
+    void roomMembersEvicted(const QString &roomId);
     void roomMemberEventSeen(const QString &roomId);
     void roomMembershipLost(const QString &roomId, const QString &loss,
                             const QString &roomName);

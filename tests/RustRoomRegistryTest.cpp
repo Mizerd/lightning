@@ -614,6 +614,32 @@ private Q_SLOTS:
         }
     }
 
+    void onlyTheNewestLargeMemberListsStayLoaded()
+    {
+        using namespace matrix::rust_timeline;
+        QStringList recent;
+        QHash<QString, qsizetype> counts;
+        QSet<QString> open;
+        const auto big = [&](const char *id) {
+            counts.insert(QString::fromLatin1(id), kLargeMemberList + 5);
+            return QString::fromLatin1(id);
+        };
+        QStringList gone;
+        for (const char *id : { "a", "b", "c" })
+            gone += memberListVictims(recent, big(id), counts, open);
+        QVERIFY(gone.isEmpty());
+        counts.insert(QStringLiteral("small"), 4);
+        QVERIFY(memberListVictims(recent, QStringLiteral("small"), counts, open)
+                    .isEmpty());
+        open.insert(QStringLiteral("a"));
+        QVERIFY(memberListVictims(recent, big("d"), counts, open).isEmpty());
+        QCOMPARE(memberListVictims(recent, big("e"), counts, open),
+                 QStringList{ QStringLiteral("b") });
+        QVERIFY(recent.contains(QStringLiteral("a")));
+        QVERIFY(!recent.contains(QStringLiteral("b")));
+        QVERIFY(recent.contains(QStringLiteral("small")));
+    }
+
     void trimmingAnEmptyMirrorIsANoOp()
     {
         QList<TimelineEvent> mirror;
