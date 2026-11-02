@@ -422,6 +422,8 @@ private Q_SLOTS:
                      QUrl::fromLocalFile(QDir::cleanPath(dir.path())));
         QTRY_COMPARE(list->property("currentIndex").toInt(),
                      m_model->indexOfName(QStringLiteral("sub")));
+        QTRY_VERIFY(m_model->indexOfName(QStringLiteral("a.txt")) >= 0);
+        QTRY_VERIFY(list->property("activeFocus").toBool());
 
         QTest::keyClick(m_window, Qt::Key_A);
         QTRY_COMPARE(list->property("currentIndex").toInt(),
