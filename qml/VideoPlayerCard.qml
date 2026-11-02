@@ -168,7 +168,10 @@ FocusScope {
         app.playback.rememberVideoPosition(sourceKey, player.position,
                                            player.duration)
     }
+    readonly property var trackIntent: ({ audio: -1, subtitle: -2 })
     function resetPlayback() {
+        trackIntent.audio = -1
+        trackIntent.subtitle = -2
         rememberPosition()
         ended = false
         if (videoOverlay.opened)
@@ -381,7 +384,7 @@ FocusScope {
                 root.forceActiveFocus(Qt.MouseFocusReason)
                 root.togglePlayPause()
             }
-            onDoubleTapped: videoOverlay.openFor(player, output)
+            onDoubleTapped: videoOverlay.openFor(player, output, root.trackIntent)
         }
 
         Item {
@@ -484,10 +487,11 @@ FocusScope {
             anchors.bottom: parent.bottom
             player: player
             audio: audioOut
+            trackIntent: root.trackIntent
             ownerKey: root.ownerKey
             declaredDurationMs: root.declaredDurationMs
             expandIcon: "open_in_full"
-            onExpandRequested: videoOverlay.openFor(player, output)
+            onExpandRequested: videoOverlay.openFor(player, output, root.trackIntent)
             onCloseRequested: {
                 root.resetPlayback()
                 root.closeRequested()

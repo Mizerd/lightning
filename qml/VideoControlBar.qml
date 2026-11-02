@@ -30,6 +30,7 @@ FocusScope {
     // explicitly.
     required property var audio
     property string ownerKey: ""
+    property var trackIntent: ({ audio: -1, subtitle: -2 })
     property bool showExpand: true
     property bool showClose: true
     property bool large: false
@@ -65,6 +66,34 @@ FocusScope {
         player && player.subtitleTracks ? player.subtitleTracks : []
     readonly property bool hasTrackChoice:
         audioTracks.length > 1 || subtitleTracks.length > 0
+    property int reapplyBudget: 0
+    function reapplyTracks() {
+        if (!player)
+            return
+        var want = trackIntent
+        if (want.audio >= 0 && player.activeAudioTrack !== want.audio
+                && reapplyBudget < 8) {
+            ++reapplyBudget
+            console.log("video track pick reverted audio want=" + want.audio
+                        + " got=" + player.activeAudioTrack)
+            player.activeAudioTrack = want.audio
+        }
+        if (want.subtitle >= -1 && player.activeSubtitleTrack !== want.subtitle
+                && reapplyBudget < 8) {
+            ++reapplyBudget
+            console.log("video track pick reverted subtitle want="
+                        + want.subtitle + " got=" + player.activeSubtitleTrack)
+            player.activeSubtitleTrack = want.subtitle
+        }
+    }
+    Connections {
+        target: bar.player
+        ignoreUnknownSignals: true
+        function onActiveTracksChanged() { bar.reapplyTracks() }
+        function onTracksChanged() { bar.reapplyTracks() }
+        function onPlaybackStateChanged() { bar.reapplyTracks() }
+        function onMediaStatusChanged() { bar.reapplyTracks() }
+    }
     function trackLabel(meta, index) {
         var parts = []
         if (meta) {
@@ -548,12 +577,17 @@ FocusScope {
                 }
                 onTriggered: {
                     if (!bar.player) return
-                    if (modelData.kind === "audio")
+                    if (modelData.kind === "audio") {
+                        bar.trackIntent.audio = modelData.index
                         bar.player.activeAudioTrack = modelData.index
-                    else if (modelData.kind === "subtitleOff")
+                    } else if (modelData.kind === "subtitleOff") {
+                        bar.trackIntent.subtitle = -1
                         bar.player.activeSubtitleTrack = -1
-                    else if (modelData.kind === "subtitle")
+                    } else if (modelData.kind === "subtitle") {
+                        bar.trackIntent.subtitle = modelData.index
                         bar.player.activeSubtitleTrack = modelData.index
+                    }
+                    bar.reapplyTracks()
                 }
             }
         }

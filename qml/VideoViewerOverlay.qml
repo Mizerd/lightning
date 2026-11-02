@@ -39,7 +39,10 @@ Popup {
         || overlayBar.menuOpen || header.activeFocus
         || saveNotice.text.length > 0
 
-    function openFor(mediaPlayer, inlineOutput) {
+    property var trackIntent: ({ audio: -1, subtitle: -2 })
+    function openFor(mediaPlayer, inlineOutput, intent) {
+        if (intent)
+            trackIntent = intent
         player = mediaPlayer
         cardOutput = inlineOutput
         cardAudio = mediaPlayer.audioOutput
@@ -296,6 +299,7 @@ Popup {
 
         VideoControlBar {
             id: overlayBar
+            trackIntent: root.trackIntent
             objectName: "videoOverlayControlBar"
             anchors.left: parent.left
             anchors.right: parent.right
