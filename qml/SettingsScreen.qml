@@ -8753,7 +8753,6 @@ Item {
                         Rectangle {
                             id: backupCard
                             objectName: "backupManagementCard"
-                            Component.onCompleted: root.backupCardRef = backupCard
                             Component.onDestruction: root.backupCardRef = null
                             Layout.fillWidth: true
                             visible: app.cryptoHealth
@@ -8768,7 +8767,11 @@ Item {
                             property string pendingConfirm: ""
                             readonly property bool shown: root.visible
                             onShownChanged: if (shown && app.backup) app.backup.requestProgress()
-                            Component.onCompleted: if (root.visible && app.backup) app.backup.requestProgress()
+                            Component.onCompleted: {
+                                root.backupCardRef = backupCard
+                                if (root.visible && app.backup)
+                                    app.backup.requestProgress()
+                            }
                             ColumnLayout {
                                 id: backupCol
                                 anchors.fill: parent
