@@ -307,6 +307,8 @@ ColumnLayout {
                                 verticalAlignment: Text.AlignVCenter
                                 wrapMode: Text.WordWrap
                                 maximumLineCount: 2
+                                lineHeightMode: Text.FixedHeight
+                                lineHeight: problemColumn.rowTextHeight / 2
                                 textFormat: Text.PlainText
                                 text: problemRow.modelData.label
                                 color: AppTheme.editorText

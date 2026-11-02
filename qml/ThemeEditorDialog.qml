@@ -3173,6 +3173,8 @@ Popup {
                                     verticalAlignment: Text.AlignVCenter
                                     wrapMode: Text.WordWrap
                                     maximumLineCount: 2
+                                    lineHeightMode: Text.FixedHeight
+                                    lineHeight: roleReadability.checkRowHeight / 2
                                     textFormat: Text.PlainText
                                     text: checkRow.modelData.label
                                     color: AppTheme.editorTextSecondary
