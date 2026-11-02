@@ -28,6 +28,10 @@ Dialog {
     // the room is not empty while any exist.
     property int invitedCount: -1
 
+    // The user holds the only admin power level in a room with others left in
+    // it: nobody could then change the room's settings or its members. Only
+    // ever true from a complete roster (see soleAdminOf).
+    property bool lastAdmin: false
     readonly property bool soleMember: memberCount === 1
     readonly property bool inviteOnly: joinRule === "invite"
                                        || joinRule === "knock"
@@ -58,7 +62,24 @@ Dialog {
     // undersold it (break-it s03).
     readonly property bool openToAnyone: joinRule === "public"
 
-    function openFor(roomId, name, members, rule, invited) {
+    // True when `info` (a RoomInfoController) holds a complete roster in which
+    // the user is the one member at power level 100 or more. Anything partial
+    // or still loading answers false, never a guess.
+    function soleAdminOf(info) {
+        if (!info || info.truncated || info.loading
+            || info.roomId.length === 0 || info.ownPowerLevel < 100)
+            return false
+        var admins = 0
+        const members = info.joinedMembers
+        for (var i = 0; i < members.length; ++i)
+            if (members[i].powerLevel !== undefined
+                && members[i].powerLevel >= 100)
+                ++admins
+        return admins === 1 && members.length > 1
+    }
+
+    function openFor(roomId, name, members, rule, invited, soleAdmin) {
+        lastAdmin = soleAdmin === true
         pendingRoomId = roomId || ""
         pendingRoomName = name || ""
         memberCount = (members === undefined || members === null)
@@ -167,6 +188,21 @@ Dialog {
             // Anywhere when a word cannot fit: a long unbroken name is one
             // "word", and WordWrap let it run past the dialog.
             wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+            color: AppTheme.stormText
+        }
+        Label {
+            objectName: "leaveRoomLastAdminNote"
+            Layout.fillWidth: true
+            visible: root.lastAdmin && !root.soleMember
+            textFormat: Text.PlainText
+            text: qsTr("You are the only administrator. If you leave, nobody "
+                       + "will be able to change this room's settings or "
+                       + "manage its members. Make someone else an "
+                       + "administrator first.")
+            lineHeight: AppTheme.lineHeightBody
+            lineHeightMode: Text.ProportionalHeight
+            wrapMode: Text.WordWrap
+            font.weight: AppTheme.weightStrong
             color: AppTheme.stormText
         }
         RowLayout {

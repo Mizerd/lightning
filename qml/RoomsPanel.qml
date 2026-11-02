@@ -867,7 +867,9 @@ Rectangle {
                 var members = -1
                 var rule = ""
                 var invited = -1
+                var soleAdmin = false
                 if (app.roomInfo && app.roomInfo.roomId === roomId) {
+                    soleAdmin = soleAdminOf(app.roomInfo)
                     members = app.roomInfo.joinedCount
                     rule = app.roomInfo.joinRule
                     invited = app.roomInfo.invitedCount
@@ -884,7 +886,7 @@ Rectangle {
                     if (row && row.invitedCount !== undefined)
                         invited = row.invitedCount
                 }
-                openFor(roomId, name, members, rule, invited)
+                openFor(roomId, name, members, rule, invited, soleAdmin)
             }
         }
 
