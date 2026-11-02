@@ -3,6 +3,7 @@
 #include "models/SlashCommands.h"
 
 #include "app/DraftStore.h"
+#include "app/JoinErrorText.h"
 #include "media/ImageMetadata.h"
 #include "matrix/MatrixClient.h"
 #include "models/UserLookup.h"
@@ -176,10 +177,22 @@ void ThreadController::setClient(MatrixClient *client)
     m_imagePrep.releaseAll();
     m_pendingThreadReads.clear();
     m_client = client;
+    m_slashJoinOp = 0;
     refreshRoomThreadUnread();
     m_model.setClient(client);
     m_attachments->setClient(client);
     if (m_client) {
+        connect(m_client, &MatrixClient::roomJoinFinished, this,
+                [this](quint64 opId, bool ok, const QString &,
+                       const QString &category) {
+                    if (opId == 0 || opId != m_slashJoinOp)
+                        return;
+                    m_slashJoinOp = 0;
+                    if (!ok) {
+                        setCommandError(
+                            joinerror::describe(category));
+                    }
+                });
         connect(m_client, &MatrixClient::attachmentQueueFinished, this,
                 &ThreadController::onAttachmentQueueFinished);
         connect(m_client, &MatrixClient::roomsChanged, this,
@@ -442,7 +455,12 @@ void ThreadController::sendTextInternal(const QString &body, bool allowCommands)
                 sendThreadBody(b, ids, spec);
             };
             actions.join = [this](const QString &target) {
-                m_client->joinRoomByIdOrAlias(target, QStringList());
+                m_slashJoinOp =
+                    m_client->joinRoomByIdOrAlias(target, QStringList());
+                if (m_slashJoinOp == 0) {
+                    setCommandError(
+                        joinerror::describe(QStringLiteral("network")));
+                }
             };
             actions.invite = [this](const QString &userId) {
                 m_client->inviteUsers(m_roomId, { userId });

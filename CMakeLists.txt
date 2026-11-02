@@ -588,6 +588,8 @@ set(APP_SOURCES
     src/app/OpenRoomPermissions.cpp
     src/app/RoomDiscoveryController.h
     src/app/RoomDiscoveryController.cpp
+    src/app/JoinErrorText.h
+    src/app/JoinErrorText.cpp
     src/app/UiaController.h
     src/app/UiaController.cpp
     src/app/PasswordChangeController.h
@@ -3543,6 +3545,8 @@ if(BUILD_TESTING)
     # retry, stale-completion rejection, lifecycle clears.
     qt_add_executable(attachment-queue-test
         tests/AttachmentQueueTest.cpp
+        src/app/JoinErrorText.h
+        src/app/JoinErrorText.cpp
         src/models/MessageComposer.h
         src/models/MessageComposer.cpp
         src/models/RichComposition.h
@@ -3583,6 +3587,8 @@ if(BUILD_TESTING)
     # Attachments are dispatched one at a time in tray order (B010).
     qt_add_executable(attachment-order-test
         tests/AttachmentOrderTest.cpp
+        src/app/JoinErrorText.h
+        src/app/JoinErrorText.cpp
         src/models/MessageComposer.h
         src/models/MessageComposer.cpp
         src/models/RichComposition.h
@@ -3838,6 +3844,8 @@ if(BUILD_TESTING)
     # rooms are demoted. Observing a tombstone never moves or joins anything.
     qt_add_executable(room-upgrade-test
         tests/RoomUpgradeTest.cpp
+        src/app/JoinErrorText.h
+        src/app/JoinErrorText.cpp
         src/app/RoomUpgradeController.h
         src/app/RoomUpgradeController.cpp
         src/app/RoomDiscoveryController.h
@@ -4056,6 +4064,8 @@ if(BUILD_TESTING)
     # Discover / Join: directory search model and the discovery controller.
     qt_add_executable(room-discovery-test
         tests/RoomDiscoveryTest.cpp
+        src/app/JoinErrorText.h
+        src/app/JoinErrorText.cpp
         src/app/RoomDiscoveryController.h
         src/app/RoomDiscoveryController.cpp
         src/models/RoomDirectorySearchModel.h
@@ -4194,6 +4204,8 @@ if(BUILD_TESTING)
     # retirement on send/clear, account isolation.
     qt_add_executable(draft-store-test
         tests/DraftStoreTest.cpp
+        src/app/JoinErrorText.h
+        src/app/JoinErrorText.cpp
         src/app/DraftStore.h
         src/app/DraftStore.cpp
         src/models/MessageComposer.h
@@ -5053,6 +5065,8 @@ if(BUILD_TESTING)
     # timeline id, failure states, thread-only send path, encrypted threads.
     qt_add_executable(thread-controller-test
         tests/ThreadControllerTest.cpp
+        src/app/JoinErrorText.h
+        src/app/JoinErrorText.cpp
         src/threads/ThreadController.h
         src/threads/ThreadController.cpp
         src/crypto/E2eeDiagnostics.h

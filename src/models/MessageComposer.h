@@ -292,6 +292,7 @@ private:
     bool takeTextAsCaption(const QString &body, const QStringList &mentionIds);
 
     MatrixClient *m_client = nullptr;
+    quint64 m_slashJoinOp = 0;
     std::function<QString(const QString &)> m_emoticonResolver;
     std::function<void(const QVariantMap &)> m_customEmojiUseRecorder;
     std::function<QVariantList(const QString &, int)> m_emoticonSearch;

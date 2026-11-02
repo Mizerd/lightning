@@ -237,6 +237,7 @@ private:
     ImageSendPrep m_imagePrep;
 
     MatrixClient *m_client = nullptr;
+    quint64 m_slashJoinOp = 0;
     TimelineModel m_model;
     int m_lastReplyCount = -1;
     int m_lastExactReplyCount = -1;

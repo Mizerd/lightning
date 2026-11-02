@@ -4,6 +4,7 @@
 #include <QSet>
 
 #include "app/DraftStore.h"
+#include "app/JoinErrorText.h"
 #include "matrix/MatrixClient.h"
 #include "media/ImageMetadata.h"
 #include "models/MarkdownFormat.h"
@@ -148,9 +149,21 @@ void MessageComposer::setClient(MatrixClient *client)
         m_client->disconnect(this);
     m_imagePrep.releaseAll();
     m_client = client;
+    m_slashJoinOp = 0;
     ++m_dropGeneration;
     m_attachments->setClient(client);
     if (m_client) {
+        connect(m_client, &MatrixClient::roomJoinFinished, this,
+                [this](quint64 opId, bool ok, const QString &,
+                       const QString &category) {
+                    if (opId == 0 || opId != m_slashJoinOp)
+                        return;
+                    m_slashJoinOp = 0;
+                    if (!ok) {
+                        setCommandError(
+                            joinerror::describe(category));
+                    }
+                });
         connect(m_client, &MatrixClient::attachmentQueueFinished,
                 this, &MessageComposer::onAttachmentQueueFinished);
         connect(m_client, &MatrixClient::messageEditsRemoved, this,
@@ -912,7 +925,11 @@ bool MessageComposer::executeCommand(const SlashCommands::Parse &parsed,
         Q_EMIT ownMessageSent();
     };
     actions.join = [this](const QString &target) {
-        m_client->joinRoomByIdOrAlias(target, QStringList());
+        m_slashJoinOp = m_client->joinRoomByIdOrAlias(target, QStringList());
+        if (m_slashJoinOp == 0) {
+            setCommandError(
+                joinerror::describe(QStringLiteral("network")));
+        }
     };
     actions.invite = [this](const QString &userId) {
         m_client->inviteUsers(m_roomId, { userId });

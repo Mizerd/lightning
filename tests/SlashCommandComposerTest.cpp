@@ -136,10 +136,11 @@ public:
         calls.append(QStringLiteral("roomname|%1|%2").arg(roomId, name));
         return 1;
     }
+    quint64 joinOp = 1;
     quint64 joinRoomByIdOrAlias(const QString &target, const QStringList &) override
     {
         calls.append(QStringLiteral("join|%1").arg(target));
-        return 1;
+        return joinOp;
     }
 };
 
@@ -348,6 +349,36 @@ private Q_SLOTS:
         m_composer->setText(QStringLiteral("/join somewhere"));
         m_composer->send();
         QVERIFY(!m_composer->commandError().isEmpty());
+    }
+
+    void aFailedSlashJoinIsReportedNotSwallowed()
+    {
+        m_client->joinOp = 41;
+        m_composer->setText(QStringLiteral("/join #gone:example.org"));
+        m_composer->send();
+        QVERIFY(m_composer->commandError().isEmpty());
+
+        Q_EMIT m_client->roomJoinFinished(7, false, QString(),
+                                          QStringLiteral("not_found"));
+        QVERIFY(m_composer->commandError().isEmpty());
+
+        Q_EMIT m_client->roomJoinFinished(41, false, QString(),
+                                          QStringLiteral("forbidden"));
+        QVERIFY(m_composer->commandError().contains(
+            QStringLiteral("invite-only")));
+
+        m_composer->setText(QStringLiteral("/join #ok:example.org"));
+        m_composer->send();
+        m_composer->setText(QString());
+        Q_EMIT m_client->roomJoinFinished(41, true, QStringLiteral("!ok:x"),
+                                          QString());
+        QVERIFY(m_composer->commandError().isEmpty());
+
+        m_client->joinOp = 0;
+        m_composer->setText(QStringLiteral("/join #gone:example.org"));
+        m_composer->send();
+        QVERIFY(m_composer->commandError().contains(
+            QStringLiteral("Could not reach the server")));
     }
 
     void nickAsksTheOwnerInsteadOfActingItself()

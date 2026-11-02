@@ -72,6 +72,17 @@ public:
     }
 };
 
+class JoinOpClient final : public MockMatrixClient
+{
+    Q_OBJECT
+public:
+    quint64 nextJoinOp = 55;
+    quint64 joinRoomByIdOrAlias(const QString &, const QStringList &) override
+    {
+        return nextJoinOp;
+    }
+};
+
 class ThreadControllerTest : public QObject
 {
     Q_OBJECT
@@ -414,6 +425,36 @@ private Q_SLOTS:
         QVERIFY(!controller.supported());
         controller.setClient(&client);
         QVERIFY(controller.supported());
+    }
+
+    void aFailedSlashJoinInAThreadIsReportedNotSwallowed()
+    {
+        JoinOpClient client;
+        QVERIFY(login(client));
+        ThreadController controller;
+        controller.setClient(&client);
+        QString rootId;
+        QVERIFY(openFixtureThread(client, controller, kGeneral, &rootId));
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+
+        controller.sendText(QStringLiteral("/join #gone:example.org"));
+        QVERIFY(controller.commandError().isEmpty());
+
+        Q_EMIT client.roomJoinFinished(99, false, QString(),
+                                       QStringLiteral("not_found"));
+        QVERIFY(controller.commandError().isEmpty());
+
+        Q_EMIT client.roomJoinFinished(55, false, QString(),
+                                       QStringLiteral("not_found"));
+        QVERIFY(controller.commandError().contains(
+            QStringLiteral("No room with that address")));
+
+        controller.setText(QString());
+        client.nextJoinOp = 0;
+        controller.sendText(QStringLiteral("/join #gone:example.org"));
+        QVERIFY(controller.commandError().contains(
+            QStringLiteral("Could not reach the server")));
     }
 
     void reopenResubscribesTheOpenThreadInPlace()
