@@ -2674,6 +2674,13 @@ Rectangle {
                 function maintainViewAnchor() {
                     var newestInserted = newestEndInsertedRows
                     newestEndInsertedRows = 0
+                    if (boundClampFromY >= 0) {
+                        if (!userScrollActive || moving || scrollBarHeld
+                                || stickToBottom)
+                            boundClampFromY = -1
+                        else if (wheelMaxY() >= boundClampFromY - 0.5)
+                            setPositionY(boundClampFromY, "anchor-hold")
+                    }
                     if (viewAnchorId === "" || stickToBottom) {
                         if (scrollTrace) {
                             if (viewAnchorId === "")
@@ -4484,6 +4491,7 @@ Rectangle {
                     })
                 }
                 onContentHeightChanged: {
+                    contentHeightSeen = contentHeight
                     presentationGeometryStale = false
                     if (mediaBandOpen && !userScrollActive)
                         mediaBandGrowth.start()
@@ -4626,7 +4634,20 @@ Rectangle {
                         app.timelineScroll.reportScrollIncident("oldest-bound")
                     }
                 }
+                property real boundClampFromY: -1
+                property real contentYSeen: 0
+                property real contentHeightSeen: 0
                 onContentYChanged: {
+                    // Flickable clamps inside setContentHeight when content shrinks under the top bound.
+                    if (positionWriter === "" && contentHeight !== contentHeightSeen
+                            && contentY < contentYSeen - 0.5
+                            && userScrollActive && !moving && !scrollBarHeld) {
+                        if (boundClampFromY < 0)
+                            boundClampFromY = contentYSeen
+                    } else {
+                        boundClampFromY = -1
+                    }
+                    contentYSeen = contentY
                     if (app.timelineScroll.scrollRecorderEnabled)
                         recordPositionWrite()
                     if (openRowMenu) {
