@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
+import "LeaveAdminCheck.js" as AdminCheck
 
 // The one leave-room confirmation, shared by the room list menu and the room
 // information panel. The wording is honest about what leaving costs: a room
@@ -62,20 +63,10 @@ Dialog {
     // undersold it (break-it s03).
     readonly property bool openToAnyone: joinRule === "public"
 
-    // True when `info` (a RoomInfoController) holds a complete roster in which
-    // the user is the one member at power level 100 or more. Anything partial
-    // or still loading answers false, never a guess.
-    function soleAdminOf(info) {
-        if (!info || info.truncated || info.loading
-            || info.roomId.length === 0 || info.ownPowerLevel < 100)
-            return false
-        var admins = 0
-        const members = info.joinedMembers
-        for (var i = 0; i < members.length; ++i)
-            if (members[i].powerLevel !== undefined
-                && members[i].powerLevel >= 100)
-                ++admins
-        return admins === 1 && members.length > 1
+    // See LeaveAdminCheck.js; `roomId` makes it refuse a roster that belongs
+    // to another room.
+    function soleAdminOf(info, roomId) {
+        return AdminCheck.soleAdminOf(info, roomId)
     }
 
     function openFor(roomId, name, members, rule, invited, soleAdmin) {

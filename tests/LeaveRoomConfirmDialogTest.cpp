@@ -55,7 +55,8 @@ private:
                                   Q_ARG(QVariant, QStringLiteral("Den")),
                                   Q_ARG(QVariant, members),
                                   Q_ARG(QVariant, rule),
-                                  Q_ARG(QVariant, invited));
+                                  Q_ARG(QVariant, invited),
+                                  Q_ARG(QVariant, false));
         const QString text = m_dlg->property("bodyText").toString();
         QMetaObject::invokeMethod(m_dlg, "close");
         return text;
@@ -151,7 +152,8 @@ private slots:
                                   Q_ARG(QVariant, name),
                                   Q_ARG(QVariant, QVariant(5)),
                                   Q_ARG(QVariant, QStringLiteral("public")),
-                                  Q_ARG(QVariant, QVariant(0)));
+                                  Q_ARG(QVariant, QVariant(0)),
+                                  Q_ARG(QVariant, false));
         QTRY_VERIFY(m_dlg->property("opened").toBool());
         auto *body = m_dlg->findChild<QQuickItem *>(
             QStringLiteral("leaveRoomConfirmBody"));
@@ -186,7 +188,8 @@ private slots:
                                   // openFor takes five arguments since the
                                   // invited count; a call with four matches
                                   // nothing and opens nothing.
-                                  Q_ARG(QVariant, QVariant(0)));
+                                  Q_ARG(QVariant, QVariant(0)),
+                                  Q_ARG(QVariant, false));
         QTRY_VERIFY(m_dlg->property("opened").toBool());
         auto *btn = m_dlg->findChild<QObject *>(
             QStringLiteral("leaveRoomConfirmButton"));
@@ -207,7 +210,8 @@ private slots:
                                   Q_ARG(QVariant, QStringLiteral("Den")),
                                   Q_ARG(QVariant, 3),
                                   Q_ARG(QVariant, QStringLiteral("public")),
-                                  Q_ARG(QVariant, QVariant(0)));
+                                  Q_ARG(QVariant, QVariant(0)),
+                                  Q_ARG(QVariant, false));
         QTRY_VERIFY(m_dlg->property("opened").toBool());
         auto *window = qobject_cast<QQuickWindow *>(m_root);
         QVERIFY(window);

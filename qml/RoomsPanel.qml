@@ -869,7 +869,7 @@ Rectangle {
                 var invited = -1
                 var soleAdmin = false
                 if (app.roomInfo && app.roomInfo.roomId === roomId) {
-                    soleAdmin = soleAdminOf(app.roomInfo)
+                    soleAdmin = soleAdminOf(app.roomInfo, roomId)
                     members = app.roomInfo.joinedCount
                     rule = app.roomInfo.joinRule
                     invited = app.roomInfo.invitedCount

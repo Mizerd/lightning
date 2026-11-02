@@ -84,23 +84,23 @@ Item {
         // is debounced.
         visible: targetRow >= 0 && root.list !== null && root.list.count > 0
         z: 30
-        // A thin bar along the list's edge, as Discord draws its unread and
-        // mention markers. Every earlier placement covered something: a
+        // A short bar centred on the list's edge, as Discord draws its unread
+        // and mention markers. Every earlier placement covered something: a
         // centred worded pill covered "Favourites" and an invitation's Accept
-        // button, and a round icon on the right edge covered the row's count
-        // badge and timestamp, since rows use the whole width. The bar is
-        // inset by the row margin and only a few pixels tall, so it sits in
-        // the row's own padding. A mention is the taller, mention-coloured
-        // bar. The words are the accessible name and the tooltip.
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.leftMargin: AppTheme.spacing12
-        anchors.rightMargin: AppTheme.spacing12
+        // button, a round icon on the right edge covered the row's count
+        // badge and timestamp, and a bar the width of the list left a click
+        // target across the top of every row beneath it. This one is a few
+        // pixels tall and `barWidth` wide, and its target is the bar plus a
+        // pixel or two, so the rest of the edge still reaches the row. A
+        // mention differs by shape as well as colour: taller, with a dot at
+        // its end. The words are the accessible name and the tooltip.
+        readonly property int barWidth: 64
+        readonly property int dot: 6
+        anchors.horizontalCenter: parent.horizontalCenter
         focusPolicy: Qt.StrongFocus
         hoverEnabled: true
-        // The pointer target is a little taller than the bar, never taller
-        // than a row's own padding, so a click beside it still reaches the row.
-        implicitHeight: mention ? 10 : 8
+        implicitWidth: barWidth + 4 + (mention ? dot + 2 : 0)
+        implicitHeight: mention ? 8 : 6
         ToolTip.visible: hovered || visualFocus
         ToolTip.delay: 400
         ToolTip.text: text
@@ -112,15 +112,28 @@ Item {
                                      + "opens nothing")
         onClicked: if (root.list)
                        root.list.positionViewAtIndex(targetRow, ListView.Center)
-        background: Rectangle {
-            id: bar
-            anchors.verticalCenter: parent.verticalCenter
-            width: parent.width
-            height: pill.mention ? 4 : 3
-            radius: height / 2
-            color: pill.mention ? AppTheme.mentionBadge
-                 : pill.down ? AppTheme.accentPressed
-                 : pill.hovered ? AppTheme.accentHover : AppTheme.accent
+        background: Item {
+            Rectangle {
+                id: bar
+                x: 2
+                anchors.verticalCenter: parent.verticalCenter
+                width: pill.barWidth
+                height: pill.mention ? 4 : 3
+                radius: height / 2
+                color: pill.mention ? AppTheme.mentionBadge
+                     : pill.down ? AppTheme.accentPressed
+                     : pill.hovered ? AppTheme.accentHover : AppTheme.accent
+            }
+            // The mention's second shape cue, past the bar's end.
+            Rectangle {
+                visible: pill.mention
+                x: bar.x + bar.width + 2
+                anchors.verticalCenter: parent.verticalCenter
+                width: pill.dot
+                height: width
+                radius: width / 2
+                color: AppTheme.mentionBadge
+            }
         }
         Rectangle {
             anchors.fill: parent

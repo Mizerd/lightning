@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
+import "LeaveAdminCheck.js" as AdminCheck
 
 Rectangle {
     id: root
@@ -8832,6 +8833,29 @@ Rectangle {
                         color: AppTheme.stormTextSecondary
                         font.family: AppTheme.menuFont
                         font.pixelSize: AppTheme.scaled(AppTheme.textBody)
+                    }
+                    // The one administrator leaving strands the Space, as in
+                    // a room's leave dialog. The roster is the Space's own
+                    // only while the shared room-info controller follows it.
+                    Label {
+                        objectName: "spaceLeaveLastAdminNote"
+                        Layout.fillWidth: true
+                        readonly property bool lastAdmin:
+                            leaveSpaceConfirm.visible
+                            && AdminCheck.soleAdminOf(app.roomInfo,
+                                                      spaceHome.spaceId)
+                        visible: lastAdmin
+                        textFormat: Text.PlainText
+                        text: qsTr("You are the only administrator. If you "
+                                   + "leave, nobody will be able to change "
+                                   + "this room's settings or manage its "
+                                   + "members. Make someone else an "
+                                   + "administrator first.")
+                        wrapMode: Text.WordWrap
+                        font.family: AppTheme.menuFont
+                        font.pixelSize: AppTheme.scaled(AppTheme.textBody)
+                        font.weight: AppTheme.weightStrong
+                        color: AppTheme.stormText
                     }
                     RowLayout {
                         spacing: AppTheme.spacingS

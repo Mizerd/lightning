@@ -167,7 +167,8 @@ private:
                                   Q_ARG(QVariant, QStringLiteral("Den")),
                                   Q_ARG(QVariant, 3),
                                   Q_ARG(QVariant, QStringLiteral("public")),
-                                  Q_ARG(QVariant, QVariant(0)));
+                                  Q_ARG(QVariant, QVariant(0)),
+                                  Q_ARG(QVariant, false));
         QTRY_VERIFY(dlg->property("opened").toBool());
     }
 
@@ -452,6 +453,136 @@ private slots:
         QVERIFY(!row->property("isUnread").toBool());
         QVERIFY2(row->property("canMarkRead").toBool(),
                  "a 13-unread room would not offer Mark as read");
+    }
+
+    // The last administrator leaving strands a room or a Space. The check
+    // answers true only from a complete roster of the same room.
+    void theLastAdminCheckNeverGuesses()
+    {
+        QQmlEngine engine;
+        QQmlComponent c(&engine);
+        const QString js = QStringLiteral(LIGHTNING_SOURCE_DIR "/qml/LeaveAdminCheck.js");
+        c.setData(QStringLiteral(R"QML(
+import QtQuick
+import "%1" as A
+QtObject {
+    function member(level) { return { powerLevel: level } }
+    function info(over) {
+        var i = { roomId: "!r:x", truncated: false, loading: false,
+                  ownPowerLevel: 100,
+                  joinedMembers: [member(100), member(0), member(50)] }
+        for (var k in over) i[k] = over[k]
+        return i
+    }
+    function sole(over, id) { return A.soleAdminOf(info(over), id) }
+    function nothing() { return A.soleAdminOf(null, "!r:x") }
+}
+)QML").arg(QUrl::fromLocalFile(js).toString()).toUtf8(), QUrl(QStringLiteral("file:///check.qml")));
+        std::unique_ptr<QObject> o(c.create());
+        QVERIFY2(o, qPrintable(c.errorString()));
+        const auto call = [&](const QVariantMap &over, const QString &id) {
+            QVariant r;
+            QMetaObject::invokeMethod(o.get(), "sole", Q_RETURN_ARG(QVariant, r),
+                                      Q_ARG(QVariant, over), Q_ARG(QVariant, id));
+            return r.toBool();
+        };
+        const QString here = QStringLiteral("!r:x");
+        QVERIFY(call({}, here));
+        // Another admin, another room, a partial roster, no power, nobody left.
+        QVERIFY(!call({{"joinedMembers", QVariantList{
+            QVariantMap{{"powerLevel", 100}}, QVariantMap{{"powerLevel", 100}}}}}, here));
+        QVERIFY(!call({}, QStringLiteral("!other:x")));
+        QVERIFY(!call({{"truncated", true}}, here));
+        QVERIFY(!call({{"loading", true}}, here));
+        QVERIFY(!call({{"ownPowerLevel", 50}}, here));
+        QVERIFY(!call({{"joinedMembers", QVariantList{
+            QVariantMap{{"powerLevel", 100}}}}}, here));
+        QVariant none;
+        QMetaObject::invokeMethod(o.get(), "nothing", Q_RETURN_ARG(QVariant, none));
+        QVERIFY(!none.toBool());
+    }
+
+    // Both Space leave surfaces ask it, not only the room dialog.
+    void bothSpaceLeaveSurfacesAskTheLastAdminCheck()
+    {
+        const auto read = [](const char *name) {
+            QFile f(QStringLiteral(LIGHTNING_SOURCE_DIR "/qml/") + QLatin1String(name));
+            return f.open(QIODevice::ReadOnly) ? QString::fromUtf8(f.readAll()) : QString();
+        };
+        QVERIFY(read("SpaceSettingsDialog.qml").contains(
+            QStringLiteral("spaceLeaveConfirm.soleAdminOf(")));
+        const QString pane = read("TimelinePane.qml");
+        const int at = pane.indexOf(QStringLiteral("id: leaveSpaceConfirm"));
+        QVERIFY(at >= 0);
+        QVERIFY(pane.mid(at, 4000).contains(
+            QStringLiteral("AdminCheck.soleAdminOf(app.roomInfo")));
+    }
+
+    // The marker is a short bar, not a click target across every row's edge,
+    // and a mention differs from an unread by shape as well as colour.
+    void theAttentionBarIsShortAndAMentionIsShapedDifferently()
+    {
+        QQmlEngine engine;
+        const auto build = [&](bool mention) {
+            QQmlComponent c(&engine);
+            c.setData(QStringLiteral(R"QML(
+import QtQuick
+import MatrixClient
+Item {
+    width: 300; height: 400
+    ListView {
+        id: l
+        objectName: "list"
+        anchors.fill: parent
+        model: 30
+        delegate: Item { width: 300; height: 40 }
+    }
+    RoomListAttentionLocator {
+        anchors.fill: parent
+        list: l
+        attentionModel: QtObject {
+            function attentionRowFrom(from, step, mentionsOnly) {
+                return mentionsOnly ? (%1 ? 20 : -1) : 20
+            }
+        }
+    }
+}
+)QML").arg(mention ? 1 : 0).toUtf8(), QUrl(QStringLiteral("file:///attn.qml")));
+            QObject *o = c.create();
+            if (!o)
+                qWarning("%s", qPrintable(c.errorString()));
+            return qobject_cast<QQuickItem *>(o);
+        };
+        QQuickWindow window;
+        window.resize(300, 400);
+        window.show();
+        QQuickItem *unreadScene = build(false);
+        QQuickItem *mentionScene = build(true);
+        QVERIFY(unreadScene && mentionScene);
+        std::unique_ptr<QQuickItem> u(unreadScene), m(mentionScene);
+        unreadScene->setParentItem(window.contentItem());
+        QTest::qWait(400);
+        const auto pillOf = [](QQuickItem *scene) {
+            return scene->findChild<QQuickItem *>(
+                QStringLiteral("roomListAttentionBelow"));
+        };
+        QQuickItem *unread = pillOf(unreadScene);
+        QVERIFY(unread);
+        QTRY_VERIFY(unread->isVisible());
+        mentionScene->setParentItem(window.contentItem());
+        QQuickItem *mention = pillOf(mentionScene);
+        QVERIFY(mention);
+        QTRY_VERIFY(mention->isVisible());
+        // Neither spans the list's row area.
+        QVERIFY2(unread->width() <= 100, "the unread bar's target spans the rows");
+        QVERIFY2(mention->width() <= 100, "the mention bar's target spans the rows");
+        // And the mention is shaped differently, not only coloured.
+        QVERIFY2(mention->width() > unread->width(),
+                 "a mention has no end cue beyond its colour");
+        QVERIFY(mention->height() > unread->height());
+        // Both sit inside the list.
+        QVERIFY(mention->x() >= 0 && mention->x() + mention->width() <= 300);
+        QVERIFY(mention->y() + mention->height() <= 400);
     }
 };
 

@@ -1200,6 +1200,7 @@ set(APP_QML_FILES
     qml/ShortcutRow.qml
     qml/MessageComposerBar.qml
     qml/ComposerBehavior.js
+    qml/LeaveAdminCheck.js
     qml/SpellAutocorrect.qml
     qml/MentionPopup.qml
     qml/SlashCommandPopup.qml

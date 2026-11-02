@@ -1683,7 +1683,8 @@ Rectangle {
                                        app.roomInfo.joinedCount,
                                        app.roomInfo.joinRule,
                                        app.roomInfo.invitedCount,
-                                       leaveConfirm.soleAdminOf(app.roomInfo))
+                                       leaveConfirm.soleAdminOf(app.roomInfo,
+                                                                  app.roomInfo.roomId))
                     }
                     // Matrix has no delete for a room's own admins: closing
                     // is offered, and says it is not a delete.

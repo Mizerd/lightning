@@ -1201,7 +1201,10 @@ AppDialog {
                                 enabled: !!app.roomInfo && !app.roomInfo.leavePending
                                 onClicked: spaceLeaveConfirm.openFor(
                                                root.spaceId,
-                                               root.info.name || "")
+                                               root.info.name || "",
+                                               undefined, undefined, undefined,
+                                               spaceLeaveConfirm.soleAdminOf(
+                                                   app.roomInfo, root.spaceId))
                             }
                             Label {
                                 Layout.fillWidth: true
