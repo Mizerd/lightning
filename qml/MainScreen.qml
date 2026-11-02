@@ -503,6 +503,7 @@ Item {
                                              AppTheme.underlineLinks)
     }
     Component.onCompleted: {
+        applyDirection()
         _pushMentionStyle()
         // The mouse's Back / Forward buttons (see the room-history Shortcuts):
         // routed in C++ by a filter on the window, which judges a press before
@@ -519,7 +520,21 @@ Item {
         function onUnderlineLinksChanged() { _pushMentionStyle() }
     }
 
+    property bool splitMirrored: false
+    function applyDirection() {
+        if (splitMirrored === app.localization.rightToLeft)
+            return
+        for (var i = 1; i < splitView.count; ++i)
+            splitView.moveItem(i, 0)
+        splitMirrored = app.localization.rightToLeft
+    }
+    Connections {
+        target: app.localization
+        function onLanguageChanged() { shellRoot.applyDirection() }
+    }
+
     SplitView {
+        id: splitView
         anchors.fill: parent
         orientation: Qt.Horizontal
 
@@ -528,7 +543,9 @@ Item {
             objectName: roomHandle ? "roomListDivider" : ""
             implicitWidth: 1
             readonly property bool roomHandle:
-                Math.abs(x - (roomsPanel.x + roomsPanel.width)) < 3
+                Math.abs(x - (shellRoot.splitMirrored
+                              ? roomsPanel.x - implicitWidth
+                              : roomsPanel.x + roomsPanel.width)) < 3
             activeFocusOnTab: roomHandle && roomsPanel.visible
             Accessible.role: Accessible.Separator
             Accessible.name: qsTr("Resize room list")
@@ -543,11 +560,12 @@ Item {
                     else roomsPanel.collapse()
                     event.accepted = true
                 } else if (event.key === Qt.Key_Left || event.key === Qt.Key_Right) {
+                    const grow = shellRoot.splitMirrored ? Qt.Key_Left : Qt.Key_Right
                     if (roomsPanel.compact) {
-                        if (event.key === Qt.Key_Right) roomsPanel.expand()
+                        if (event.key === grow) roomsPanel.expand()
                     } else {
                         const next = app.settings.roomListWidth
-                                     + (event.key === Qt.Key_Right ? 10 : -10)
+                                     + (event.key === grow ? 10 : -10)
                         if (next < app.settings.roomListExpandedMinWidth)
                             roomsPanel.collapse()
                         else {

@@ -247,6 +247,24 @@ private slots:
                  "own navigation rows");
     }
 
+    void theShellSplitViewIsReorderedForRightToLeft()
+    {
+        const QString shell = withoutComments(read(QStringLiteral("MainScreen.qml")));
+        QVERIFY(!shell.isEmpty());
+        QVERIFY2(shell.contains(QStringLiteral("id: splitView")), "the SplitView has no id");
+        QVERIFY2(shell.contains(QStringLiteral("splitView.moveItem(")),
+                 "SplitView ignores LayoutMirroring, so only reordering its items mirrors it");
+        const int fn = shell.indexOf(QStringLiteral("function applyDirection()"));
+        QVERIFY(fn > 0);
+        QVERIFY(shell.indexOf(QStringLiteral("app.localization.rightToLeft"), fn) > fn);
+        QVERIFY2(shell.contains(QStringLiteral("function onLanguageChanged() { shellRoot.applyDirection() }")),
+                 "a language switch at runtime never reorders the shell");
+        const int done = shell.indexOf(QStringLiteral("Component.onCompleted: {"));
+        QVERIFY(done > 0 && shell.indexOf(QStringLiteral("applyDirection()"), done) > done
+                && shell.indexOf(QStringLiteral("applyDirection()"), done)
+                    < shell.indexOf(QStringLiteral("_pushMentionStyle()"), done) + 40);
+    }
+
     void aFilterThatMatchesNothingSaysSoWithoutClaimingTheAccountIsEmpty()
     {
         const QString presenter = withoutComments(

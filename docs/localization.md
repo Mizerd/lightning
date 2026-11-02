@@ -81,7 +81,10 @@ over with an application restart.
 for text alignment on its own. Anchors and layouts only mirror where
 `LayoutMirroring` says so, and `qml/Main.qml` enables it once on the root
 window with `childrenInherit: true`, so the whole shell mirrors from one
-place.
+place. `SplitView` is the exception: it places items in declaration order and
+ignores mirroring, so `MainScreen.qml`'s `applyDirection()` reverses the rail,
+room list and timeline with `moveItem` when `rightToLeft` is true (and back
+when it is not), and the room-list divider's arrow keys swap with it.
 
 `LayoutMirroring` resolves anchors and layout order — it never mirrors pixels,
 so images, video and avatars are unaffected by construction. The timeline's
@@ -93,6 +96,8 @@ reads left-to-right in every language.
 
 **Arabic RTL has not been exercised on a real desktop.** The mechanism is in
 place and the layout direction is applied; how it actually looks is NOT TESTED.
+That includes the main window's SplitView reorder, which has only a source-level
+test: no one has run it, and `moveItem` on a live SplitView is unverified.
 
 ## Updating the catalogs
 
