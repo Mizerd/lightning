@@ -6872,11 +6872,18 @@ Item {
                 && (stickerImg.status === Image.Error || bridgeFailed)
             // The failure's explanation lives here: the tile can be a few
             // dozen pixels, too small for a sentence.
-            ToolTip.text: loadFailed
-                          ? qsTr("Sticker failed to load — click to retry")
-                          : (model.body || "")
-            ToolTip.visible: stickerHover.hovered && ToolTip.text.length > 0
-            ToolTip.delay: 400
+            // Inside the sticker, along its bottom edge: the attached tooltip
+            // sat above it, over the sender's name.
+            PlainToolTip {
+                objectName: "stickerTip"
+                visible: stickerHover.hovered && text.length > 0
+                delay: 400
+                text: stickerBox.loadFailed
+                      ? qsTr("Sticker failed to load — click to retry")
+                      : (model.body || "")
+                x: Math.max(0, (parent.width - width) / 2)
+                y: Math.max(0, parent.height - height - AppTheme.spacing4)
+            }
             TapHandler {
                 enabled: !root.mediaHidden && root.rowActionsEnabled
                 onTapped: {

@@ -2332,9 +2332,18 @@ Rectangle {
                                     label: qsTr("Banned")
                                 }
                             }
-                            ToolTip.text: member.userId
-                            ToolTip.visible: hovered
-                            ToolTip.delay: 600
+                            // The attached tooltip sits above its row, over
+                            // the name of the row above it; this one sits in
+                            // the row's own blank right side, and stays out of
+                            // the way of the profile card it opens.
+                            PlainToolTip {
+                                objectName: "memberUserIdTip"
+                                visible: parent.hovered && !memberProfile.opened
+                                delay: 600
+                                text: member.userId
+                                x: parent.width - width - AppTheme.spacing12
+                                y: (parent.height - height) / 2
+                            }
                         }
                     }
                 }
