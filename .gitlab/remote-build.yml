@@ -43,6 +43,18 @@ test-nixos:
     - nix develop -c cmake --build build-test -j32
     - mkdir -p out
     - export QT_QPA_PLATFORM=offscreen HOME=$PWD/.ci-home XDG_RUNTIME_DIR=$PWD/.ci-run; mkdir -p $HOME $XDG_RUNTIME_DIR; chmod 700 $XDG_RUNTIME_DIR
+    - mkdir -p $PWD/.ci-fonts
+    - |
+      cat > $PWD/.ci-fonts/fonts.conf <<CONF
+      <?xml version="1.0"?>
+      <fontconfig>
+      <dir>$PWD/data/fonts</dir>
+      <cachedir>$PWD/.ci-fonts/cache</cachedir>
+      <alias><family>sans-serif</family><prefer><family>Inter</family></prefer></alias>
+      <alias><family>monospace</family><prefer><family>JetBrains Mono</family></prefer></alias>
+      </fontconfig>
+      CONF
+    - export FONTCONFIG_FILE=$PWD/.ci-fonts/fonts.conf
     - mkdir -p /etc/dbus-1 /var/lib/dbus
     - |
       cat > /etc/dbus-1/session.conf <<'CONF'
