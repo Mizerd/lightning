@@ -1,0 +1,26 @@
+# CI file for the gitlab.com mirror only (set as its ci_config_path).
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "trigger" || $CI_PIPELINE_SOURCE == "web"
+
+build-nixos:
+  image: nixos/nix:latest
+  tags: [saas-linux-2xlarge-amd64]
+  timeout: 2h 50m
+  variables:
+    NIX_CONFIG: "experimental-features = nix-command flakes"
+    CARGO_PROFILE_RELEASE_LTO: thin
+    CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+  cache:
+    key: remote-build
+    paths: [.ci-cargo/]
+  script:
+    - export CARGO_HOME=$PWD/.ci-cargo
+    - nix develop -c cmake -S . -B build-remote -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_RUST_SDK_BACKEND=ON -DBUILD_TESTING=OFF
+    - nix develop -c cmake --build build-remote --target lightning-matrix -j32
+    - strip build-remote/lightning-matrix || nix develop -c strip build-remote/lightning-matrix
+    - mkdir -p out && cp build-remote/lightning-matrix out/
+    - nix flake metadata --json | sha256sum > out/flake.sha256
+  artifacts:
+    paths: [out/]
+    expire_in: 1 week
