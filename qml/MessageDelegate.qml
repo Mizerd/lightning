@@ -1493,7 +1493,7 @@ Item {
                             (model.edited === true && metaLabel.visible)
                                 ? metaLabel : null,
                             receiptRow.visible ? receiptRow : null,
-                            replyBox.visible ? replyBox : null,
+                            replyLoader.visible ? replyLoader : null,
                             identityLoader.visible ? identityLoader : null
                         ]
                         for (var i = 0; i < bands.length; ++i) {
@@ -1697,145 +1697,150 @@ Item {
                         }
                     }
 
-                    Rectangle {
-                        id: replyBox
-                        objectName: "replyNavigationTarget"
-                        visible: model.replyToEventId && model.replyToEventId.length > 0
-                                 && !model.redacted
-                        readonly property int barWidth: 2
+                    Loader {
+                        id: replyLoader
+                        active: !!model.replyToEventId && model.replyToEventId.length > 0
+                                && !model.redacted
+                        visible: active
                         Layout.fillWidth: true
                         Layout.maximumWidth: root.contentInnerCap
                         Layout.bottomMargin: 2
-                        implicitWidth: replyRowWrap.implicitWidth
-                                       + replyBox.barWidth + 16
-                        implicitHeight: replyRowWrap.implicitHeight + 8
-                        color: replyHover.hovered
-                               ? Qt.alpha(root.replySenderInk, 0.12)
-                               : "transparent"
-                        Behavior on color { ColorAnimation { duration: 90 } }
-                        radius: AppTheme.radiusSm
-                        activeFocusOnTab: true
-                        border.width: activeFocus ? 2 : 0
-                        border.color: AppTheme.focusRing
-                        Accessible.role: Accessible.Button
-                        Accessible.name: (model.replyToSender || "").length > 0
-                            ? qsTr("Go to message from %1").arg(model.replyToSender)
-                            : qsTr("Go to the original message")
-                        Accessible.onPressAction: root.navigateToReplyTarget()
-                        Keys.onReturnPressed: (event) => {
-                            root.navigateToReplyTarget()
-                            event.accepted = true
-                        }
-                        Keys.onEnterPressed: (event) => {
-                            root.navigateToReplyTarget()
-                            event.accepted = true
-                        }
-                        Keys.onSpacePressed: (event) => {
-                            root.navigateToReplyTarget()
-                            event.accepted = true
-                        }
-                        HoverHandler { id: replyHover }
-                        TapHandler {
-                            enabled: root.rowActionsEnabled
-                            cursorShape: Qt.PointingHandCursor
-                            onTapped: root.navigateToReplyTarget()
-                        }
-                        Rectangle {
-                            width: replyBox.barWidth
-                            anchors.left: parent.left
-                            anchors.top: parent.top
-                            anchors.bottom: parent.bottom
-                            anchors.topMargin: 1
-                            anchors.bottomMargin: 1
-                            radius: 1
-                            color: root.replySenderInk
-                            opacity: replyHover.hovered ? 1.0 : 0.8
-                            Behavior on opacity { NumberAnimation { duration: 90 } }
-                        }
-                        RowLayout {
-                            id: replyRowWrap
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            anchors.verticalCenter: parent.verticalCenter
-                            anchors.leftMargin: replyBox.barWidth + 8
-                            anchors.rightMargin: 8
-                            spacing: 6
-                            Icon {
-                                name: "reply"
-                                size: AppTheme.scaled(13)
-                                color: root.replySenderInk
-                                opacity: 0.75
-                                Layout.alignment: Qt.AlignVCenter
+                        sourceComponent: Rectangle {
+                            id: replyBox
+                            objectName: "replyNavigationTarget"
+                                     && !model.redacted
+                            readonly property int barWidth: 2
+                            implicitWidth: replyRowWrap.implicitWidth
+                                           + replyBox.barWidth + 16
+                            implicitHeight: replyRowWrap.implicitHeight + 8
+                            color: replyHover.hovered
+                                   ? Qt.alpha(root.replySenderInk, 0.12)
+                                   : "transparent"
+                            Behavior on color { ColorAnimation { duration: 90 } }
+                            radius: AppTheme.radiusSm
+                            activeFocusOnTab: true
+                            border.width: activeFocus ? 2 : 0
+                            border.color: AppTheme.focusRing
+                            Accessible.role: Accessible.Button
+                            Accessible.name: (model.replyToSender || "").length > 0
+                                ? qsTr("Go to message from %1").arg(model.replyToSender)
+                                : qsTr("Go to the original message")
+                            Accessible.onPressAction: root.navigateToReplyTarget()
+                            Keys.onReturnPressed: (event) => {
+                                root.navigateToReplyTarget()
+                                event.accepted = true
                             }
-                            Image {
-                                id: replyThumb
-                                objectName: "replyQuoteThumbnail"
-                                // Bumped by the cache-fill handler so `source`
-                                // re-resolves without an imperative assignment,
-                                // which would destroy the binding.
-                                property int resolveTick: 0
-                                readonly property string bridgeSource: {
-                                    var _tick = resolveTick
-                                    return (model.replyToMediaKey || "").length > 0
-                                        ? app.mediaBridge.mediaSource(
-                                              model.replyToMediaKey, "thumb")
-                                        : ""
+                            Keys.onEnterPressed: (event) => {
+                                root.navigateToReplyTarget()
+                                event.accepted = true
+                            }
+                            Keys.onSpacePressed: (event) => {
+                                root.navigateToReplyTarget()
+                                event.accepted = true
+                            }
+                            HoverHandler { id: replyHover }
+                            TapHandler {
+                                enabled: root.rowActionsEnabled
+                                cursorShape: Qt.PointingHandCursor
+                                onTapped: root.navigateToReplyTarget()
+                            }
+                            Rectangle {
+                                width: replyBox.barWidth
+                                anchors.left: parent.left
+                                anchors.top: parent.top
+                                anchors.bottom: parent.bottom
+                                anchors.topMargin: 1
+                                anchors.bottomMargin: 1
+                                radius: 1
+                                color: root.replySenderInk
+                                opacity: replyHover.hovered ? 1.0 : 0.8
+                                Behavior on opacity { NumberAnimation { duration: 90 } }
+                            }
+                            RowLayout {
+                                id: replyRowWrap
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.verticalCenter: parent.verticalCenter
+                                anchors.leftMargin: replyBox.barWidth + 8
+                                anchors.rightMargin: 8
+                                spacing: 6
+                                Icon {
+                                    name: "reply"
+                                    size: AppTheme.scaled(13)
+                                    color: root.replySenderInk
+                                    opacity: 0.75
+                                    Layout.alignment: Qt.AlignVCenter
                                 }
-                                visible: (model.replyToMediaKey || "").length > 0
-                                         && status !== Image.Error
-                                         && app.mediaBridge.supported
-                                Layout.preferredWidth: 24
-                                Layout.preferredHeight: 24
-                                Layout.maximumHeight: 24
-                                Layout.alignment: Qt.AlignVCenter
-                                fillMode: Image.PreserveAspectCrop
-                                asynchronous: true
-                                sourceSize.width: 48
-                                // Visibility reads status, which changes synchronously
-                                // inside source loading. Never feed it back into source.
-                                source: root.mediaPixmapRetained
-                                        && app.mediaBridge.supported
-                                        && bridgeSource.length > 0
-                                        ? bridgeSource + "|shape:round:160" : ""
-                                Connections {
-                                    target: app.mediaBridge
-                                    enabled: (model.replyToMediaKey || "")
-                                                 .length > 0
-                                    function onMediaCached(key) {
-                                        if (key === "thumb:" + (model.replyToMediaKey || "")
-                                            && replyThumb.source.toString()
-                                                   .length === 0)
-                                            replyThumb.resolveTick++
+                                Image {
+                                    id: replyThumb
+                                    objectName: "replyQuoteThumbnail"
+                                    // Bumped by the cache-fill handler so `source`
+                                    // re-resolves without an imperative assignment,
+                                    // which would destroy the binding.
+                                    property int resolveTick: 0
+                                    readonly property string bridgeSource: {
+                                        var _tick = resolveTick
+                                        return (model.replyToMediaKey || "").length > 0
+                                            ? app.mediaBridge.mediaSource(
+                                                  model.replyToMediaKey, "thumb")
+                                            : ""
+                                    }
+                                    visible: (model.replyToMediaKey || "").length > 0
+                                             && status !== Image.Error
+                                             && app.mediaBridge.supported
+                                    Layout.preferredWidth: 24
+                                    Layout.preferredHeight: 24
+                                    Layout.maximumHeight: 24
+                                    Layout.alignment: Qt.AlignVCenter
+                                    fillMode: Image.PreserveAspectCrop
+                                    asynchronous: true
+                                    sourceSize.width: 48
+                                    // Visibility reads status, which changes synchronously
+                                    // inside source loading. Never feed it back into source.
+                                    source: root.mediaPixmapRetained
+                                            && app.mediaBridge.supported
+                                            && bridgeSource.length > 0
+                                            ? bridgeSource + "|shape:round:160" : ""
+                                    Connections {
+                                        target: app.mediaBridge
+                                        enabled: (model.replyToMediaKey || "")
+                                                     .length > 0
+                                        function onMediaCached(key) {
+                                            if (key === "thumb:" + (model.replyToMediaKey || "")
+                                                && replyThumb.source.toString()
+                                                       .length === 0)
+                                                replyThumb.resolveTick++
+                                        }
                                     }
                                 }
-                            }
-                            Label {
-                                objectName: "replyQuoteSender"
-                                text: model.replyToSender || qsTr("Reply")
-                                textFormat: Text.PlainText
-                                color: root.replySenderInk
-                                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
-                                font.weight: AppTheme.weightStrong
-                                elide: Label.ElideRight
-                                maximumLineCount: 1
-                                Layout.maximumWidth: AppTheme.scaled(180)
-                            }
-                            Label {
-                                objectName: "replyQuoteBody"
-                                text: model.replyToPreview
-                                      || (model.replyToRedacted === true
-                                          ? qsTr("Original message removed") : "")
-                                      || root.replyKindLabel()
-                                      || qsTr("(original message not loaded)")
-                                textFormat: Text.PlainText
-                                color: root.replyBodyInk
-                                opacity: replyHover.hovered
-                                         || root.replyOnOwnBubble ? 1.0 : 0.85
-                                Behavior on opacity { NumberAnimation { duration: 90 } }
-                                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
-                                elide: Label.ElideRight
-                                Layout.fillWidth: true
-                                maximumLineCount: 1
+                                Label {
+                                    objectName: "replyQuoteSender"
+                                    text: model.replyToSender || qsTr("Reply")
+                                    textFormat: Text.PlainText
+                                    color: root.replySenderInk
+                                    font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                                    font.weight: AppTheme.weightStrong
+                                    elide: Label.ElideRight
+                                    maximumLineCount: 1
+                                    Layout.maximumWidth: AppTheme.scaled(180)
+                                }
+                                Label {
+                                    objectName: "replyQuoteBody"
+                                    text: model.replyToPreview
+                                          || (model.replyToRedacted === true
+                                              ? qsTr("Original message removed") : "")
+                                          || root.replyKindLabel()
+                                          || qsTr("(original message not loaded)")
+                                    textFormat: Text.PlainText
+                                    color: root.replyBodyInk
+                                    opacity: replyHover.hovered
+                                             || root.replyOnOwnBubble ? 1.0 : 0.85
+                                    Behavior on opacity { NumberAnimation { duration: 90 } }
+                                    font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                                    elide: Label.ElideRight
+                                    Layout.fillWidth: true
+                                    maximumLineCount: 1
+                                }
                             }
                         }
                     }
