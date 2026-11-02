@@ -786,6 +786,68 @@ void RichComposition::loadMarkdownLines(QTextDocument *document,
     keepTextIfLoadLostIt(document, markdown);
 }
 
+// Qt pads an ordered list marker to a column ("1.  item"); the box reads as
+// typed ("1. item"). Lines in a fenced block (``` or ~~~) and in an indented
+// code block (four spaces or a tab after a blank line, outside a list) are
+// left exactly as written.
+static QString withoutMarkerPadding(const QString &box)
+{
+    static const QRegularExpression padded(
+        QStringLiteral("^(\\s*\\d{1,9}[.)]) {2,}"));
+    static const QRegularExpression listLine(
+        QStringLiteral("^\\s*(?:\\d{1,9}[.)]|[-*+]) "));
+    static const QRegularExpression fence(
+        QStringLiteral("^ {0,3}(`{3,}|~{3,})"));
+    const QStringList lines = box.split(QLatin1Char('\n'));
+    QStringList out;
+    out.reserve(lines.size());
+    QChar fenceChar;
+    int fenceLength = 0;
+    bool previousBlank = true;
+    bool inList = false;
+    for (const QString &line : lines) {
+        const bool blank = line.trimmed().isEmpty();
+        if (fenceLength > 0) {
+            // A closing fence is the same character, at least as long, and
+            // carries nothing else.
+            const QRegularExpressionMatch close = fence.match(line);
+            if (close.hasMatch() && close.captured(1).at(0) == fenceChar
+                && close.captured(1).size() >= fenceLength
+                && line.trimmed().size() == close.captured(1).size())
+                fenceLength = 0;
+            out << line;
+            previousBlank = false;
+            continue;
+        }
+        const QRegularExpressionMatch open = fence.match(line);
+        if (open.hasMatch()) {
+            fenceChar = open.captured(1).at(0);
+            fenceLength = open.captured(1).size();
+            out << line;
+            previousBlank = false;
+            inList = false;
+            continue;
+        }
+        const bool indent = line.startsWith(QLatin1Char('\t'))
+            || line.startsWith(QStringLiteral("    "));
+        if (!blank && indent && previousBlank && !inList) {
+            // Indented code.
+            out << line;
+            previousBlank = false;
+            continue;
+        }
+        if (!blank) {
+            if (listLine.match(line).hasMatch())
+                inList = true;
+            else if (!indent)
+                inList = false;
+        }
+        out << (blank ? line : QString(line).replace(padded, QStringLiteral("\\1 ")));
+        previousBlank = blank;
+    }
+    return out.join(QLatin1Char('\n'));
+}
+
 QString RichComposition::markdownForPlainBox(const QTextDocument &document)
 {
     constexpr auto dialect = QTextDocument::MarkdownDialectGitHub;
@@ -810,10 +872,9 @@ QString RichComposition::markdownForPlainBox(const QTextDocument &document)
             == comparableText(compose(document).plainBody)
         ? out : mirror;
     // Qt pads an ordered marker to a column; the box reads as typed.
-    static const QRegularExpression paddedMarker(
-        QStringLiteral("^(\\s*\\d{1,9}[.)]) {2,}"),
-        QRegularExpression::MultilineOption);
-    box.replace(paddedMarker, QStringLiteral("\\1 "));
+    // Not inside code: the spaces after "1." in a fenced or indented block
+    // are the author's, and collapsing them changes the code they wrote.
+    box = withoutMarkerPadding(box);
     // Text the reader never saw as formatted comes back as they wrote it. As
     // in Element's composer, what they applied here (a list) stays applied.
     return document.property(kOpenedLiterally).toBool()

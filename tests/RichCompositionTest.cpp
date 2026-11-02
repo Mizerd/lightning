@@ -572,6 +572,42 @@ private Q_SLOTS:
                  QStringLiteral("1. ") + text);
     }
 
+    // The padding the writer adds after an ordered marker is undone for the
+    // box, but never inside code: the spaces there are the author's.
+    void markerPaddingSurvivesInsideCodeBlocks_data()
+    {
+        QTest::addColumn<QString>("markdown");
+        QTest::addColumn<QString>("kept");
+        QTest::newRow("fenced") << QStringLiteral("```\n1.    keep\n2.    pad\n```\n")
+                                << QStringLiteral("1.    keep");
+        QTest::newRow("tilde") << QStringLiteral("~~~\n1.    keep\n~~~\n")
+                               << QStringLiteral("1.    keep");
+        QTest::newRow("indented")
+            << QStringLiteral("para\n\n    1.    keep\n")
+            << QStringLiteral("1.    keep");
+    }
+    void markerPaddingSurvivesInsideCodeBlocks()
+    {
+        QFETCH(QString, markdown);
+        QFETCH(QString, kept);
+        QTextDocument document;
+        RichComposition::loadMarkdownLines(&document, markdown);
+        const QString box = RichComposition::markdownForPlainBox(document);
+        QVERIFY2(box.contains(kept), qPrintable(box));
+    }
+    // ...while a real list is still collapsed.
+    void aRealOrderedListStillLosesItsPadding()
+    {
+        QTextDocument document;
+        RichComposition::loadMarkdownLines(&document, QStringLiteral("a\nb"));
+        QTextCursor c(&document);
+        c.select(QTextCursor::Document);
+        c.createList(QTextListFormat::ListDecimal);
+        const QString box = RichComposition::markdownForPlainBox(document);
+        QVERIFY2(box.contains(QStringLiteral("1. a")), qPrintable(box));
+        QVERIFY2(!box.contains(QStringLiteral("1.  a")), qPrintable(box));
+    }
+
     // Typed in rich, the same characters stay escaped: they are not markup.
     void textTypedInRichStaysEscapedForThePlainBox()
     {
