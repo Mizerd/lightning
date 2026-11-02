@@ -1422,8 +1422,6 @@ Item {
                             && !(root.bubbleMode && model.isOwn === true)
                     sourceComponent: Avatar {
                         objectName: "senderAvatar"
-                                 && !root.smallAvatarMode
-                                 && !(root.bubbleMode && model.isOwn === true)
                         onScreen: root.rowOnScreen
                         size: 32
                         mxc: model.senderAvatarMxc || ""
@@ -1731,7 +1729,6 @@ Item {
                         sourceComponent: Rectangle {
                             id: replyBox
                             objectName: "replyNavigationTarget"
-                                     && !model.redacted
                             readonly property int barWidth: 2
                             implicitWidth: replyRowWrap.implicitWidth
                                            + replyBox.barWidth + 16
