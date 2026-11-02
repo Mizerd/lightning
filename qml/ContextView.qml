@@ -78,6 +78,8 @@ Rectangle {
     Connections {
         target: app.eventContext.model
         function onOlderPrepended(count) {
+            if (list.lastSeenRow >= 0)
+                list.lastSeenRow += count
             Qt.callLater(function() {
                 // ListView keeps a reader who is past the first row in place;
                 // only one sitting on that row is pushed down by the insert.
@@ -195,11 +197,31 @@ Rectangle {
                         -(event.pixelDelta.y || event.angleDelta.y))
                 }
                 property real lastContentY: 0
+                property int lastSeenRow: -1
                 onContentYChanged: {
                     var delta = contentY - lastContentY
                     lastContentY = contentY
                     if (moving)
                         view.loadTowards(delta)
+                    var row = indexAt(width / 2, contentY + height / 2)
+                    if (row >= 0)
+                        lastSeenRow = row
+                    emptyViewportCheck.restart()
+                }
+                // Written directly, contentY can land in estimated height that
+                // holds no rows, and ListView does not bring it back.
+                Timer {
+                    id: emptyViewportCheck
+                    interval: 120
+                    onTriggered: {
+                        if (list.indexAt(list.width / 2,
+                                         list.contentY + list.height / 2) >= 0
+                                || list.lastSeenRow < 0
+                                || list.lastSeenRow >= list.count)
+                            return
+                        contextWheel.stopGlide()
+                        list.positionViewAtIndex(list.lastSeenRow, ListView.Center)
+                    }
                 }
 
                 activeFocusOnTab: true

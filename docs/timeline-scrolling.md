@@ -644,3 +644,22 @@ bottom, following. Windows: NOT TESTED.
   `intent_lead_ms` (release, queueing and keyring before the traced cold path)
   and `first_frame_from_intent_ms`, so an account switch's total never
   restarts at a later barrier (master prompt Part 4 §5).
+
+## The context view after a far jump (2026-11-02)
+
+Reported as "scrolling gets really slow" after clicking a reply whose target is
+not loaded. That click opens `ContextView`, a separate `ListView` on an
+event-focused timeline, not the main pane. Measured on the rig (llvmpipe, seeded
+3198-event room, 900 px pane): frame intervals were NOT the cause, p50 10-16 ms
+in the context view against 15-18 ms in the live timeline, so the focused
+timeline, the row window, the anchors and the highlight are not it (the row
+window and the anchors do not run in this view at all). The cause was distance:
+Qt's default wheel step moved 22-38 px a notch against the timeline's 286, and
+the view held one 19-row page behind a Load button.
+
+It now uses `SmoothWheelArea` (293 px a notch) and loads a page near the edge in
+the direction of travel. `SmoothWheelArea`'s bounds follow `originY` and the
+margins, because a `ListView`'s origin moves. A written `contentY` can settle in
+estimated height holding no rows (seen after fast up/down through new pages,
+not reproduced in a standalone harness, mechanism unproven), so the view returns
+to the last row it showed.
