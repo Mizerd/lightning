@@ -2420,6 +2420,7 @@ private slots:
         screen->setProperty("section", QStringLiteral("shortcuts"));
         auto restoreSection = qScopeGuard(
             [&] { screen->setProperty("section", openSection); });
+        buildEverySection();
         QStringList bad;
         int resolved = 0;
         for (const QVariant &v : index) {
