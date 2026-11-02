@@ -11,8 +11,11 @@ TextField {
 
     implicitHeight: AppTheme.buttonHeight
     hoverEnabled: true
-    leftPadding: searchIcon ? 32 : AppTheme.buttonPaddingH
-    rightPadding: clearButton && text.length > 0 ? 32 : AppTheme.buttonPaddingH
+    readonly property real iconSidePadding: searchIcon ? 32 : AppTheme.buttonPaddingH
+    readonly property real clearSidePadding:
+        clearButton && text.length > 0 ? 32 : AppTheme.buttonPaddingH
+    leftPadding: LayoutMirroring.enabled ? clearSidePadding : iconSidePadding
+    rightPadding: LayoutMirroring.enabled ? iconSidePadding : clearSidePadding
     font.pixelSize: AppTheme.textBody
     color: storm ? AppTheme.stormFieldText : AppTheme.fieldText
     placeholderTextColor: AppTheme.placeholderInk
