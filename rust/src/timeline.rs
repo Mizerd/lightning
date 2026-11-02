@@ -253,6 +253,17 @@ pub const SHUTDOWN_ABORTED_JOIN_MS: u64 = 250;
 
 type EventQueue = Arc<Mutex<VecDeque<String>>>;
 
+type SendJob = std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>;
+
+struct SendLane {
+    id: u64,
+    jobs: VecDeque<SendJob>,
+}
+
+fn send_lane_key(room_id: &str, thread_root_id: &str) -> String {
+    format!("{room_id}\u{1f}{thread_root_id}")
+}
+
 /// Media sources captured while serializing timeline items, for the media
 /// bridge. `MediaSource::Encrypted` embeds content keys, so these stay in
 /// this Rust-side map and never cross the FFI. Keyed by event id (or SDK
@@ -395,6 +406,8 @@ pub struct TimelineRegistry {
     encrypted_room_media: Mutex<EncryptedRoomMedia>,
     export_media: Mutex<HashMap<String, (StoredMedia, bool)>>,
     reaction_inflight: Mutex<std::collections::HashSet<String>>,
+    send_lanes: Mutex<HashMap<String, SendLane>>,
+    send_lane_seq: AtomicU64,
     backup_download_attempts: Mutex<std::collections::HashMap<String, BackupAttempt>>,
     /// The open room, and the `origin_server_ts` of the newest event our own
     /// UNTHREADED read receipt (public or private) points at. By spec such a
@@ -458,6 +471,8 @@ impl TimelineRegistry {
             encrypted_room_media: Mutex::new(EncryptedRoomMedia::default()),
             export_media: Mutex::new(HashMap::new()),
             reaction_inflight: Mutex::new(std::collections::HashSet::new()),
+            send_lanes: Mutex::new(HashMap::new()),
+            send_lane_seq: AtomicU64::new(0),
             backup_download_attempts: Mutex::new(std::collections::HashMap::new()),
             unthreaded_read_cover: Mutex::new(None),
             thread_auto_subscriptions: Mutex::new(Vec::new()),
@@ -1313,7 +1328,8 @@ impl TimelineRegistry {
         let thread_gen = self.thread_gen.load(Ordering::SeqCst);
         let registry = Arc::clone(self);
         let open_thread = self.thread_timeline_for(&room_id, &root_event_id);
-        runtime.spawn(async move {
+        let lane = send_lane_key(&room_id, &root_event_id);
+        self.spawn_ordered(runtime, lane, async move {
             let watcher = watch_thread_send(&client, &room_id).await;
             let send_on = |timeline: Arc<Timeline>| {
                 let body = body.clone();
@@ -1406,7 +1422,8 @@ impl TimelineRegistry {
             };
             let registry = Arc::clone(self);
             let events = Arc::clone(&self.events);
-            runtime.spawn(async move {
+            let lane = send_lane_key(&room_id, "");
+            self.spawn_ordered(runtime, lane, async move {
                 unwedge_send_queue(&timeline);
                 if timeline.send(content).await.is_err()
                     && registry.is_current(room_gen, lifecycle)
@@ -1431,7 +1448,8 @@ impl TimelineRegistry {
         let thread_gen = self.thread_gen.load(Ordering::SeqCst);
         let registry = Arc::clone(self);
         let open_thread = self.thread_timeline_for(&room_id, &thread_root_id);
-        runtime.spawn(async move {
+        let lane = send_lane_key(&room_id, &thread_root_id);
+        self.spawn_ordered(runtime, lane, async move {
             let watcher = watch_thread_send(&client, &room_id).await;
             let sent = if let Some((timeline, _gen, _lc)) = open_thread {
                 unwedge_send_queue(&timeline);
@@ -1598,13 +1616,65 @@ impl TimelineRegistry {
         }
     }
 
+    /// Runs `job` after every earlier job for the same lane key. Spawning each
+    /// send separately lets tasks reach the SDK send queue in any order.
+    fn spawn_ordered(
+        self: &Arc<Self>,
+        runtime: &tokio::runtime::Runtime,
+        key: String,
+        job: impl std::future::Future<Output = ()> + Send + 'static,
+    ) {
+        let job: SendJob = Box::pin(job);
+        let lane_id = {
+            let Ok(mut lanes) = self.send_lanes.lock() else {
+                return;
+            };
+            if let Some(lane) = lanes.get_mut(&key) {
+                lane.jobs.push_back(job);
+                return;
+            }
+            let id = self.send_lane_seq.fetch_add(1, Ordering::SeqCst);
+            lanes.insert(key.clone(), SendLane { id, jobs: VecDeque::from([job]) });
+            id
+        };
+        let registry = Arc::clone(self);
+        runtime.spawn(async move {
+            loop {
+                let next = {
+                    let Ok(mut lanes) = registry.send_lanes.lock() else {
+                        return;
+                    };
+                    match lanes.get_mut(&key) {
+                        Some(lane) if lane.id == lane_id => match lane.jobs.pop_front() {
+                            Some(job) => job,
+                            None => {
+                                lanes.remove(&key);
+                                return;
+                            }
+                        },
+                        _ => return,
+                    }
+                };
+                next.await;
+            }
+        });
+    }
+
+    fn clear_send_lanes(&self) {
+        if let Ok(mut lanes) = self.send_lanes.lock() {
+            lanes.clear();
+        }
+    }
+
     pub fn advance_lifecycle(&self) {
+        self.clear_send_lanes();
         self.lifecycle_gen.fetch_add(1, Ordering::SeqCst);
         self.room_gen.fetch_add(1, Ordering::SeqCst);
         self.thread_gen.fetch_add(1, Ordering::SeqCst);
     }
 
     pub fn shutdown(&self, runtime: &tokio::runtime::Runtime) {
+        self.clear_send_lanes();
         self.lifecycle_gen.fetch_add(1, Ordering::SeqCst);
         self.room_gen.fetch_add(1, Ordering::SeqCst);
         self.thread_gen.fetch_add(1, Ordering::SeqCst);
@@ -1765,7 +1835,8 @@ impl TimelineRegistry {
         };
         let registry = Arc::clone(self);
         let events = Arc::clone(&self.events);
-        runtime.spawn(async move {
+        let lane = send_lane_key(&room_id, "");
+        self.spawn_ordered(runtime, lane, async move {
             let message = outgoing_content(&body, &spec, mention_user_ids);
             let content = AnyMessageLikeEventContent::RoomMessage(message);
             unwedge_send_queue(&timeline);
@@ -1808,7 +1879,8 @@ impl TimelineRegistry {
             .map_err(|_| "Unsupported attachment MIME type.".to_owned())?;
         let registry = Arc::clone(self);
         let events = Arc::clone(&self.events);
-        runtime.spawn(async move {
+        let lane = send_lane_key(&room_id, "");
+        self.spawn_ordered(runtime, lane, async move {
             let config = attachment_config(info, thumbnail, caption, in_reply_to);
             unwedge_send_queue(&timeline);
             let result = timeline
@@ -1850,7 +1922,8 @@ impl TimelineRegistry {
             .map_err(|_| "Invalid reply target event id.".to_owned())?;
         let registry = Arc::clone(self);
         let events = Arc::clone(&self.events);
-        runtime.spawn(async move {
+        let lane = send_lane_key(&room_id, "");
+        self.spawn_ordered(runtime, lane, async move {
             let content =
                 outgoing_content_without_relation(&body, &spec, mention_user_ids);
             unwedge_send_queue(&timeline);
@@ -1894,7 +1967,8 @@ impl TimelineRegistry {
         let lifecycle = self.lifecycle_gen.load(Ordering::SeqCst);
         let registry = Arc::clone(self);
         let open_thread = self.thread_timeline_for(&room_id, &root_event_id);
-        runtime.spawn(async move {
+        let lane = send_lane_key(&room_id, &root_event_id);
+        self.spawn_ordered(runtime, lane, async move {
             let watcher = watch_thread_send(&client, &room_id).await;
             let timeline = match open_thread {
                 Some((timeline, _gen, _lc)) => Some(timeline),
@@ -6551,6 +6625,73 @@ mod tests {
             registry.begin_reaction(target),
             "the slot must be reusable once the toggle has completed"
         );
+    }
+
+    #[test]
+    fn every_send_path_goes_through_the_ordered_lane() {
+        let source = include_str!("timeline.rs");
+        for name in [
+            "pub fn send_text(",
+            "pub fn send_reply(",
+            "pub fn send_attachment(",
+            "pub fn send_thread_text(",
+            "pub fn send_thread_attachment(",
+            "fn send_content_to_timeline(",
+        ] {
+            let body = source
+                .split(name)
+                .nth(1)
+                .unwrap_or_else(|| panic!("{name} is gone"))
+                .split("\n    pub fn ")
+                .next()
+                .unwrap();
+            let body = body.split("\n    fn ").next().unwrap();
+            assert!(
+                !body.contains("runtime.spawn("),
+                "{name} spawns its send directly; tasks then race to the send queue"
+            );
+            assert!(body.contains("self.spawn_ordered("), "{name} bypasses the lane");
+        }
+    }
+
+    #[test]
+    fn ordered_jobs_run_in_call_order_per_key_and_do_not_block_other_keys() {
+        let registry = Arc::new(TimelineRegistry::new(Arc::new(Mutex::new(VecDeque::new()))));
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(4)
+            .enable_all()
+            .build()
+            .expect("runtime");
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let (gate_tx, gate_rx) = tokio::sync::oneshot::channel::<()>();
+        registry.spawn_ordered(&runtime, "stalled".to_owned(), async move {
+            let _ = gate_rx.await;
+        });
+        for n in 0..50u64 {
+            let seen = Arc::clone(&seen);
+            registry.spawn_ordered(&runtime, "room".to_owned(), async move {
+                tokio::time::sleep(std::time::Duration::from_micros((50 - n) * 20)).await;
+                seen.lock().unwrap().push(n);
+            });
+        }
+        let reached = Arc::new(Mutex::new(false));
+        let flag = Arc::clone(&reached);
+        registry.spawn_ordered(&runtime, "other".to_owned(), async move {
+            *flag.lock().unwrap() = true;
+        });
+        runtime.block_on(async {
+            for _ in 0..200 {
+                if seen.lock().unwrap().len() == 50 && *reached.lock().unwrap() {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        });
+        assert_eq!(*seen.lock().unwrap(), (0..50).collect::<Vec<_>>());
+        assert!(*reached.lock().unwrap(), "a stalled lane blocked another key");
+        registry.shutdown(&runtime);
+        assert!(registry.send_lanes.lock().unwrap().is_empty());
+        drop(gate_tx);
     }
 
     #[test]
