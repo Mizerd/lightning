@@ -108,6 +108,7 @@ Rectangle {
         RowLayout {
             spacing: -8
             Layout.alignment: Qt.AlignVCenter
+            visible: root.width >= 420
             Repeater {
                 model: root.faces
                 delegate: Item {
@@ -133,6 +134,7 @@ Rectangle {
         Loader {
             Layout.fillWidth: true
             Layout.preferredWidth: 1
+            Layout.minimumWidth: 0
             active: root.participantCount > 0
             visible: active
             sourceComponent: Text {
@@ -155,7 +157,10 @@ Rectangle {
         // The block reason is inline, not a tooltip: a disabled button receives
         // no hover events.
         Text {
+            Layout.fillWidth: true
+            Layout.preferredWidth: Math.min(implicitWidth, 220)
             Layout.maximumWidth: 220
+            Layout.minimumWidth: 0
             visible: text.length > 0
             text: root.blockText
             color: AppTheme.textMuted
