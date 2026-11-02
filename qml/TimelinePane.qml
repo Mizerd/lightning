@@ -2598,6 +2598,9 @@ Rectangle {
                             viewAnchorOriginY = originY
                         return
                     }
+                    // Rows created since the last positioning pass still sit at y 0.
+                    if (layoutRowsAtLastPass !== count)
+                        rowColumn.forceLayout()
                     var row = viewRowAtPhysicalTop()
                     if (row < 0) {
                         viewAnchorId = ""
