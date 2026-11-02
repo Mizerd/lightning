@@ -76,6 +76,7 @@ private Q_SLOTS:
     void withdrawingSparesTheIncomingCallRing();
     void anExpiredNotificationStaysWithdrawableUntilTheRoomIsRead();
     void aTrayBalloonClickOpensTheRoomItWasRaisedFor();
+    void aForeignNotificationActionNeverRaisesTheWindow();
     void signingOutForgetsTheTrayBalloonsClick();
     void anAggregatedEditUpdatesAWaitingCardWithoutAnotherDelivery();
     void anUnchangedSetKeepsTheGroupedCount();
@@ -377,9 +378,6 @@ private Q_SLOTS:
         QVERIFY(NotificationManager::decide(incomingText(), context).notify);
     }
 
-    // An open room that is still hydrating suppresses notifications: opening
-    // a room subscribes it in sliding sync, so its recent history arrives as
-    // live appends before the view can be "visible at latest".
     void hydratingOpenRoomSuppresses()
     {
         auto context = baseContext();
@@ -1115,9 +1113,6 @@ void NotificationManagerTest::anActionCarriesTheAccountTheCardWasRaisedFor()
     QCOMPARE(spy.first().at(1).toString(), QStringLiteral("!room:example.org"));
 }
 
-// Some daemons deliver an inline reply in two parts (ActionInvoked, then
-// NotificationReplied with the text), so the payload is kept until the text
-// arrives.
 void NotificationManagerTest::anInlineReplyKeepsThePayloadUntilTheTextArrives()
 {
     NotificationManager manager;
@@ -1203,8 +1198,18 @@ void NotificationManagerTest::aTrayBalloonClickOpensTheRoomItWasRaisedFor()
     QCOMPARE(opened.at(0).at(1).toString(), QStringLiteral("$t:example.org"));
     QCOMPARE(opened.at(0).at(2).toString(), QStringLiteral("$root:example.org"));
     QMetaObject::invokeMethod(&manager, "onFallbackMessageClicked");
-    QCOMPARE(opened.count(), 2);
-    QVERIFY(opened.at(1).at(0).toString().isEmpty());
+    QCOMPARE(opened.count(), 1);
+}
+
+void NotificationManagerTest::aForeignNotificationActionNeverRaisesTheWindow()
+{
+    for (const bool withdrawable : {true, false}) {
+        NotificationManager manager;
+        manager.setBalloonWithdrawableForTest(withdrawable);
+        QSignalSpy opened(&manager, &NotificationManager::openRequested);
+        QMetaObject::invokeMethod(&manager, "onFallbackMessageClicked");
+        QCOMPARE(opened.count(), 0);
+    }
 }
 
 void NotificationManagerTest::signingOutForgetsTheTrayBalloonsClick()
@@ -1220,8 +1225,7 @@ void NotificationManagerTest::signingOutForgetsTheTrayBalloonsClick()
     manager.clearPending();
 
     QMetaObject::invokeMethod(&manager, "onFallbackMessageClicked");
-    QCOMPARE(opened.count(), 1);
-    QVERIFY2(opened.first().at(0).toString().isEmpty(),
+    QVERIFY2(opened.isEmpty(),
              "a tray balloon raised for the previous account still opened its "
              "room after clearPending(): the sign-out sweep does not forget "
              "the balloon's click payload");
@@ -1486,9 +1490,7 @@ void NotificationManagerTest::aNotificationWithNoRoomStillBringsTheWindowForward
     QSignalSpy afterClear(&manager, &NotificationManager::openRequested);
     manager.clearPending();
     QMetaObject::invokeMethod(&manager, "onFallbackMessageClicked");
-    QCOMPARE(afterClear.count(), 1);
-    QVERIFY(afterClear.first().at(0).toString().isEmpty());
-    QVERIFY(afterClear.first().at(1).toString().isEmpty());
+    QCOMPARE(afterClear.count(), 0);
 }
 
 void NotificationManagerTest::everySlotTheseCasesDriveByNameStillExists()
@@ -2761,8 +2763,7 @@ void NotificationManagerTest::clearPendingIsExactlyTheForegroundAccountsClear()
     QCOMPARE(manager.heldUndecryptableCountForTest(), 0);
     QSignalSpy opened(&manager, &NotificationManager::openRequested);
     QMetaObject::invokeMethod(&manager, "onFallbackMessageClicked");
-    QCOMPARE(opened.count(), 1);
-    QVERIFY(opened.first().at(0).toString().isEmpty());
+    QCOMPARE(opened.count(), 0);
 }
 
 void NotificationManagerTest::everyOpenNamesItsAccountFirst()
@@ -3391,8 +3392,7 @@ void NotificationManagerTest::aReadRoomLeavesTheBalloonSummary()
     QCOMPARE(manager.trayAttemptsForTest(), 1);
     QSignalSpy opened(&manager, &NotificationManager::openRequested);
     QMetaObject::invokeMethod(&manager, "onFallbackMessageClicked");
-    QCOMPARE(opened.count(), 1);
-    QVERIFY(opened.at(0).at(0).toString().isEmpty());
+    QCOMPARE(opened.count(), 0);
 }
 
 void NotificationManagerTest::theBalloonHoldFollowsTheNotificationDuration()

@@ -2748,6 +2748,16 @@ void NotificationManager::retireBalloonOnScreen()
 
 void NotificationManager::onFallbackMessageClicked()
 {
+#ifdef HAVE_QT_DBUS
+    // Qt's D-Bus tray emits messageClicked() for any app's action (QTBUG-112170).
+    const bool weShowedOne = balloonGate()
+        ? m_balloonMayBeVisible
+        : (!m_lastFallbackPayload.isEmpty() || !m_balloonRooms.isEmpty());
+    if (!weShowedOne) {
+        qCInfo(lcNotify) << "tray click ignored: no balloon of ours is showing";
+        return;
+    }
+#endif
     const QVariantMap payload = std::exchange(m_lastFallbackPayload, {});
     const QString accountKey = std::exchange(m_lastFallbackAccountKey, {});
     const qsizetype rooms = m_balloonRooms.size();
