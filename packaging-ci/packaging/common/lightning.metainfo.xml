@@ -72,27 +72,27 @@
       English values.
     -->
     <screenshot type="default">
-      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.10.3/docs/screenshots/flathub/01-conversation.png</image>
+      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.10.4/docs/screenshots/flathub/01-conversation.png</image>
       <caption>A room conversation with a shared picture, replies, reactions and a thread</caption>
     </screenshot>
     <screenshot>
-      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.10.3/docs/screenshots/flathub/02-call.png</image>
+      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.10.4/docs/screenshots/flathub/02-call.png</image>
       <caption>A group call in a room with a screen share on the stage</caption>
     </screenshot>
     <screenshot>
-      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.10.3/docs/screenshots/flathub/03-threads.png</image>
+      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.10.4/docs/screenshots/flathub/03-threads.png</image>
       <caption>A thread and its replies, opened from the conversation it started in</caption>
     </screenshot>
     <screenshot>
-      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.10.3/docs/screenshots/flathub/04-themes.png</image>
+      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.10.4/docs/screenshots/flathub/04-themes.png</image>
       <caption>Building a custom theme with a gradient conversation background</caption>
     </screenshot>
     <screenshot>
-      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.10.3/docs/screenshots/flathub/05-settings.png</image>
+      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.10.4/docs/screenshots/flathub/05-settings.png</image>
       <caption>Appearance settings with themes that follow the system light or dark style</caption>
     </screenshot>
     <screenshot>
-      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.10.3/docs/screenshots/flathub/06-verification.png</image>
+      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.10.4/docs/screenshots/flathub/06-verification.png</image>
       <caption>Verifying a new session by comparing emoji</caption>
     </screenshot>
   </screenshots>
@@ -159,8 +159,18 @@
   </content_rating>
 
   <releases>
+    <release version="0.10.4" date="2026-11-02" type="stable">
+      <url type="details">https://github.com/Mizerd/lightning/releases/tag/v0.10.4</url>
+      <description>
+        <p>
+          A memory, polish and bug-fix release. Lightning uses much less memory,
+          the doubled room list headers are gone, and a long list of reports
+          from the last release is fixed. Nothing here is experimental.
+        </p>
+      </description>
+    </release>
     <release version="0.10.3" date="2026-11-01" type="stable">
-      <url type="details">https://github.com/Mizerd/lightning/releases/tag/v0.10.3</url>
+      <url type="details">https://github.com/Mizerd/lightning/releases/tag/v0.10.4</url>
       <description>
         <p>
           A big round on calls, the timeline and settings. Calls got video on
