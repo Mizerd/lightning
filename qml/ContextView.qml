@@ -189,12 +189,16 @@ Rectangle {
                 rightMargin: AppTheme.spacing12
                 boundsBehavior: Flickable.StopAtBounds
 
-                SmoothWheelArea { id: contextWheel }
+                SmoothWheelArea {
+                    id: contextWheel
+                    onWheel: (event) => view.loadTowards(
+                        -(event.pixelDelta.y || event.angleDelta.y))
+                }
                 property real lastContentY: 0
                 onContentYChanged: {
                     var delta = contentY - lastContentY
                     lastContentY = contentY
-                    if (moving || contextWheel.active)
+                    if (moving)
                         view.loadTowards(delta)
                 }
 
