@@ -25,7 +25,7 @@ use serde::Deserialize;
 use crate::EventQueueRef;
 
 const SETTLE: Duration = Duration::from_secs(2);
-const MIN_PASS_GAP: Duration = Duration::from_secs(30);
+const MIN_PASS_GAP: Duration = Duration::from_secs(5);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 const CONFIRM_CAP: usize = 50;
 const SERVICE_POLL: Duration = Duration::from_secs(2);
