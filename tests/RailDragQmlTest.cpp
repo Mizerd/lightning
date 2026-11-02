@@ -20,6 +20,7 @@
 // Spaces, while writing to AppController's own RailLayoutStore.
 
 #include <QFile>
+#include <tuple>
 #include <QFileInfo>
 #include <QDir>
 #include <QtTest/QtTest>
@@ -2592,32 +2593,54 @@ private slots:
         };
 
         QStringList bad;
-        QList<bool> pinnedStates;
-        for (int h = 230; h <= 560; ++h) {
-            m_window->resize(160, h);
-            m_rail->setSize(QSizeF(m_window->width(), m_window->height()));
-            // Layout and the deferred decision settle over a few turns.
-            for (int i = 0; i < 4; ++i) {
-                QCoreApplication::processEvents();
-                QTest::qWait(8);
+        QVERIFY(m_rail->setProperty("railAddVisible", true));
+        // Down and then up: the decision must not remember which way the rail
+        // was going (a stale slot height made the thresholds differ).
+        const auto sweepHeights = [&](int from, int to) {
+            QList<bool> states;
+            QList<int> heights;
+            const int step = from < to ? 1 : -1;
+            for (int h = from; h != to + step; h += step) {
+                m_window->resize(160, h);
+                m_rail->setSize(QSizeF(m_window->width(), m_window->height()));
+                // Layout and the deferred decision settle over a few turns.
+                for (int i = 0; i < 4; ++i) {
+                    QCoreApplication::processEvents();
+                    QTest::qWait(8);
+                }
+                const bool inList = reachable(footerButton, true);
+                const bool pinned = reachable(pinnedButton, false);
+                if (inList == pinned)
+                    bad << QStringLiteral("h=%1 inList=%2 pinned=%3")
+                               .arg(h).arg(inList).arg(pinned);
+                states << pinned;
+                heights << h;
             }
-            const bool inList = reachable(footerButton, true);
-            const bool pinned = reachable(pinnedButton, false);
-            if (inList == pinned)
-                bad << QStringLiteral("h=%1 inList=%2 pinned=%3")
-                           .arg(h).arg(inList).arg(pinned);
-            pinnedStates << pinned;
-        }
+            int flips = 0, at = -1;
+            for (int i = 1; i < states.size(); ++i) {
+                if (states.at(i) != states.at(i - 1)) {
+                    ++flips;
+                    at = heights.at(i);
+                }
+            }
+            return std::tuple(states, flips, at);
+        };
+        const auto [growing, growFlips, growAt] = sweepHeights(230, 560);
+        const auto [shrinking, shrinkFlips, shrinkAt] = sweepHeights(560, 230);
         QVERIFY2(bad.isEmpty(), qPrintable(bad.mid(0, 12).join(QLatin1Char('\n'))));
         QVERIFY2(loops.isEmpty(), qPrintable(loops.mid(0, 4).join(QLatin1Char('\n'))));
-        // The sweep crossed the threshold once: pinned while short, in the
-        // list once there is room, with no flip-flopping between.
-        QVERIFY2(pinnedStates.first() && !pinnedStates.last(),
-                 "the sweep did not cross the pinning threshold");
-        int flips = 0;
-        for (int i = 1; i < pinnedStates.size(); ++i)
-            flips += pinnedStates.at(i) != pinnedStates.at(i - 1);
-        QCOMPARE(flips, 1);
+        // Each sweep crosses the threshold once, pinned while short and in the
+        // list once there is room, with no flip-flopping between...
+        QVERIFY2(growing.first() && !growing.last(),
+                 "the growing sweep did not cross the pinning threshold");
+        QVERIFY2(!shrinking.first() && shrinking.last(),
+                 "the shrinking sweep did not cross the pinning threshold");
+        QCOMPARE(growFlips, 1);
+        QCOMPARE(shrinkFlips, 1);
+        // ... and at the same height either way.
+        QVERIFY2(qAbs(growAt - shrinkAt) <= 1,
+                 qPrintable(QStringLiteral("pins at %1 growing but %2 shrinking")
+                                .arg(growAt).arg(shrinkAt)));
     }
 
     void escapeCancelsADragAndFilesNothing()

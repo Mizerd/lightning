@@ -588,7 +588,9 @@ Rectangle {
             return
         const footerHeight = list.footerItem ? list.footerItem.height : 0
         const tiles = list.contentHeight - footerHeight
-        const room = list.height + railAddPinnedSlot.height
+        // The slot's own height lags the decision that sized it; what it takes
+        // when pinned is known, so use that.
+        const room = list.height + (railAddPinned ? railAddCellHeight : 0)
         railAddPinned = railAddVisible && tiles + railAddCellHeight > room
     }
     onRailAddVisibleChanged: queuePinAdd()
