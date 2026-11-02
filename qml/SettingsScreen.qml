@@ -3804,11 +3804,16 @@ Item {
                                         syncToValue(app.localization.language)
                                     }
                                     Component.onCompleted: syncIndex()
-                                    onModelChanged: Qt.callLater(syncIndex)
+                                    onModelChanged: if (languageResync) languageResync.restart()
+                                    Timer {
+                                        id: languageResync
+                                        interval: 0
+                                        onTriggered: languageCombo.syncIndex()
+                                    }
                                     Connections {
                                         target: app.localization
                                         function onLanguageChanged() {
-                                            Qt.callLater(languageCombo.syncIndex)
+                                            languageResync.restart()
                                         }
                                     }
                                     onActivated: app.localization.language = currentValue
