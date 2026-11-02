@@ -118,7 +118,7 @@ private Q_SLOTS:
     void unknownStoredThemeFallsBackToSystem();
     void composerModeIsMarkdownForAFreshProfile();
     void aStoredRichModeIsMigratedToMarkdownOnce();
-    void largeAlbumArtDefaultsCompactAndOptInPersists();
+    void largeAlbumArtDefaultsOnAndAnOptOutPersists();
     void themeChangeEmitsSignal();
     void previewDefaultsAndEncryptedOff();
     void shareQualityDefaultsPersistAndSnap();
@@ -790,15 +790,15 @@ void SettingsSessionTest::aStoredRichModeIsMigratedToMarkdownOnce()
     QCOMPARE(later.composerMode(), QStringLiteral("rich"));
 }
 
-void SettingsSessionTest::largeAlbumArtDefaultsCompactAndOptInPersists()
+void SettingsSessionTest::largeAlbumArtDefaultsOnAndAnOptOutPersists()
 {
     {
         SettingsManager s;
-        QVERIFY(!s.largeAlbumArt());
-        s.setLargeAlbumArt(true);
+        QVERIFY(s.largeAlbumArt());
+        s.setLargeAlbumArt(false);
     }
     SettingsManager reopened;
-    QVERIFY(reopened.largeAlbumArt());
+    QVERIFY(!reopened.largeAlbumArt());
 }
 
 void SettingsSessionTest::unknownStoredThemeFallsBackToSystem()

@@ -3180,7 +3180,9 @@ live, and the server answers presence. Research and design: vault note
   tile on the left, as tall as the control block, with the title, artist/
   duration line and scrubber at its top and the play, speed, volume and save
   controls at its foot. It is on when "Large album art" is on (Settings >
-  Sound & video > Media playback, `media/largeAlbumArt`, default on) and the
+  Sound & video > Media playback, `media/largeAlbumArt`, default ON again from
+  this change: 0.10.3 shipped it off because the old layout was a 240 px square
+  above the controls; the user's own choice, either way, persists) and the
   card is at least 280 px wide; narrower cards, the setting off, or no cover
   keep the compact 40 px tile beside the play button. The tile is the SAME
   object in both layouts (the grid re-places the same children), so the

@@ -7939,7 +7939,7 @@ Item {
                                     text: qsTr("Large album art")
                                     checked: app.settings.largeAlbumArt
                                     onToggled: app.settings.largeAlbumArt = checked
-                                    Accessible.description: qsTr("Shows the cover of an audio file as a large square above its controls. When off, or when the file has no cover, a small tile sits beside the play button.")
+                                    Accessible.description: qsTr("Shows the cover of an audio file as a large square beside its title and controls. When off, or when the file has no cover, a small tile sits beside the play button.")
                                 }
                             }
                         }
