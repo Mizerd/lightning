@@ -2011,17 +2011,20 @@ Item {
                             root.openMessageLink(link)
                         }
 
-                        HoverHandler {
-                            id: undecryptHover
-                            enabled: model.undecryptable === true
-                        }
-                        ToolTip {
-                            visible: undecryptHover.hovered
-                            delay: 400
-                            text: qsTr(
-                                "Missing room key. Restore your recovery key " +
-                                "in Settings, or wait for another verified " +
-                                "device to share the key.")
+                        Loader {
+                            anchors.fill: parent
+                            active: model.undecryptable === true
+                            sourceComponent: Item {
+                                HoverHandler { id: undecryptHover }
+                                ToolTip {
+                                    visible: undecryptHover.hovered
+                                    delay: 400
+                                    text: qsTr(
+                                        "Missing room key. Restore your recovery key " +
+                                        "in Settings, or wait for another verified " +
+                                        "device to share the key.")
+                                }
+                            }
                         }
                     }
 
@@ -2131,93 +2134,99 @@ Item {
                         }
                     }
 
-                    ColumnLayout {
-                        id: decryptingSkeleton
-                        objectName: "decryptingSkeleton"
-                        visible: root.showsDecryptingSkeleton
-                        spacing: 5
+                    Loader {
+                        active: root.showsDecryptingSkeleton
+                        visible: active
                         Layout.fillWidth: true
                         Layout.topMargin: 2
-                        Skeleton {
-                            active: root.rowOnScreen
-                                    && root.showsDecryptingSkeleton
-                                    && !root.decryptStalled
-                            Layout.preferredWidth: Math.min(
-                                420, Math.max(
-                                    120, root.contentInnerCap * 0.55))
-                            Layout.preferredHeight: AppTheme.scaled(13)
-                        }
-                        Skeleton {
-                            active: root.rowOnScreen
-                                    && root.showsDecryptingSkeleton
-                                    && !root.decryptStalled
-                            Layout.preferredWidth: Math.min(
-                                300, Math.max(
-                                    80, root.contentInnerCap * 0.35))
-                            Layout.preferredHeight: AppTheme.scaled(13)
+                        sourceComponent: ColumnLayout {
+                            objectName: "decryptingSkeleton"
+                            spacing: 5
+                            Skeleton {
+                                active: root.rowOnScreen
+                                        && root.showsDecryptingSkeleton
+                                        && !root.decryptStalled
+                                Layout.preferredWidth: Math.min(
+                                    420, Math.max(
+                                        120, root.contentInnerCap * 0.55))
+                                Layout.preferredHeight: AppTheme.scaled(13)
+                            }
+                            Skeleton {
+                                active: root.rowOnScreen
+                                        && root.showsDecryptingSkeleton
+                                        && !root.decryptStalled
+                                Layout.preferredWidth: Math.min(
+                                    300, Math.max(
+                                        80, root.contentInnerCap * 0.35))
+                                Layout.preferredHeight: AppTheme.scaled(13)
+                            }
                         }
                     }
 
-                    Flow {
-                        id: utdRow
-                        objectName: "undecryptableActions"
+                    Loader {
+                        active: model.undecryptable === true
+                        visible: active
                         Layout.fillWidth: true
                         Layout.minimumWidth: 0
-                        Layout.preferredWidth: {
-                            var w = 0
-                            var n = 0
-                            for (var i = 0; i < children.length; ++i) {
-                                if (!children[i].visible)
-                                    continue
-                                w += children[i].implicitWidth
-                                ++n
+                        Layout.preferredWidth: item ? item.naturalWidth : 0
+                        sourceComponent: Flow {
+                            id: utdRow
+                            objectName: "undecryptableActions"
+                            readonly property real naturalWidth: {
+                                var w = 0
+                                var n = 0
+                                for (var i = 0; i < children.length; ++i) {
+                                    if (!children[i].visible)
+                                        continue
+                                    w += children[i].implicitWidth
+                                    ++n
+                                }
+                                return w + Math.max(0, n - 1) * spacing
                             }
-                            return w + Math.max(0, n - 1) * spacing
-                        }
-                        visible: model.undecryptable === true
-                        spacing: AppTheme.spacingS
-                        Label {
-                            text: {
-                                if (app.encryptionIdentityBroken)
-                                    return qsTr("This session can't unlock "
-                                                + "encrypted messages")
-                                var kind = model.errorKind || ""
-                                if (kind === "membership")
-                                    return qsTr("Sent before you joined")
-                                if (kind === "device_trust")
-                                    return qsTr("Sender requires a verified session")
-                                if (kind === "withheld")
-                                    return qsTr("Key withheld by sender")
-                                return qsTr("Waiting for keys…")
+                            spacing: AppTheme.spacingS
+                            Label {
+                                text: {
+                                    if (app.encryptionIdentityBroken)
+                                        return qsTr("This session can't unlock "
+                                                    + "encrypted messages")
+                                    var kind = model.errorKind || ""
+                                    if (kind === "membership")
+                                        return qsTr("Sent before you joined")
+                                    if (kind === "device_trust")
+                                        return qsTr("Sender requires a verified session")
+                                    if (kind === "withheld")
+                                        return qsTr("Key withheld by sender")
+                                    return qsTr("Waiting for keys…")
+                                }
+                                color: root.drawsOnOwnBubble
+                                       ? root.ownBubbleSecondaryInk
+                                       : AppTheme.textMuted
+                                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                                font.italic: true
                             }
-                            color: root.drawsOnOwnBubble
-                                   ? root.ownBubbleSecondaryInk
-                                   : AppTheme.textMuted
-                            font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
-                            font.italic: true
-                        }
-                        Label {
-                            text: qsTr("Retry decryption")
-                            color: root.inlineLinkInk
-                            font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
-                            font.underline: true
-                            MouseArea {
-                                anchors.fill: parent
-                                cursorShape: Qt.PointingHandCursor
-                                enabled: root.rowActionsEnabled
-                        onClicked: root.timelineModel.retryDecryption()
+                            Label {
+                                text: qsTr("Retry decryption")
+                                color: root.inlineLinkInk
+                                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                                font.underline: true
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    enabled: root.rowActionsEnabled
+                            onClicked: root.timelineModel.retryDecryption()
+                                }
                             }
-                        }
-                        Label {
-                            text: qsTr("Security settings")
-                            color: root.inlineLinkInk
-                            font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
-                            font.underline: true
-                            MouseArea {
-                                anchors.fill: parent
-                                cursorShape: Qt.PointingHandCursor
-                                enabled: root.rowActionsEnabled
-                        onClicked: app.showSettingsSection("security")
+                            Label {
+                                text: qsTr("Security settings")
+                                color: root.inlineLinkInk
+                                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                                font.underline: true
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    enabled: root.rowActionsEnabled
+                            onClicked: app.showSettingsSection("security")
+                                }
                             }
                         }
                     }
