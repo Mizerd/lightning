@@ -971,7 +971,7 @@ Item {
             ownBubble: root.bubbleMode && model.isOwn === true
             contentItems: root.bubbleMode ? [bubble] : bubbleContent.children
             collisionItems: {
-                var items = [metaRow, previewLoader]
+                var items = [metaRowLoader, previewLoader]
                 var chips = reactionsLoader.item
                             ? reactionsLoader.item.children : []
                 for (var i = 0; i < chips.length; ++i)
@@ -1503,8 +1503,8 @@ Item {
                     acceptedButtons: Qt.LeftButton
                     function overlayAt(pos) {
                         var bands = [
-                            (model.edited === true && metaLabel.visible)
-                                ? metaLabel : null,
+                            (model.edited === true && metaRowLoader.item)
+                                ? metaRowLoader.item.statusItem : null,
                             receiptStripLoader.row,
                             replyLoader.visible ? replyLoader : null,
                             identityLoader.visible ? identityLoader : null
@@ -2339,152 +2339,159 @@ Item {
                         }
                     }
 
-                    RowLayout {
-                        id: metaRow
+                    Loader {
+                        id: metaRowLoader
+                        active: (model.isOwn === true
+                                 && (model.status === 1 || model.status === 2))
+                                || model.edited === true || model.isThreadRoot === true
                         Layout.fillWidth: true
-                        spacing: AppTheme.spacingXS
-                        Loader {
-                            id: metaLabel
-                            active: (model.isOwn === true
-                                     && (model.status === 1
-                                         || model.status === 2))
-                                    || model.edited === true
-                            visible: active
-                            sourceComponent: Label {
-                                objectName: "messageStatusText"
-                                text: {
-                                    var ts = Qt.formatDateTime(
-                                        model.timestamp,
-                                        app.settings.clockTimeFormat)
-                                    if (model.isOwn && model.status === 1) {
-                                        if (root.uploadProgress >= 0)
-                                            return qsTr("%1 • sending… %2%")
-                                                .arg(ts)
-                                                .arg(Math.round(
-                                                    root.uploadProgress * 100))
-                                        return qsTr("%1 • sending…").arg(ts)
+                        sourceComponent: RowLayout {
+                            id: metaRow
+                            readonly property Item statusItem: metaLabel
+                            spacing: AppTheme.spacingXS
+                            Loader {
+                                id: metaLabel
+                                active: (model.isOwn === true
+                                         && (model.status === 1
+                                             || model.status === 2))
+                                        || model.edited === true
+                                visible: active
+                                sourceComponent: Label {
+                                    objectName: "messageStatusText"
+                                    text: {
+                                        var ts = Qt.formatDateTime(
+                                            model.timestamp,
+                                            app.settings.clockTimeFormat)
+                                        if (model.isOwn && model.status === 1) {
+                                            if (root.uploadProgress >= 0)
+                                                return qsTr("%1 • sending… %2%")
+                                                    .arg(ts)
+                                                    .arg(Math.round(
+                                                        root.uploadProgress * 100))
+                                            return qsTr("%1 • sending…").arg(ts)
+                                        }
+                                        if (model.isOwn && model.status === 2) {
+                                            var why = model.sendErrorCategory || ""
+                                            if (why === "network")
+                                                return qsTr("%1 • not sent: connection problem")
+                                                    .arg(ts)
+                                            if (why === "rejected")
+                                                return qsTr("%1 • not sent: the server refused it")
+                                                    .arg(ts)
+                                            return qsTr("%1 • failed").arg(ts)
+                                        }
+                                        if (model.edited) return qsTr("(edited)")
+                                        return ""
                                     }
-                                    if (model.isOwn && model.status === 2) {
-                                        var why = model.sendErrorCategory || ""
-                                        if (why === "network")
-                                            return qsTr("%1 • not sent: connection problem")
-                                                .arg(ts)
-                                        if (why === "rejected")
-                                            return qsTr("%1 • not sent: the server refused it")
-                                                .arg(ts)
-                                        return qsTr("%1 • failed").arg(ts)
+                                    color: root.drawsOnOwnBubble
+                                           ? root.ownBubbleSecondaryInk
+                                           : AppTheme.textMuted
+                                    font.pixelSize: AppTheme.scaled(10)
+                                    font.underline: editedHover.hovered
+                                                    && model.edited === true
+                                                    && !(model.isOwn && model.status !== 1
+                                                         && model.status !== undefined
+                                                         && model.status === 2)
+                                    HoverHandler {
+                                        id: editedHover
+                                        enabled: model.edited === true
+                                                 && root.rowActionsEnabled
+                                        cursorShape: Qt.PointingHandCursor
                                     }
-                                    if (model.edited) return qsTr("(edited)")
-                                    return ""
+                                    Accessible.name: model.edited === true
+                                                     ? qsTr("edited — show edit history")
+                                                     : text
+                                    Accessible.role: model.edited === true
+                                                     ? Accessible.Button : Accessible.StaticText
+                                    TapHandler {
+                                        enabled: model.edited === true
+                                                 && root.rowActionsEnabled
+                                        onTapped:
+                                            root.openEditHistory(model.eventId)
+                                    }
                                 }
-                                color: root.drawsOnOwnBubble
-                                       ? root.ownBubbleSecondaryInk
-                                       : AppTheme.textMuted
-                                font.pixelSize: AppTheme.scaled(10)
-                                font.underline: editedHover.hovered
-                                                && model.edited === true
-                                                && !(model.isOwn && model.status !== 1
-                                                     && model.status !== undefined
-                                                     && model.status === 2)
-                                HoverHandler {
-                                    id: editedHover
-                                    enabled: model.edited === true
-                                             && root.rowActionsEnabled
+                            }
+                            Label {
+                                visible: model.isOwn && model.status === 2
+                                text: qsTr("Retry")
+                                color: root.inlineLinkInk
+                                font.pixelSize: AppTheme.scaled(AppTheme.textMicro)
+                                font.underline: true
+                                MouseArea {
+                                    anchors.fill: parent
                                     cursorShape: Qt.PointingHandCursor
-                                }
-                                Accessible.name: model.edited === true
-                                                 ? qsTr("edited — show edit history")
-                                                 : text
-                                Accessible.role: model.edited === true
-                                                 ? Accessible.Button : Accessible.StaticText
-                                TapHandler {
-                                    enabled: model.edited === true
-                                             && root.rowActionsEnabled
-                                    onTapped:
-                                        root.openEditHistory(model.eventId)
+                            onClicked: root.timelineModel.retrySend(
+                                                   root.sourceModelRow(index))
                                 }
                             }
-                        }
-                        Label {
-                            visible: model.isOwn && model.status === 2
-                            text: qsTr("Retry")
-                            color: root.inlineLinkInk
-                            font.pixelSize: AppTheme.scaled(AppTheme.textMicro)
-                            font.underline: true
-                            MouseArea {
-                                anchors.fill: parent
-                                cursorShape: Qt.PointingHandCursor
-                        onClicked: root.timelineModel.retrySend(
-                                               root.sourceModelRow(index))
+                            Label {
+                                objectName: "cancelSendLink"
+                                visible: model.isOwn === true
+                                         && (model.status === 1
+                                             || model.status === 2)
+                                         && root.canCancelSendAt(index)
+                                text: qsTr("Cancel")
+                                color: root.inlineLinkInk
+                                font.pixelSize: AppTheme.scaled(AppTheme.textMicro)
+                                font.underline: true
+                                Accessible.role: Accessible.Button
+                                Accessible.name: qsTr("Cancel sending this message")
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: root.timelineModel.cancelSend(
+                                                   root.sourceModelRow(index))
+                                }
                             }
-                        }
-                        Label {
-                            objectName: "cancelSendLink"
-                            visible: model.isOwn === true
-                                     && (model.status === 1
-                                         || model.status === 2)
-                                     && root.canCancelSendAt(index)
-                            text: qsTr("Cancel")
-                            color: root.inlineLinkInk
-                            font.pixelSize: AppTheme.scaled(AppTheme.textMicro)
-                            font.underline: true
-                            Accessible.role: Accessible.Button
-                            Accessible.name: qsTr("Cancel sending this message")
-                            MouseArea {
-                                anchors.fill: parent
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: root.timelineModel.cancelSend(
-                                               root.sourceModelRow(index))
-                            }
-                        }
-                        Loader {
-                            active: model.isThreadRoot === true
-                            visible: active
-                            Layout.fillWidth: true
-                            Layout.maximumWidth: item ? item.implicitWidth : 0
-                            sourceComponent: ThreadSummaryCard {
-                            id: threadSummaryCard
-                            objectName: "threadSummaryCard"
-                            replyCount: model.threadReplyCount !== undefined
-                                        ? model.threadReplyCount : -1
-                            latestSender: model.threadLatestSenderDisplayName || ""
-                            latestSenderId: model.threadLatestSender || ""
-                            latestPreview: model.threadLatestPreview || ""
-                            latestKind: model.threadLatestKind || "text"
-                            latestAvatarMxc: model.threadLatestSenderAvatarMxc || ""
-                            latestTimestamp: model.threadLatestTimestamp
-                            unread: model.threadUnread === true
-                            onActivated: root.showThread(
-                                root.eventIdForActions())
+                            Loader {
+                                active: model.isThreadRoot === true
+                                visible: active
+                                Layout.fillWidth: true
+                                Layout.maximumWidth: item ? item.implicitWidth : 0
+                                sourceComponent: ThreadSummaryCard {
+                                id: threadSummaryCard
+                                objectName: "threadSummaryCard"
+                                replyCount: model.threadReplyCount !== undefined
+                                            ? model.threadReplyCount : -1
+                                latestSender: model.threadLatestSenderDisplayName || ""
+                                latestSenderId: model.threadLatestSender || ""
+                                latestPreview: model.threadLatestPreview || ""
+                                latestKind: model.threadLatestKind || "text"
+                                latestAvatarMxc: model.threadLatestSenderAvatarMxc || ""
+                                latestTimestamp: model.threadLatestTimestamp
+                                unread: model.threadUnread === true
+                                onActivated: root.showThread(
+                                    root.eventIdForActions())
 
-                            readonly property string rootId:
-                                model.isThreadRoot === true
-                                    ? root.eventIdForActions() : ""
-                            readonly property string roomId:
-                                typeof app !== "undefined" ? app.currentRoomId : ""
+                                readonly property string rootId:
+                                    model.isThreadRoot === true
+                                        ? root.eventIdForActions() : ""
+                                readonly property string roomId:
+                                    typeof app !== "undefined" ? app.currentRoomId : ""
 
-                            function refreshParticipants() {
-                                participants = (rootId !== "" && roomId !== "")
-                                    ? app.threads.participants(roomId, rootId)
-                                    : []
-                            }
-                            function ensureParticipants() {
-                                if (!visible || rootId === "" || roomId === "")
-                                    return
-                                app.threads.requestParticipants(roomId, rootId)
-                                refreshParticipants()
-                            }
-                            onRootIdChanged: ensureParticipants()
-                            onVisibleChanged: ensureParticipants()
-                            Component.onCompleted: ensureParticipants()
-                            Connections {
-                                target: app.threads
-                                function onParticipantsChanged(roomId, rootEventId) {
-                                    if (roomId === threadSummaryCard.roomId
-                                        && rootEventId === threadSummaryCard.rootId)
-                                        threadSummaryCard.refreshParticipants()
+                                function refreshParticipants() {
+                                    participants = (rootId !== "" && roomId !== "")
+                                        ? app.threads.participants(roomId, rootId)
+                                        : []
                                 }
-                            }
+                                function ensureParticipants() {
+                                    if (!visible || rootId === "" || roomId === "")
+                                        return
+                                    app.threads.requestParticipants(roomId, rootId)
+                                    refreshParticipants()
+                                }
+                                onRootIdChanged: ensureParticipants()
+                                onVisibleChanged: ensureParticipants()
+                                Component.onCompleted: ensureParticipants()
+                                Connections {
+                                    target: app.threads
+                                    function onParticipantsChanged(roomId, rootEventId) {
+                                        if (roomId === threadSummaryCard.roomId
+                                            && rootEventId === threadSummaryCard.rootId)
+                                            threadSummaryCard.refreshParticipants()
+                                    }
+                                }
+                                }
                             }
                         }
                     }
