@@ -382,6 +382,12 @@ Rectangle {
                     color: AppTheme.textMuted
                     font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                     elide: Label.ElideRight
+                    // The header's buttons leave the room name a few letters
+                    // ("Thread  Threa..."): the whole name is one hover away.
+                    HoverHandler { id: roomNameHover }
+                    ToolTip.visible: roomNameHover.hovered && truncated
+                    ToolTip.delay: 500
+                    ToolTip.text: text
                 }
                 // MSC4306 follow state. Hidden until the homeserver confirms
                 // support.
@@ -2322,7 +2328,11 @@ Rectangle {
                             TextArea.flickable: TextArea {
                             id: threadComposerInput
                             objectName: "threadComposerInput"
-                            placeholderText: qsTr("Reply in thread")
+                            // The buttons beside the field cut the long
+                            // wording to "Reply in thr..." in a side panel.
+                            placeholderText: width < AppTheme.scaled(210)
+                                             ? qsTr("Reply…")
+                                             : qsTr("Reply in thread")
                             placeholderTextColor: AppTheme.placeholderInk
                             // Declared and deliberately empty; see the room
                             // composer.
