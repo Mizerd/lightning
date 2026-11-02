@@ -10,6 +10,7 @@ repo=$(cd "$(dirname "$0")/.." && pwd)
 imports=$(mktemp -d)
 trap 'rm -rf "$imports"' EXIT
 mkdir -p "$imports/MatrixClient" "$imports/runtime"
+ln -s "$repo/qml/IconGlyphs.js" "$imports/MatrixClient/IconGlyphs.js"
 chmod 700 "$imports/runtime"
 printf 'module MatrixClient\n' > "$imports/MatrixClient/qmldir"
 for name in AppTheme VideoPlayerCard VideoControlBar VideoViewerOverlay \

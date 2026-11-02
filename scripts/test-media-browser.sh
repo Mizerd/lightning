@@ -7,6 +7,7 @@ repo=$(cd "$(dirname "$0")/.." && pwd)
 imports=$(mktemp -d)
 trap 'rm -rf "$imports"' EXIT
 mkdir -p "$imports/MatrixClient"
+ln -s "$repo/qml/IconGlyphs.js" "$imports/MatrixClient/IconGlyphs.js"
 printf 'module MatrixClient\n' > "$imports/MatrixClient/qmldir"
 for name in AppTheme MediaBrowser MediaBrowserTile MediaBrowserRow Icon AppMenu \
             AppMenuItem AppMenuSeparator MenuKeycap StormNode AppButton AppTextField AppComboBox \
