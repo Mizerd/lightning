@@ -1285,23 +1285,25 @@ Item {
         opacity: 0.55
         z: -1
     }
-    Rectangle {
-        objectName: "messageSelectionCheck"
-        visible: root.selectionMode && root.rowSelectable
+    Loader {
+        active: root.selectionMode && root.rowSelectable
         anchors.left: parent.left
         anchors.leftMargin: 2
         anchors.verticalCenter: parent.verticalCenter
-        width: 18; height: 18; radius: 9
-        color: root.rowSelected ? AppTheme.accent : AppTheme.background
-        border.width: 1
-        border.color: root.rowSelected ? AppTheme.accent : AppTheme.borderStrong
         z: 20
-        Icon {
-            anchors.centerIn: parent
-            visible: root.rowSelected
-            name: "check"
-            size: 12
-            color: AppTheme.accentText
+        sourceComponent: Rectangle {
+            objectName: "messageSelectionCheck"
+            width: 18; height: 18; radius: 9
+            color: root.rowSelected ? AppTheme.accent : AppTheme.background
+            border.width: 1
+            border.color: root.rowSelected ? AppTheme.accent : AppTheme.borderStrong
+            Icon {
+                anchors.centerIn: parent
+                visible: root.rowSelected
+                name: "check"
+                size: 12
+                color: AppTheme.accentText
+            }
         }
     }
     TapHandler {
