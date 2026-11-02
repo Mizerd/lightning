@@ -18,8 +18,10 @@
 #include <QFont>
 #include <QHash>
 #include <QRegularExpression>
+#include <QScopeGuard>
 #include <QSet>
 #include <QStringList>
+#include <QTranslator>
 #include <QGuiApplication>
 #include <QImage>
 #include <QPointer>
@@ -1703,6 +1705,47 @@ private slots:
         auto *search = item("settingsSearchField");
         QVERIFY(search);
         QTRY_VERIFY(search->hasActiveFocus());
+    }
+
+    void settingsSearchMatchesEnglishTermsUnderATranslatedCatalogue()
+    {
+        // The index's keywords are translated, so a non-English catalogue used
+        // to leave English terms with nothing to match.
+        struct Stub : QTranslator {
+            QString translate(const char *context, const char *source,
+                              const char *, int) const override
+            {
+                if (qstrcmp(context, "SettingsScreen") == 0
+                    && qstrcmp(source, "room list sidebar show hide") == 0)
+                    return QStringLiteral("kambarys sonas");
+                return {};
+            }
+            bool isEmpty() const override { return false; }
+        } stub;
+        QCoreApplication::installTranslator(&stub);
+        auto cleanup = qScopeGuard([&] {
+            QCoreApplication::removeTranslator(&stub);
+        });
+
+        auto *search = item("settingsSearchField");
+        QVERIFY(search);
+        auto *layoutNav = item("settingsNavRow_layout");
+        auto *accountNav = item("settingsNavRow_account");
+        QVERIFY(layoutNav && accountNav);
+
+        // The translated word finds Layout's "Show the room list"...
+        search->setProperty("text", QStringLiteral("kambarys"));
+        QCoreApplication::processEvents();
+        QTRY_VERIFY(layoutNav->isVisible());
+        QVERIFY(!accountNav->isVisible());
+        // ...and so does the English source word, which a translated-only
+        // haystack lost.
+        search->setProperty("text", QStringLiteral("sidebar"));
+        QCoreApplication::processEvents();
+        QTRY_VERIFY(layoutNav->isVisible());
+        QVERIFY(!accountNav->isVisible());
+        search->setProperty("text", QString());
+        QCoreApplication::processEvents();
     }
 
     void ctrlCommaFocusesSearchThenFiltersNavAndBindsInlineControl()
