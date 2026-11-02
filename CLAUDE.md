@@ -777,6 +777,15 @@ it or the prior evidence is no longer trustworthy.
 Completion reports must give exact totals for every executed suite: passed,
 failed, skipped, and total. Do not say merely "tests passed."
 
+## 12a. Code comments
+
+Write a comment only when a competent developer could not work it out from the
+code and it prevents a real mistake: a security or E2EE invariant, a thread or
+lifetime constraint, a protocol or platform quirk, a workaround whose removal
+would break something. One line where possible. No narrative, dates, reporters,
+restated code, section banners or change history: those belong in the commit or
+`docs/`. Tests get almost none. Rokas's rule, 2026-11-02.
+
 ## 13. Checkpoint workflow
 
 Use the smallest workflow that produces trustworthy evidence:
