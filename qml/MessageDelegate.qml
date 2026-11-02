@@ -693,10 +693,12 @@ Item {
     }
     function copyToClipboard(value) {
         if (!value || value.length === 0) return
-        clipboardHelper.text = value
-        clipboardHelper.selectAll()
-        clipboardHelper.copy()
-        clipboardHelper.text = ""
+        var helper = Qt.createQmlObject(
+                    "import QtQuick; TextEdit { visible: false }", root)
+        helper.text = value
+        helper.selectAll()
+        helper.copy()
+        helper.destroy()
     }
     readonly property bool inThreadPanel:
         root.timelineView && root.timelineView.threadContext === true
@@ -3347,13 +3349,6 @@ Item {
         var p = anchorItem.mapToItem(Overlay.overlay,
                                      anchorItem.width / 2, anchorItem.height)
         root.timelineView.openReactionPicker(eventId, p, expanded === true)
-    }
-
-    TextEdit {
-        id: clipboardHelper
-        visible: false
-        width: 0
-        height: 0
     }
 
     readonly property bool moreMenuOpen:
